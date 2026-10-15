@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ffimap"
+version = "0.1.0"
+description = "Deterministic map of a Rust crate's FFI and unsafe surface"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+ffimap = "ffimap.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ffimap*"]
+
+[tool.setuptools.package-data]
+ffimap = ["driver/Cargo.toml", "driver/Cargo.lock",
+          "driver/rust-toolchain.toml", "driver/src/*.rs"]

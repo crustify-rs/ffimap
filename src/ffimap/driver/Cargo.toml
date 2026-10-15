@@ -1,0 +1,10 @@
+# The rustc driver behind `ffimap`: a HIR/typeck pass over a crate's FFI and
+# unsafe surface. Uses rustc_private, so it builds only on the pinned nightly.
+[package]
+name = "ffimap-driver"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ffimap-driver"
+path = "src/main.rs"
