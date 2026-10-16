@@ -32,6 +32,7 @@ use rustc_hir as hir;
 use rustc_hir::def::DefKind;
 use rustc_hir::intravisit::{self, Visitor};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
+use rustc_middle::mir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypeckResults};
 use rustc_span::def_id::DefId;
 use rustc_span::hygiene::ExpnKind;
@@ -1238,6 +1239,17 @@ struct Counts {
     ty_wrapper_deref_mut_impl: u64,
     ptr_wrapper_deref_impl: u64,
     ptr_wrapper_deref_mut_impl: u64,
+    // Reads and writes of C memory, and FFI calls passing a pointer into it
+    // to a `*mut` parameter, in fns holding only a shared borrow of a layout
+    // wrapper (`ty_wrapper_*`) or a pointer wrapper (`ptr_wrapper_*`): see
+    // "accesses under a shared borrow". ty_wrapper_shared_borrow_wr's
+    // target is 0.
+    ty_wrapper_shared_borrow_rd: u64,
+    ty_wrapper_shared_borrow_wr: u64,
+    ty_wrapper_shared_borrow_ffi_mut_arg: u64,
+    ptr_wrapper_shared_borrow_rd: u64,
+    ptr_wrapper_shared_borrow_wr: u64,
+    ptr_wrapper_shared_borrow_ffi_mut_arg: u64,
     // Calls to a foreign item -- one declared in an `extern` block
     // (`is_foreign_item`), which is the FFI boundary itself and is
     // crate-agnostic: a bindgen `*-sys` binding, `libc`, or a local
@@ -1267,6 +1279,19 @@ impl Counts {
             "void_ptr_fn_priv_safe" => &mut self.void_ptr_fn_priv_safe,
             "void_ptr_fn_priv_unsafe" => &mut self.void_ptr_fn_priv_unsafe,
             _ => unreachable!("not a position partition: {name}"),
+        }
+    }
+
+    /// The `*_shared_borrow_*` counter `name`.
+    fn shared_slot(&mut self, name: &str) -> &mut u64 {
+        match name {
+            "ty_wrapper_shared_borrow_rd" => &mut self.ty_wrapper_shared_borrow_rd,
+            "ty_wrapper_shared_borrow_wr" => &mut self.ty_wrapper_shared_borrow_wr,
+            "ty_wrapper_shared_borrow_ffi_mut_arg" => &mut self.ty_wrapper_shared_borrow_ffi_mut_arg,
+            "ptr_wrapper_shared_borrow_rd" => &mut self.ptr_wrapper_shared_borrow_rd,
+            "ptr_wrapper_shared_borrow_wr" => &mut self.ptr_wrapper_shared_borrow_wr,
+            "ptr_wrapper_shared_borrow_ffi_mut_arg" => &mut self.ptr_wrapper_shared_borrow_ffi_mut_arg,
+            _ => unreachable!("not a shared-borrow counter: {name}"),
         }
     }
 }
@@ -1538,6 +1563,447 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
             _ => {}
         }
         intravisit::walk_expr(self, e);
+    }
+}
+
+// ------------------------------------------------- accesses under a shared borrow
+//
+// Interior mutability the compiler cannot check: C memory read or written in
+// a fn that holds only SHARED access to a wrapper (`&self`, a `&W` parameter,
+// or a `Copy` pointer wrapper by value) and no exclusive access to any wrapper
+// (`&mut W`, or a non-`Copy` `W` by value).
+//
+// An access is a load or store through a raw pointer into C memory, or through
+// a reference the body formed from one; an access through any other reference
+// is the compiler's to check. Every such access counts, whatever pointer it
+// goes through: a shared borrow forbids writes to the memory it covers through
+// ANY alias, so a pointer unrelated to `self` may still write it. Pointers
+// from a `&mut` parameter or to the fn's own locals are exclusive, and are not
+// counted. What a hit means depends on the wrapper kind:
+//
+//  * a layout wrapper (`ty_wrapper_*`): `&W` covers the C object's bytes, so a
+//    write to them is UB unless the bytes are in an `UnsafeCell`;
+//  * a pointer wrapper (`ptr_wrapper_*`): `&W` covers only the pointer, so a
+//    write through it is UB only while a reference into the C object lives,
+//    e.g. one its `Deref` impl handed out, and an aliasing smell otherwise.
+//
+// Each site is also recorded under `<counter>:<origin>`, by where the pointer
+// came from in the fn's own body: `self`, a wrapper receiver, field loads and
+// method results on it included (`self.as_ptr()`); `param`, another parameter;
+// `other`, anything else (a C return, a global). Not followed across fns.
+//
+// Sanctioned, so not counted: memory in an `UnsafeCell`, which a shared
+// borrow does not freeze: a layout wrapper holding one is no shared borrow, a
+// pointer to a type holding one is no pointer into C memory, and a pointer
+// from `UnsafeCell::get` / `raw_get` or `Cell::as_ptr` is not followed.
+
+const ORIGIN_SELF: u8 = 1;
+const ORIGIN_PARAM: u8 = 2;
+const ORIGIN_CELL: u8 = 4;
+/// From a `&mut` parameter or a borrow of a local: exclusive, so not counted.
+const ORIGIN_OWN: u8 = 8;
+
+/// `t` can carry a pointer whose origin a call result inherits: a reference,
+/// raw pointer, `NonNull` or wrapper. An index or length does not.
+fn pointerish(tcx: TyCtxt<'_>, t: Ty<'_>) -> bool {
+    matches!(t.kind(), ty::TyKind::Ref(..) | ty::TyKind::RawPtr(..))
+        || matches!(t.kind(), ty::TyKind::Adt(d, _)
+            if tcx.item_name(d.did()).as_str() == "NonNull" || is_wrapper(tcx, d.did()) || is_layout_wrapper(tcx, d.did()))
+}
+
+/// `core::ptr` functions and pointer methods that read or write through a
+/// pointer argument: `(name, args read through, args written through)`.
+const PTR_ACCESS: &[(&str, &[usize], &[usize])] = &[
+    ("read", &[0], &[]),
+    ("read_unaligned", &[0], &[]),
+    ("read_volatile", &[0], &[]),
+    ("write", &[], &[0]),
+    ("write_unaligned", &[], &[0]),
+    ("write_volatile", &[], &[0]),
+    ("write_bytes", &[], &[0]),
+    ("replace", &[0], &[0]),
+    ("swap", &[0, 1], &[0, 1]),
+    ("swap_nonoverlapping", &[0, 1], &[0, 1]),
+    ("copy", &[0], &[1]),
+    ("copy_nonoverlapping", &[0], &[1]),
+    ("copy_to", &[0], &[1]),
+    ("copy_to_nonoverlapping", &[0], &[1]),
+    ("copy_from", &[1], &[0]),
+    ("copy_from_nonoverlapping", &[1], &[0]),
+];
+
+/// Which wrapper kinds the fn owning body `did` holds a shared borrow of:
+/// `(layout, pointer)`. A closure takes its enclosing fn's.
+fn shared_borrow_kinds(tcx: TyCtxt<'_>, did: DefId) -> (bool, bool) {
+    let root = tcx.typeck_root_def_id(did);
+    if !matches!(tcx.def_kind(root), DefKind::Fn | DefKind::AssocFn) {
+        return (false, false);
+    }
+    let env = ty::TypingEnv::post_analysis(tcx, root);
+    let (mut by_val, mut by_ptr) = (false, false);
+    // late-bound lifetimes erased, so the `Copy` query sees no escaping ones
+    let sig = tcx.instantiate_bound_regions_with_erased(tcx.fn_sig(root).skip_binder());
+    for &t in sig.inputs() {
+        let (mut cur, mut shared) = (t, false);
+        while let ty::TyKind::Ref(_, inner, m) = cur.kind() {
+            shared |= !m.is_mut();
+            cur = *inner;
+        }
+        let ty::TyKind::Adt(d, _) = cur.kind() else {
+            continue;
+        };
+        let (layout, ptr) = (is_layout_wrapper(tcx, d.did()), is_ptr_wrapper(tcx, d.did()));
+        if !layout && !ptr {
+            continue;
+        }
+        let by_ref = cur != t;
+        let copy = !by_ref && tcx.type_is_copy_modulo_regions(env, cur);
+        if (by_ref && !shared) || (!by_ref && !copy) {
+            // exclusive access to a wrapper: the compiler checks this fn
+            return (false, false);
+        }
+        by_val |= layout && by_ref && !has_unsafe_cell(tcx, cur, 0);
+        by_ptr |= ptr;
+    }
+    (by_val, by_ptr)
+}
+
+/// The receiver is a wrapper, so its local is the `self` origin.
+fn wrapper_receiver(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    let root = tcx.typeck_root_def_id(did);
+    if root != did
+        || !matches!(tcx.def_kind(root), DefKind::AssocFn)
+        || !tcx.associated_item(root).is_method()
+    {
+        return false;
+    }
+    let mut t = tcx.fn_sig(root).skip_binder().skip_binder().inputs()[0];
+    while let ty::TyKind::Ref(_, inner, _) = t.kind() {
+        t = *inner;
+    }
+    matches!(t.kind(), ty::TyKind::Adt(d, _) if is_wrapper(tcx, d.did()) || is_layout_wrapper(tcx, d.did()))
+}
+
+/// `UnsafeCell::get` / `raw_get`, `Cell::as_ptr`: a pointer into memory a
+/// shared borrow does not freeze.
+fn is_cell_pointer_fn(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    if !is_std_crate(tcx, did) || !matches!(tcx.def_kind(did), DefKind::AssocFn) {
+        return false;
+    }
+    let Some(imp) = tcx.opt_parent(did) else {
+        return false;
+    };
+    // an inherent method; a trait's own method has no Self type to read
+    if !matches!(tcx.def_kind(imp), DefKind::Impl { of_trait: false }) {
+        return false;
+    }
+    let self_ty = tcx.type_of(imp).instantiate_identity().skip_norm_wip();
+    let ty::TyKind::Adt(d, _) = self_ty.kind() else {
+        return false;
+    };
+    matches!(
+        (tcx.item_name(d.did()).as_str(), tcx.item_name(did).as_str()),
+        ("UnsafeCell", "get" | "raw_get") | ("Cell", "as_ptr")
+    )
+}
+
+/// Collects the locals an rvalue or operand mentions.
+struct LocalsUsed(Vec<mir::Local>);
+
+impl<'tcx> mir::visit::Visitor<'tcx> for LocalsUsed {
+    fn visit_local(&mut self, l: mir::Local, _: mir::visit::PlaceContext, _: mir::Location) {
+        self.0.push(l);
+    }
+}
+
+/// The C-memory accesses of one MIR body (see the section comment).
+struct SharedAccesses<'a, 'tcx> {
+    tcx: TyCtxt<'tcx>,
+    body: &'a mir::Body<'tcx>,
+    /// Per local, the `ORIGIN_*` bits of the values it was assigned from.
+    origin: Vec<u8>,
+    /// Per local, whether it holds a pointer into C memory its type does not
+    /// show (`addr_of!((*p).field)`, `p.cast::<u8>()`).
+    derived: Vec<bool>,
+    c_ptr: HashMap<Ty<'tcx>, bool>,
+    /// `(direction, origin bits, span)` per access, at most one per direction
+    /// and MIR location.
+    hits: Vec<(&'static str, u8, Span)>,
+    seen: HashSet<(mir::Location, &'static str)>,
+}
+
+impl<'a, 'tcx> SharedAccesses<'a, 'tcx> {
+    fn new(tcx: TyCtxt<'tcx>, body: &'a mir::Body<'tcx>, receiver: bool) -> Self {
+        let n = body.local_decls.len();
+        let mut origin = vec![0u8; n];
+        for (i, a) in body.args_iter().enumerate() {
+            let from = if i == 0 && receiver { ORIGIN_SELF } else { ORIGIN_PARAM };
+            let own = matches!(body.local_decls[a].ty.kind(), ty::TyKind::Ref(_, _, m) if m.is_mut());
+            origin[a.index()] = from | if own { ORIGIN_OWN } else { 0 };
+        }
+        SharedAccesses {
+            tcx,
+            body,
+            origin,
+            derived: vec![false; n],
+            c_ptr: HashMap::new(),
+            hits: Vec::new(),
+            seen: HashSet::new(),
+        }
+    }
+
+    /// `t` is a raw pointer, reference or `NonNull` into C memory: to a layout
+    /// wrapper, a C-reachable type or `c_void` (or an array or slice of one)
+    /// holding no `UnsafeCell`.
+    fn is_c_ptr(&mut self, t: Ty<'tcx>) -> bool {
+        if let Some(&b) = self.c_ptr.get(&t) {
+            return b;
+        }
+        let tcx = self.tcx;
+        let pointee = match t.kind() {
+            ty::TyKind::RawPtr(p, _) | ty::TyKind::Ref(_, p, _) => Some(*p),
+            ty::TyKind::Adt(d, args) if tcx.item_name(d.did()).as_str() == "NonNull" => args.types().next(),
+            _ => None,
+        };
+        let b = pointee.is_some_and(|p| {
+            let p = match p.kind() {
+                ty::TyKind::Array(e, _) | ty::TyKind::Slice(e) => *e,
+                _ => p,
+            };
+            let is_c = |u: Ty<'tcx>| {
+                matches!(u.kind(), ty::TyKind::Adt(d, _)
+                    if is_layout_wrapper(tcx, d.did()) || is_c_visible(tcx, d.did())
+                        || tcx.item_name(d.did()).as_str() == "c_void")
+            };
+            (is_c(p) || is_c(peel_transparent(tcx, p))) && !has_unsafe_cell(tcx, p, 0)
+        });
+        self.c_ptr.insert(t, b);
+        b
+    }
+
+    /// `place` goes through a dereference of a raw pointer into C memory, or of
+    /// a reference derived from one.
+    fn derefs_c(&mut self, place: mir::Place<'tcx>) -> bool {
+        for (base, elem) in place.iter_projections() {
+            if !matches!(elem, mir::ProjectionElem::Deref) {
+                continue;
+            }
+            if base.projection.is_empty() && self.derived[base.local.index()] {
+                return true;
+            }
+            let t = base.ty(&self.body.local_decls, self.tcx).ty;
+            if t.is_raw_ptr() && self.is_c_ptr(t) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `op` is a pointer into C memory, by type or by derivation.
+    fn c_ptr_operand(&mut self, op: &mir::Operand<'tcx>) -> bool {
+        let Some(place) = op.place() else {
+            return false;
+        };
+        place.as_local().is_some_and(|l| self.derived[l.index()])
+            || self.is_c_ptr(op.ty(&self.body.local_decls, self.tcx))
+    }
+
+    fn origin_of(&self, used: &[mir::Local]) -> u8 {
+        used.iter().fold(0, |o, l| o | self.origin[l.index()])
+    }
+
+    /// Propagate origins and derivations to a fixpoint: assignments in a loop
+    /// can feed earlier blocks.
+    fn propagate(&mut self) {
+        use mir::visit::Visitor as _;
+        let tcx = self.tcx;
+        let body = self.body;
+        loop {
+            let mut changed = false;
+            for (bb, data) in body.basic_blocks.iter_enumerated() {
+                for (i, st) in data.statements.iter().enumerate() {
+                    let mir::StatementKind::Assign(assign) = &st.kind else {
+                        continue;
+                    };
+                    let (lhs, rv) = &**assign;
+                    let mut used = LocalsUsed(Vec::new());
+                    used.visit_rvalue(rv, mir::Location { block: bb, statement_index: i });
+                    let mut o = self.origin_of(&used.0);
+                    let through = |p: &mir::Place<'tcx>| p.projection.iter().any(|e| matches!(e, mir::ProjectionElem::Deref));
+                    match rv {
+                        // a borrow of a local (or a field of one): the fn's own memory
+                        mir::Rvalue::Ref(_, _, p) | mir::Rvalue::RawPtr(_, p) if !through(p) => o |= ORIGIN_OWN,
+                        // a value loaded through a `&mut` is not exclusive itself:
+                        // a raw pointer field of it points wherever it points
+                        mir::Rvalue::Use(op, _) | mir::Rvalue::Cast(_, op, _) if op.place().is_some_and(|p| through(&p)) => {
+                            o &= !ORIGIN_OWN
+                        }
+                        mir::Rvalue::CopyForDeref(p) if through(p) => o &= !ORIGIN_OWN,
+                        _ => {}
+                    }
+                    let d = match rv {
+                        mir::Rvalue::Ref(_, _, p) | mir::Rvalue::RawPtr(_, p) => self.derefs_c(*p),
+                        mir::Rvalue::Use(op, _) | mir::Rvalue::Cast(_, op, _) => self.c_ptr_operand(op),
+                        _ => false,
+                    };
+                    changed |= self.join(lhs.local, o, d);
+                }
+                let Some(term) = &data.terminator else {
+                    continue;
+                };
+                let mir::TerminatorKind::Call { func, args, destination, .. } = &term.kind else {
+                    continue;
+                };
+                let callee = func.const_fn_def().map(|(d, _)| d);
+                // What C returns has no origin in this body.
+                if callee.is_some_and(|d| tcx.is_foreign_item(d)) {
+                    continue;
+                }
+                let mut o = 0;
+                let mut d = false;
+                for a in args.iter() {
+                    if let Some(p) = a.node.place() {
+                        if pointerish(tcx, a.node.ty(&body.local_decls, tcx)) {
+                            o |= self.origin[p.local.index()];
+                        }
+                    }
+                    d |= self.c_ptr_operand(&a.node);
+                }
+                if callee.is_some_and(|c| is_cell_pointer_fn(tcx, c)) {
+                    o |= ORIGIN_CELL;
+                }
+                let dt = destination.ty(&body.local_decls, tcx).ty;
+                d &= dt.is_raw_ptr() || is_raw_or_non_null(tcx, dt);
+                changed |= self.join(destination.local, o, d);
+            }
+            if !changed {
+                return;
+            }
+        }
+    }
+
+    fn join(&mut self, l: mir::Local, o: u8, d: bool) -> bool {
+        let (oo, od) = (self.origin[l.index()], self.derived[l.index()]);
+        self.origin[l.index()] = oo | o;
+        self.derived[l.index()] = od | d;
+        self.origin[l.index()] != oo || self.derived[l.index()] != od
+    }
+
+    fn hit(&mut self, dir: &'static str, base: mir::Local, loc: mir::Location) {
+        if self.seen.insert((loc, dir)) {
+            let span = self.body.source_info(loc).span;
+            self.hits.push((dir, self.origin[base.index()], span));
+        }
+    }
+}
+
+impl<'a, 'tcx> mir::visit::Visitor<'tcx> for SharedAccesses<'a, 'tcx> {
+    fn visit_place(&mut self, place: &mir::Place<'tcx>, ctx: mir::visit::PlaceContext, loc: mir::Location) {
+        use mir::visit::{MutatingUseContext as M, NonMutatingUseContext as N, PlaceContext as C};
+        let dir = match ctx {
+            C::NonMutatingUse(N::Copy | N::Move | N::Inspect) => "rd",
+            C::MutatingUse(M::Store | M::Call | M::AsmOutput | M::SetDiscriminant | M::Yield) => "wr",
+            _ => return,
+        };
+        if self.derefs_c(*place) {
+            self.hit(dir, place.local, loc);
+        }
+    }
+
+    fn visit_statement(&mut self, st: &mir::Statement<'tcx>, loc: mir::Location) {
+        if let mir::StatementKind::Intrinsic(i) = &st.kind {
+            if let mir::NonDivergingIntrinsic::CopyNonOverlapping(c) = &**i {
+                for (op, dir) in [(&c.src, "rd"), (&c.dst, "wr")] {
+                    if self.c_ptr_operand(op) {
+                        let base = op.place().map_or(mir::Local::ZERO, |p| p.local);
+                        self.hit(dir, base, loc);
+                    }
+                }
+            }
+        }
+        self.super_statement(st, loc);
+    }
+
+    fn visit_terminator(&mut self, term: &mir::Terminator<'tcx>, loc: mir::Location) {
+        let tcx = self.tcx;
+        // An overflow check re-reads the operands for its panic message: not
+        // an access the source makes.
+        if let mir::TerminatorKind::Assert { cond, .. } = &term.kind {
+            self.visit_operand(cond, loc);
+            return;
+        }
+        if let mir::TerminatorKind::Call { func, args, .. } = &term.kind {
+            if let Some((callee, _)) = func.const_fn_def() {
+                let inputs = tcx.fn_sig(callee).skip_binder().skip_binder().inputs();
+                if tcx.is_foreign_item(callee) {
+                    // A pointer into C memory handed to a parameter bindgen
+                    // typed `*mut`: the C prototype is not `const`, so C may
+                    // write. Once per call.
+                    for (i, a) in args.iter().enumerate() {
+                        let mutable = inputs.get(i).is_some_and(|t| matches!(t.kind(), ty::TyKind::RawPtr(_, m) if m.is_mut()));
+                        if mutable && self.c_ptr_operand(&a.node) {
+                            let base = a.node.place().map_or(mir::Local::ZERO, |p| p.local);
+                            self.hit("ffi_mut_arg", base, loc);
+                        }
+                    }
+                } else if is_std_crate(tcx, callee)
+                    && inputs.first().is_some_and(|t| is_raw_or_non_null(tcx, *t))
+                {
+                    let name = tcx.item_name(callee);
+                    if let Some((_, rd, wr)) = PTR_ACCESS.iter().find(|(n, _, _)| *n == name.as_str()) {
+                        for (idx, dir) in rd.iter().map(|i| (i, "rd")).chain(wr.iter().map(|i| (i, "wr"))) {
+                            if let Some(a) = args.get(*idx) {
+                                if self.c_ptr_operand(&a.node) {
+                                    let base = a.node.place().map_or(mir::Local::ZERO, |p| p.local);
+                                    self.hit(dir, base, loc);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.super_terminator(term, loc);
+    }
+}
+
+/// Count the accesses to C memory in body `did` under a shared borrow into
+/// `{ty,ptr}_wrapper_shared_borrow_{rd,wr,ffi_mut_arg}`, with their origin.
+fn count_shared_borrow_accesses(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites: &mut Sites) {
+    use mir::visit::Visitor as _;
+    let (by_val, by_ptr) = shared_borrow_kinds(tcx, did);
+    if !(by_val || by_ptr)
+        || !matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn | DefKind::Closure)
+        || !tcx.is_mir_available(did)
+        || in_generated_file(tcx, tcx.def_span(did))
+    {
+        return;
+    }
+    let body = tcx.optimized_mir(did);
+    let mut v = SharedAccesses::new(tcx, body, wrapper_receiver(tcx, did));
+    v.propagate();
+    v.visit_body(body);
+    for (dir, o, span) in std::mem::take(&mut v.hits) {
+        if o & (ORIGIN_CELL | ORIGIN_OWN) != 0 {
+            continue;
+        }
+        let origin = if o & ORIGIN_SELF != 0 {
+            "self"
+        } else if o & ORIGIN_PARAM != 0 {
+            "param"
+        } else {
+            "other"
+        };
+        let site = counter_site(tcx, span);
+        for (on, kind) in [(by_val, "ty_wrapper"), (by_ptr, "ptr_wrapper")] {
+            if !on {
+                continue;
+            }
+            let k = format!("{kind}_shared_borrow_{dir}");
+            *c.shared_slot(&k) += 1;
+            sites.add(format!("{k}:{origin}"), site.clone());
+            sites.add(k, site.clone());
+        }
     }
 }
 
@@ -2013,6 +2479,15 @@ impl<'a, 'tcx> Visitor<'tcx> for CallCollector<'a, 'tcx> {
 struct MetricsCallbacks;
 
 impl Callbacks for MetricsCallbacks {
+    /// MIR as built, for the shared-borrow pass: no inlining, and no pass
+    /// that drops an unused read or folds one access into another.
+    fn config(&mut self, config: &mut rustc_interface::interface::Config) {
+        if std::env::var_os("CARGO_PRIMARY_PACKAGE").is_some() || std::env::var_os("CARGO").is_none() {
+            config.opts.unstable_opts.mir_opt_level = Some(0);
+            config.opts.unstable_opts.inline_mir = Some(false);
+        }
+    }
+
     fn after_analysis(
         &mut self,
         _compiler: &rustc_interface::interface::Compiler,
@@ -2220,6 +2695,7 @@ impl Callbacks for MetricsCallbacks {
                 };
                 v.visit_body(body);
             }
+            count_shared_borrow_accesses(tcx, did, &mut c, &mut sites);
             // Signature analysis (fns only).
             if matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn) {
                 let sig = tcx.fn_sig(did).skip_binder().skip_binder();
@@ -2400,8 +2876,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper_send_impl\":{},\"ty_wrapper_sync_impl\":{},\"ptr_wrapper_send_impl\":{},\"ptr_wrapper_sync_impl\":{},\"ty_wrapper\":{},\"ptr_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"ty_wrapper_deref_impl\":{},\"ty_wrapper_deref_mut_impl\":{},\"ptr_wrapper_deref_impl\":{},\"ptr_wrapper_deref_mut_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper_send_impl, c.ty_wrapper_sync_impl, c.ptr_wrapper_send_impl, c.ptr_wrapper_sync_impl, c.ty_wrapper, c.ptr_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.ty_wrapper_deref_impl, c.ty_wrapper_deref_mut_impl, c.ptr_wrapper_deref_impl, c.ptr_wrapper_deref_mut_impl, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper_send_impl\":{},\"ty_wrapper_sync_impl\":{},\"ptr_wrapper_send_impl\":{},\"ptr_wrapper_sync_impl\":{},\"ty_wrapper\":{},\"ptr_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"ty_wrapper_deref_impl\":{},\"ty_wrapper_deref_mut_impl\":{},\"ptr_wrapper_deref_impl\":{},\"ptr_wrapper_deref_mut_impl\":{},\"ty_wrapper_shared_borrow_rd\":{},\"ty_wrapper_shared_borrow_wr\":{},\"ty_wrapper_shared_borrow_ffi_mut_arg\":{},\"ptr_wrapper_shared_borrow_rd\":{},\"ptr_wrapper_shared_borrow_wr\":{},\"ptr_wrapper_shared_borrow_ffi_mut_arg\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper_send_impl, c.ty_wrapper_sync_impl, c.ptr_wrapper_send_impl, c.ptr_wrapper_sync_impl, c.ty_wrapper, c.ptr_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.ty_wrapper_deref_impl, c.ty_wrapper_deref_mut_impl, c.ptr_wrapper_deref_impl, c.ptr_wrapper_deref_mut_impl, c.ty_wrapper_shared_borrow_rd, c.ty_wrapper_shared_borrow_wr, c.ty_wrapper_shared_borrow_ffi_mut_arg, c.ptr_wrapper_shared_borrow_rd, c.ptr_wrapper_shared_borrow_wr, c.ptr_wrapper_shared_borrow_ffi_mut_arg, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue

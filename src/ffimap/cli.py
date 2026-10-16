@@ -37,7 +37,8 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "counters that count source locations (e.g. "
              "raw_ptr_fn_pub_safe, raw_ptr_ty_pub_fields_pub, "
              "unsafe_fns_pub, ty_wrapper_borrow_non_sanctioned), or `all`. Line and statement totals have "
-             "no sites.")
+             "no sites. A shared-borrow counter also takes <counter>:<origin>, the origin one of "
+             "self, param or other (ptr_wrapper_shared_borrow_wr:self).")
     p.add_argument(
         "--sys-crates", type=lambda v: [c for c in v.split(",") if c], default=None,
         metavar="CRATE[,CRATE...]",
