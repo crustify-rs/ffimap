@@ -30,7 +30,15 @@ def site_counters(requested: list[str], ffibox: bool = False) -> list[str]:
         return list(valid)
     # An ffibox counter takes a key from its breakdown, `<counter>:<key>`
     # (`fn_sig_ffibox_owner_pub:CVal`), for that key's positions alone.
-    keyed = lambda n: ffibox and n.partition(":")[0] in measure.FFIBOX_COUNTERS and ":" in n
+    # A shared-borrow counter takes a pointer origin, `<counter>:<origin>`
+    # (`ptr_wrapper_shared_borrow_wr:self`).
+    def keyed(n: str) -> bool:
+        head, sep, key = n.partition(":")
+        if not sep:
+            return False
+        if head in measure.PROVENANCE_COUNTERS:
+            return key in measure.ORIGINS
+        return ffibox and head in measure.FFIBOX_COUNTERS
     unknown = [n for n in requested if n not in valid and not keyed(n)]
     if unknown:
         hint = (" (the --ffibox counters need --ffibox)"
@@ -39,7 +47,8 @@ def site_counters(requested: list[str], ffibox: bool = False) -> list[str]:
             "ffimap: --sites takes counters that count source locations; "
             f"unknown or siteless: {' '.join(unknown)}{hint}. Valid: "
             + " ".join(valid) + ", or all; an --ffibox counter also takes "
-            "<counter>:<key> for one key of its breakdown")
+            "<counter>:<key> for one key of its breakdown, and a shared-borrow "
+            "counter <counter>:<origin> for one of " + ", ".join(measure.ORIGINS))
     return list(dict.fromkeys(requested))
 
 
@@ -70,10 +79,19 @@ def compose(workspace: Path, sites: list[str] | None = None,
         print(f"[ffimap] no counts: {e}".rstrip(), file=stderr)
     if ffibox:
         doc["ffibox"] = _ffibox_record(breakdowns)
+    doc["provenance"] = _provenance(all_sites) if doc["counts"] is not None else None
     if wanted is not None:
         doc["sites"] = {k: all_sites.get(k, []) for k in wanted}
     doc["derived"] = _derive(doc)
     return doc
+
+
+def _provenance(all_sites: dict) -> dict:
+    """``{counter: {origin: N}}`` for the shared-borrow counters, from the
+    driver's `<counter>:<origin>` sites; each counter's origins sum to it."""
+    return {k: {o: sum(r["count"] for r in all_sites.get(f"{k}:{o}", []))
+                for o in measure.ORIGINS}
+            for k in measure.PROVENANCE_COUNTERS}
 
 
 def _ffibox_record(breakdowns: dict | None) -> dict | None:
@@ -167,6 +185,10 @@ def summarize(doc: dict) -> str:
               for label, fam in (("by value", "by_val"), ("in std owner", "std_owner"))),
             f"  Deref on wrapper     by value: {c.get('ty_wrapper_deref_impl')} Deref + {c.get('ty_wrapper_deref_mut_impl')} DerefMut,"
             f" by pointer: {c.get('ptr_wrapper_deref_impl')} Deref + {c.get('ptr_wrapper_deref_mut_impl')} DerefMut   (target 0)",
+            *(f"  shared borrow {label:<11}{c.get(f'{kind}_shared_borrow_rd')} rd + {c.get(f'{kind}_shared_borrow_wr')} wr"
+              f" + {c.get(f'{kind}_shared_borrow_ffi_mut_arg')} *mut to C"
+              f"   (wr through self {(doc.get('provenance') or {}).get(f'{kind}_shared_borrow_wr', {}).get('self')}{tail})"
+              for label, kind, tail in (("by value", "ty_wrapper", "; wr target 0"), ("by pointer", "ptr_wrapper", ""))),
             f"  ffi calls            {c.get('ffi_calls')}",
         ]
     else:

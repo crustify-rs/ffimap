@@ -64,7 +64,11 @@ _COUNTS = (
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
     "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
     "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
-    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl", "ffi_calls",
+    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl",
+    "ty_wrapper_shared_borrow_rd", "ty_wrapper_shared_borrow_wr",
+    "ty_wrapper_shared_borrow_ffi_mut_arg", "ptr_wrapper_shared_borrow_rd",
+    "ptr_wrapper_shared_borrow_wr", "ptr_wrapper_shared_borrow_ffi_mut_arg",
+    "ffi_calls",
 )
 #: The counters that count source locations, so `--sites` can list them. Line
 #: and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
@@ -93,8 +97,20 @@ SITE_COUNTERS = (
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
     "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
     "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
-    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl", "ffi_calls",
+    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl",
+    "ty_wrapper_shared_borrow_rd", "ty_wrapper_shared_borrow_wr",
+    "ty_wrapper_shared_borrow_ffi_mut_arg", "ptr_wrapper_shared_borrow_rd",
+    "ptr_wrapper_shared_borrow_wr", "ptr_wrapper_shared_borrow_ffi_mut_arg",
+    "ffi_calls",
 )
+#: The counters whose sites the driver also records per pointer origin, as
+#: `<counter>:<origin>`: where, in the fn's own body, the pointer came from.
+PROVENANCE_COUNTERS = (
+    "ty_wrapper_shared_borrow_rd", "ty_wrapper_shared_borrow_wr",
+    "ty_wrapper_shared_borrow_ffi_mut_arg", "ptr_wrapper_shared_borrow_rd",
+    "ptr_wrapper_shared_borrow_wr", "ptr_wrapper_shared_borrow_ffi_mut_arg",
+)
+ORIGINS = ("self", "param", "other")
 #: The `--ffibox` counters (`UM_FFIBOX` in the driver), in its order. Each is
 #: a breakdown `{type, handle kind or trait: N}` rather than a number, and each
 #: counts source locations, so all of them take `--sites` under `--ffibox`.

@@ -56,7 +56,7 @@ ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE[,CRATE...]]
 | Option | Effect |
 |---|---|
 | `--json` | Print the full JSON document instead of the summary. |
-| `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). `all` names every counter that counts locations. |
+| `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). `all` names every counter that counts locations. A shared-borrow counter also takes `COUNTER:ORIGIN` (`self`, `param` or `other`). |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, beside those found automatically (crates with a Cargo `links` key or named `*-sys`). Use it for bindings such as `libc`. |
 | `--ffibox` | Also count the crate's use of [ffibox](https://github.com/crustify-rs/ffibox): owners and handles in signatures and fields, and ffibox trait impls. Adds an `ffibox` record whose counters also take `--sites`. |
 
@@ -71,6 +71,7 @@ The JSON document has these top-level fields:
 | `counts` | The compiler-derived counters, or `null` when the workspace could not be built. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `derived` | Ratios computed from `counts`, such as the share of public functions that are `unsafe`. |
+| `provenance` | The accesses to C memory under a shared borrow of a wrapper, split by where the pointer came from: `self`, another parameter, or elsewhere. |
 | `sites` | With `--sites`: source locations per requested counter. |
 | `ffibox` | With `--ffibox`: the ffibox surface, per counter and breakdown key. |
 
