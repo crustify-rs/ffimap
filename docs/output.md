@@ -77,7 +77,12 @@ crate: a `pub` item in a private module is not, unless it is re-exported, and a
   fn's visibility and its safety: `_safe` is a safe fn, reachable from safe
   code, `_unsafe` an `unsafe fn`, whose caller has taken the obligation on. The
   raw pointers on the safe public interface are `raw_ptr_ty_pub_fields_pub` +
-  `raw_ptr_fn_pub_safe`. `raw_ptr_has_ty_wrapper` counts the positions whose pointee is a C type that already has a
+  `raw_ptr_fn_pub_safe`. The public positions measure the raw-pointer work a
+  consumer of the crate is left with; the private ones the backend's, which
+  the consumer never sees. A handle that keeps its pointer in a private field
+  behind safe methods therefore counts only on the backend side, while a
+  `NonNull` or `AtomicPtr` on the public interface counts like a raw pointer:
+  its API is the pointer's, so using it is pointer management. `raw_ptr_has_ty_wrapper` counts the positions whose pointee is a C type that already has a
   wrapper. Generated bindings compiled into the crate are skipped: files under
   the build script's `OUT_DIR` and files named `bindings.rs`; bindings in a
   `-sys` crate are excluded with that crate.
@@ -155,15 +160,10 @@ is not a wrapper of anything, but its references are checked like a layout
 newtype's. How the layout newtypes relate to ffibox's `CCell` is in the
 `--ffibox` record (`ffibox_layout_not_ccell`, `ffibox_ccell_not_layout`).
 
-`ptr_wrapper` counts their by-pointer counterpart: handles whose raw pointer
--- `NonNull<T>`, `*const T` / `*mut T` -- points at a layout newtype, a
-C-reachable type, or `c_void`. A handle over Rust data or a scalar
-(`*mut u8`, `*const c_char`) is not a pointer wrapper: C reachability is
-decided for structs, unions and enums, so a primitive pointee never counts.
-Nor is a handle over a reference (`&'a T` / `&'a mut T`): the compiler checks
-it, and its field is counted in `ty_wrapper_borrow_non_sanctioned`.
-The two sets do not overlap, since a handle stores a pointer and a layout
-newtype stores the C object's bytes.
+Handles, newtypes over a pointer to a C object, are not counted as wrappers:
+the raw pointer a handle stores counts at its field in `raw_ptr_ty_*`, and a
+reference it hands out, through `Deref` or otherwise, in
+`ty_wrapper_borrow_non_sanctioned`.
 
 A layout newtype's memory is C's when it is reached through a C pointer, so a
 Rust reference to it asserts `noalias`, `readonly` or validity over memory C
@@ -227,19 +227,16 @@ may write. Access goes through the handles instead.
   `addr_of!`) are not counted.
 
 - `ty_wrapper_deref_impl` / `ty_wrapper_deref_mut_impl` count the impls of
-  `core::ops::Deref` / `DerefMut` whose `Self` is a layout newtype, and
-  `ptr_wrapper_deref_impl` / `ptr_wrapper_deref_mut_impl` those whose `Self`
-  is a pointer wrapper. Such an impl turns every `*w` and auto-deref into a
-  reference to its target, typically the C object, outside the handles;
-  `DerefMut` hands out `&mut`. Nothing is sanctioned: target 0 for all four.
-- `ty_wrapper_send_impl` / `ty_wrapper_sync_impl` and `ptr_wrapper_send_impl`
-  / `ptr_wrapper_sync_impl` narrow `unsafe_send_impl` and `unsafe_sync_impl`
-  to the impls whose `Self` is a layout newtype (`ty_wrapper`) or a pointer
-  wrapper (`ptr_wrapper`). Raw pointers, whether held by the wrapper or inside
-  the C struct, make most of these types neither `Send` nor `Sync` on their
-  own, so each impl asserts that the C library allows the object to move to,
-  or be shared with, another thread. Check that claim against the library's
-  thread-safety contract.
+  `core::ops::Deref` / `DerefMut` whose `Self` is a layout newtype. Such an
+  impl turns every `*w` and auto-deref into a reference to its target,
+  typically the C object, outside the handles; `DerefMut` hands out `&mut`.
+  Nothing is sanctioned: target 0 for both.
+- `ty_wrapper_send_impl` / `ty_wrapper_sync_impl` narrow `unsafe_send_impl`
+  and `unsafe_sync_impl` to the impls whose `Self` is a layout newtype
+  (`ty_wrapper`). Raw pointers inside the C struct make most of these types
+  neither `Send` nor `Sync` on their own, so each impl asserts that the C
+  library allows the object to move to, or be shared with, another thread.
+  Check that claim against the library's thread-safety contract.
 
 Read these together with `ty_wrapper`; when there are no wrapper
 newtypes, zero is vacuous. The driver cannot tell a pointer to C memory from
