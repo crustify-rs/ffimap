@@ -45,8 +45,8 @@ _COUNTS = (
     "unsafe_blocks_ffi_export", "unsafe_fns", "unsafe_fns_pub",
     "unsafe_fns_priv", "unsafe_impls", "unsafe_traits",
     "unsafe_send_impl", "unsafe_sync_impl", "ty_wrapper_send_impl",
-    "ty_wrapper_sync_impl", "ptr_wrapper_send_impl", "ptr_wrapper_sync_impl",
-    "ty_wrapper", "ptr_wrapper",
+    "ty_wrapper_sync_impl",
+    "ty_wrapper",
     "ty_wrapper_borrow_sanctioned", "ty_wrapper_borrow_non_sanctioned",
     "ty_wrapper_by_val_fn_sig_pub", "ty_wrapper_by_val_fn_sig_priv",
     "ty_wrapper_by_val_ty_pub_fields_pub", "ty_wrapper_by_val_ty_pub_fields_priv",
@@ -64,7 +64,7 @@ _COUNTS = (
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
     "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
     "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
-    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl", "ffi_calls",
+    "ffi_calls",
 )
 #: The counters that count source locations, so `--sites` can list them. Line
 #: and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
@@ -74,8 +74,8 @@ SITE_COUNTERS = (
     "unsafe_blocks_wrapper_impl", "unsafe_blocks_ffi_export", "unsafe_fns",
     "unsafe_fns_pub", "unsafe_fns_priv", "unsafe_impls", "unsafe_traits",
     "unsafe_send_impl", "unsafe_sync_impl", "ty_wrapper_send_impl",
-    "ty_wrapper_sync_impl", "ptr_wrapper_send_impl", "ptr_wrapper_sync_impl",
-    "ty_wrapper", "ptr_wrapper", "ty_wrapper_borrow_sanctioned",
+    "ty_wrapper_sync_impl",
+    "ty_wrapper", "ty_wrapper_borrow_sanctioned",
     "ty_wrapper_borrow_non_sanctioned",
     "ty_wrapper_by_val_fn_sig_pub", "ty_wrapper_by_val_fn_sig_priv",
     "ty_wrapper_by_val_ty_pub_fields_pub", "ty_wrapper_by_val_ty_pub_fields_priv",
@@ -93,7 +93,7 @@ SITE_COUNTERS = (
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
     "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
     "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
-    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl", "ffi_calls",
+    "ffi_calls",
 )
 #: The `--ffibox` counters (`UM_FFIBOX` in the driver), in its order. Each is
 #: a breakdown `{type, handle kind or trait: N}` rather than a number, and each

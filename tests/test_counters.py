@@ -45,20 +45,18 @@ class EmissionTests(unittest.TestCase):
         keys, _ = _emission()
         i = keys.index("unsafe_traits")
         names = ["unsafe_send_impl", "unsafe_sync_impl",
-                 "ty_wrapper_send_impl", "ty_wrapper_sync_impl",
-                 "ptr_wrapper_send_impl", "ptr_wrapper_sync_impl",
-                 "ty_wrapper", "ptr_wrapper"]
+                 "ty_wrapper_send_impl", "ty_wrapper_sync_impl", "ty_wrapper"]
         self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
 
-    def test_deref_impls_split_by_wrapper_kind(self) -> None:
+    def test_deref_impls_on_layout_wrappers(self) -> None:
         keys, _ = _emission()
         self.assertNotIn("deref_impl_on_wrapper", keys)
-        for kind in ("ty_wrapper", "ptr_wrapper"):
-            for k in (f"{kind}_deref_impl", f"{kind}_deref_mut_impl"):
-                self.assertIn(k, keys)
-                self.assertIn(k, measure.SITE_COUNTERS)
+        self.assertFalse([k for k in keys if k.startswith("ptr_wrapper")])
+        for k in ("ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl"):
+            self.assertIn(k, keys)
+            self.assertIn(k, measure.SITE_COUNTERS)
 
     def test_new_counts_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(

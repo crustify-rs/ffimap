@@ -140,9 +140,8 @@ def summarize(doc: dict) -> str:
             f"   ({c.get('unsafe_fns_pub')} pub + {c.get('unsafe_fns_priv')} private;"
             f" methods of other crates' traits excluded)",
             f"  unsafe Send/Sync     {c.get('unsafe_send_impl')} Send + {c.get('unsafe_sync_impl')} Sync"
-            f"   (on by-value wrappers: {c.get('ty_wrapper_send_impl')} Send + {c.get('ty_wrapper_sync_impl')} Sync,"
-            f" on pointer wrappers: {c.get('ptr_wrapper_send_impl')} Send + {c.get('ptr_wrapper_sync_impl')} Sync)",
-            f"  wrappers             {c.get('ty_wrapper')} by value (layout newtypes) + {c.get('ptr_wrapper')} by pointer",
+            f"   (on layout newtypes: {c.get('ty_wrapper_send_impl')} Send + {c.get('ty_wrapper_sync_impl')} Sync)",
+            f"  layout newtypes      {c.get('ty_wrapper')}",
             f"  raw ptr positions    {sum(c.get('raw_ptr_' + k) or 0 for k in ('ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv', 'fn_pub_safe', 'fn_pub_unsafe', 'fn_priv_safe', 'fn_priv_unsafe'))}"
             f"   (pub types: {c.get('raw_ptr_ty_pub_fields_pub')} pub fields + {c.get('raw_ptr_ty_pub_fields_priv')} private fields,"
             f" private types: {c.get('raw_ptr_ty_priv')};"
@@ -165,8 +164,7 @@ def summarize(doc: dict) -> str:
               f" pub types: {c.get(f'ty_wrapper_{fam}_ty_pub_fields_pub')} pub fields + {c.get(f'ty_wrapper_{fam}_ty_pub_fields_priv')} private fields,"
               f" private types: {c.get(f'ty_wrapper_{fam}_ty_priv')})"
               for label, fam in (("by value", "by_val"), ("in std owner", "std_owner"))),
-            f"  Deref on wrapper     by value: {c.get('ty_wrapper_deref_impl')} Deref + {c.get('ty_wrapper_deref_mut_impl')} DerefMut,"
-            f" by pointer: {c.get('ptr_wrapper_deref_impl')} Deref + {c.get('ptr_wrapper_deref_mut_impl')} DerefMut   (target 0)",
+            f"  Deref on wrapper     {c.get('ty_wrapper_deref_impl')} Deref + {c.get('ty_wrapper_deref_mut_impl')} DerefMut   (target 0)",
             f"  ffi calls            {c.get('ffi_calls')}",
         ]
     else:
