@@ -392,14 +392,18 @@ fn is_ref_to_type_wrapper<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
 }
 
 /// The pointees of every raw pointer position in `t`: `t` itself when it is a
-/// raw pointer, else those reached through references, generic arguments
-/// (`Option<*const T>`), tuples, arrays and slices. A raw pointer is one
+/// raw pointer or a `NonNull<T>` (a `*const T` that is never null), else those
+/// reached through references, generic arguments (`Option<*const T>`), tuples,
+/// arrays and slices. A raw pointer is one
 /// position whatever it points to (`*mut *mut T` counts once), and fn-pointer
 /// types are not entered: their parameters are the callback's interface, not
 /// data this signature passes.
 fn raw_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut Vec<Ty<'tcx>>) {
     match t.kind() {
         ty::TyKind::RawPtr(p, _) => out.push(*p),
+        ty::TyKind::Adt(d, args) if is_std_crate(tcx, d.did()) && tcx.item_name(d.did()).as_str() == "NonNull" => {
+            out.extend(args.types().next())
+        }
         ty::TyKind::Ref(_, inner, _) => raw_pointees(tcx, *inner, out),
         // `PhantomData<*const T>` is a zero-sized marker (opting out of
         // `Send`/`Sync`, say): it stores no pointer.
