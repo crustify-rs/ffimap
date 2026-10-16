@@ -80,8 +80,8 @@ Generated `-sys` binding crates are never counted as the subject.
 Every counter, how C types are identified, and the known limitations are
 described in [docs/output.md](docs/output.md).
 
-[examples/](examples) has full documents from two real wrappers, over FFmpeg
-and libgit2.
+[examples/](examples) has full documents from three real wrappers: two that
+crustify generated, over FFmpeg and libgit2, and the hand-written git2-rs.
 
 ## Tests
 
