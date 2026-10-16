@@ -81,6 +81,9 @@ Generated `-sys` binding crates are never counted as the subject.
 Every counter, how C types are identified, and the known limitations are
 described in [docs/output.md](docs/output.md).
 
+[examples/](examples) has full documents from two real wrappers, over FFmpeg
+and libgit2.
+
 ## Tests
 
 ```sh
