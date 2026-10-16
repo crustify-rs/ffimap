@@ -282,41 +282,6 @@
       }
     }
   },
-  "undocumented_unsafe": {
-    "sites": 4400,
-    "documented": 4355,
-    "undocumented": 45,
-    "per_file": {
-      "libgit2/libgit2/core/common.rs": 3,
-      "libgit2/libgit2/object/commit.rs": 3,
-      "libgit2/libgit2/oid/oid.rs": 3,
-      "libgit2/libgit2/core/strarray.rs": 2,
-      "libgit2/libgit2/object/blob.rs": 2,
-      "libgit2/libgit2/refs/refdb.rs": 2,
-      "libgit2/libgit2/refs/refs.rs": 2,
-      "libgit2/libgit2/util/sys/alloc.rs": 2,
-      "libgit2/tests/equiv/buffer.rs": 2,
-      "libgit2/tests/equiv/commit.rs": 2,
-      "libgit2/tests/equiv/common.rs": 2,
-      "libgit2/tests/equiv/oid.rs": 2,
-      "libgit2/tests/equiv/tree.rs": 2,
-      "libgit2/tests/equiv/types.rs": 2,
-      "libgit2/libgit2/filter/filter.rs": 1,
-      "libgit2/libgit2/object/message.rs": 1,
-      "libgit2/libgit2/object/object.rs": 1,
-      "libgit2/libgit2/object/tree.rs": 1,
-      "libgit2/libgit2/odb/odb.rs": 1,
-      "libgit2/tests/equiv/blob.rs": 1,
-      "libgit2/tests/equiv/config.rs": 1,
-      "libgit2/tests/equiv/object.rs": 1,
-      "libgit2/tests/equiv/oidarray.rs": 1,
-      "libgit2/tests/equiv/refdb.rs": 1,
-      "libgit2/tests/equiv/strarray.rs": 1,
-      "libgit2/tests/equiv/sys_odb_backend.rs": 1,
-      "libgit2/tests/ub_safe/compile_fail/commit_builder_handles.rs": 1,
-      "libgit2/tests/ub_safe/fixture.rs": 1
-    }
-  },
   "derived": {
     "fns_pub": 1324,
     "fns_priv": 560,
