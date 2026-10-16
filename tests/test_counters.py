@@ -41,6 +41,15 @@ class EmissionTests(unittest.TestCase):
             self.assertIn(k, keys)
             self.assertIn(k, measure.SITE_COUNTERS)
 
+    def test_thread_safety_opt_ins_are_emitted(self) -> None:
+        keys, _ = _emission()
+        i = keys.index("unsafe_traits")
+        names = ["unsafe_send_impl", "unsafe_sync_impl",
+                 "ty_wrapper_send_impl", "ty_wrapper_sync_impl"]
+        self.assertEqual(keys[i + 1:i + 5], names)
+        for k in names:
+            self.assertIn(k, measure.SITE_COUNTERS)
+
     def test_new_counts_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(
             {"crate": crate, "unsafe_blocks": 0, "safe_fns_pub": n, "raw_ptr_fn_pub_safe": n, "sites": {}})

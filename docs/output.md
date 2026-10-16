@@ -51,6 +51,13 @@ crate: a `pub` item in a private module is not, unless it is re-exported, and a
 
 - `unsafe_fns` = `unsafe_fns_pub` + `unsafe_fns_priv`. `unsafe_fns_pub` is the
   public unsafe surface: every obligation the crate exports to its callers.
+- `unsafe_impls` counts the crate's `unsafe impl`s of any trait, and
+  `unsafe_traits` the `unsafe trait`s it declares. The `TrivialClone` impl a
+  `#[derive(Clone)]` emits is not counted.
+- `unsafe_send_impl` and `unsafe_sync_impl` count the `unsafe impl Send` and
+  `unsafe impl Sync` among `unsafe_impls`: every type the crate opts into
+  thread safety by assertion instead of earning it from its fields. A negative
+  impl (`impl !Send`) is not unsafe and is not counted.
 - Every raw-pointer position falls in exactly one of seven counters, by where
   it sits:
 
@@ -211,6 +218,12 @@ may write. Access goes through the handles instead.
   whose `Self` is a wrapper, layout newtype or handle. Such an impl turns every
   `*w` and auto-deref into a reference to its target, typically the C object,
   outside the handles. Nothing is sanctioned: target 0.
+- `ty_wrapper_send_impl` and `ty_wrapper_sync_impl` narrow `unsafe_send_impl`
+  and `unsafe_sync_impl` to the impls whose `Self` is a wrapper, layout
+  newtype or handle. A handle holds a raw pointer, and most C structs do too,
+  so a wrapper is rarely `Send` or `Sync` on its own: each of these asserts
+  that the C library allows the object to move to, or be shared with, another
+  thread. Check that claim against the library's thread-safety contract.
 
 Read these together with `ty_wrapper`; when there are no wrapper
 newtypes, zero is vacuous. The driver cannot tell a pointer to C memory from
