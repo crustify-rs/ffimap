@@ -154,11 +154,13 @@ is not a wrapper of anything, but its references are checked like a layout
 newtype's. How the layout newtypes relate to ffibox's `CCell` is in the
 `--ffibox` record (`ffibox_layout_not_ccell`, `ffibox_ccell_not_layout`).
 
-`ptr_wrapper` counts their by-pointer counterpart: handles whose pointer --
-`NonNull<T>`, `*const T` / `*mut T`, `&T` / `&mut T` -- points at a layout
-newtype, a C-reachable type, or `c_void`. A handle over Rust data or a scalar
+`ptr_wrapper` counts their by-pointer counterpart: handles whose raw pointer
+-- `NonNull<T>`, `*const T` / `*mut T` -- points at a layout newtype, a
+C-reachable type, or `c_void`. A handle over Rust data or a scalar
 (`*mut u8`, `*const c_char`) is not a pointer wrapper: C reachability is
 decided for structs, unions and enums, so a primitive pointee never counts.
+Nor is a handle over a reference (`&'a T` / `&'a mut T`): the compiler checks
+it, and its field is counted in `ty_wrapper_borrow_non_sanctioned`.
 The two sets do not overlap, since a handle stores a pointer and a layout
 newtype stores the C object's bytes.
 

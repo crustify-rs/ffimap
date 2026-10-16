@@ -238,15 +238,20 @@ fn is_layout_wrapper(tcx: TyCtxt<'_>, did: DefId) -> bool {
 }
 
 /// True if `did` is a POINTER wrapper: the by-reference counterpart of a
-/// layout wrapper. A handle (`structural_wrapper`) whose pointer -- `NonNull<T>`,
-/// `*const T` / `*mut T`, `&T` / `&mut T` -- points at a layout wrapper, a
+/// layout wrapper. A handle (`structural_wrapper`) whose RAW pointer --
+/// `NonNull<T>`, `*const T` / `*mut T` -- points at a layout wrapper, a
 /// C-reachable type, or `c_void`. A handle over Rust data or a scalar
 /// (`*mut u8`, `*const c_char`) is not one: C-reachability is a property of
-/// ADTs, so a primitive pointee never qualifies.
+/// ADTs, so a primitive pointee never qualifies. Nor is a handle over `&T` /
+/// `&mut T`: the compiler checks those, and its field counts into
+/// `ty_wrapper_borrow_non_sanctioned`.
 fn is_ptr_wrapper(tcx: TyCtxt<'_>, did: DefId) -> bool {
     let Some((false, cs)) = structural_wrapper(tcx, did) else {
         return false;
     };
+    if !peel_transparent(tcx, tcx.type_of(did).instantiate_identity().skip_norm_wip()).is_raw_ptr() {
+        return false;
+    }
     cs.iter().any(|&p| {
         is_layout_wrapper(tcx, p)
             || is_c_visible(tcx, p)
@@ -1143,8 +1148,8 @@ struct Counts {
     // bytes inline (see "C visibility"). How these relate to ffibox's `CCell` is the `--ffibox` record's
     // (`ffibox_layout_not_ccell` / `ffibox_ccell_not_layout`).
     ty_wrapper: u64,
-    // Pointer wrappers (`is_ptr_wrapper`): newtypes holding a pointer to a
-    // layout wrapper, a C-reachable type or `c_void`.
+    // Pointer wrappers (`is_ptr_wrapper`): newtypes holding a raw pointer
+    // (or `NonNull`) to a layout wrapper, a C-reachable type or `c_void`.
     ptr_wrapper: u64,
     // Borrows into C memory: `&W` / `&mut W` (or `&[W]`, `Option<&W>`, ..),
     // W a layout newtype or a local C type, wherever they occur:
