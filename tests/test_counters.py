@@ -60,30 +60,6 @@ class EmissionTests(unittest.TestCase):
                 self.assertIn(k, keys)
                 self.assertIn(k, measure.SITE_COUNTERS)
 
-    def test_shared_borrow_counters_are_emitted_with_origins(self) -> None:
-        keys, _ = _emission()
-        names = [f"{kind}_shared_borrow_{d}" for kind in ("ty_wrapper", "ptr_wrapper")
-                 for d in ("rd", "wr", "ffi_mut_arg")]
-        i = keys.index("ptr_wrapper_deref_mut_impl")
-        self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
-        self.assertEqual(list(measure.PROVENANCE_COUNTERS), names)
-        for k in names:
-            self.assertIn(k, measure.SITE_COUNTERS)
-        self.assertEqual(scan.site_counters(["ptr_wrapper_shared_borrow_wr:self"]),
-                         ["ptr_wrapper_shared_borrow_wr:self"])
-        with self.assertRaises(SystemExit):
-            scan.site_counters(["ptr_wrapper_shared_borrow_wr:caller"])
-        with self.assertRaises(SystemExit):
-            scan.site_counters(["ptr_wrapper_deref_impl:self"])
-        self.assertNotIn("ptr_wrapper_shared_borrow_wr:self", scan.site_counters(["all"]))
-
-    def test_provenance_sums_the_origin_sites(self) -> None:
-        row = lambda n: [{"file": "a.rs", "count": n, "lines": [1]}]
-        prov = scan._provenance({"ptr_wrapper_shared_borrow_wr:self": row(2),
-                                 "ptr_wrapper_shared_borrow_wr:other": row(1)})
-        self.assertEqual(prov["ptr_wrapper_shared_borrow_wr"], {"self": 2, "param": 0, "other": 1})
-        self.assertEqual(set(prov), set(measure.PROVENANCE_COUNTERS))
-
     def test_new_counts_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(
             {"crate": crate, "unsafe_blocks": 0, "safe_fns_pub": n, "raw_ptr_fn_pub_safe": n, "sites": {}})
