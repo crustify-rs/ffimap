@@ -397,7 +397,8 @@ fn is_ref_to_type_wrapper<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
 }
 
 /// The pointees of every raw pointer position in `t`: `t` itself when it is a
-/// raw pointer or a `NonNull<T>` (a `*const T` that is never null), else those
+/// raw pointer, a `NonNull<T>` (a `*const T` that is never null) or an
+/// `AtomicPtr<T>` (a `*mut T` behind an atomic), else those
 /// reached through references, generic arguments (`Option<*const T>`), tuples,
 /// arrays and slices. A raw pointer is one
 /// position whatever it points to (`*mut *mut T` counts once), and fn-pointer
@@ -406,7 +407,9 @@ fn is_ref_to_type_wrapper<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
 fn raw_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut Vec<Ty<'tcx>>) {
     match t.kind() {
         ty::TyKind::RawPtr(p, _) => out.push(*p),
-        ty::TyKind::Adt(d, args) if is_std_crate(tcx, d.did()) && tcx.item_name(d.did()).as_str() == "NonNull" => {
+        ty::TyKind::Adt(d, args)
+            if is_std_crate(tcx, d.did()) && matches!(tcx.item_name(d.did()).as_str(), "NonNull" | "AtomicPtr") =>
+        {
             out.extend(args.types().next())
         }
         ty::TyKind::Ref(_, inner, _) => raw_pointees(tcx, *inner, out),

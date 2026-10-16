@@ -59,8 +59,9 @@ crate: a `pub` item in a private module is not, unless it is re-exported, and a
   thread safety by assertion instead of earning it from its fields. A negative
   impl (`impl !Send`) is not unsafe and is not counted.
 - Every raw-pointer position falls in exactly one of seven counters, by where
-  it sits. A position is a `*const T` / `*mut T` or a `NonNull<T>`, which is a
-  `*const T` that is never null:
+  it sits. A position is a `*const T` / `*mut T`, a `NonNull<T>`, which is a
+  `*const T` that is never null, or an `AtomicPtr<T>`, a `*mut T` behind an
+  atomic:
 
   ```text
   raw_ptr_ty_pub_fields_pub, raw_ptr_ty_pub_fields_priv, raw_ptr_ty_priv
