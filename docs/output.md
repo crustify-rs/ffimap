@@ -31,8 +31,6 @@ are not the wrapper being audited.
 - `counts`: aggregate compiled-code metrics (numbers only), or `null`.
 - `counts_unavailable`: failure text when counts are unavailable.
 - `derived`: ratios and sums calculated from counts.
-- `provenance`: the shared-borrow counters split by pointer origin; see
-  Accesses under a shared borrow. `null` when there are no counts.
 - `sites`: present when `--sites` names counters; see Counter sites.
 - `ffibox`: present with `--ffibox`; see ffibox surface. `null` when there are
   no counts.
@@ -244,93 +242,6 @@ newtypes, zero is vacuous. The driver cannot tell a pointer to C memory from
 one to a Rust-owned value, so a site means "check where this pointer comes
 from".
 
-### Accesses under a shared borrow
-
-Interior mutability the compiler cannot check: C memory read or written while
-the fn holds only shared access to a wrapper. A **shared-borrow fn** has a
-parameter, the receiver included, of type `&W` (or `&&W`), or `W` by value
-where `W` is a `Copy` pointer wrapper (a `Ref`-style handle), and no parameter
-giving exclusive access to any wrapper: `&mut W`, or a non-`Copy` `W` by value.
-A closure is classified by the fn it is in. `ty_wrapper_*` counts the fns
-holding such a borrow of a layout newtype, `ptr_wrapper_*` of a pointer
-wrapper; a fn holding both counts in both.
-
-- `{ty,ptr}_wrapper_shared_borrow_rd` and `_wr` count the reads and writes of
-  C memory in those fns that the compiler does not check, at most one of each
-  per MIR statement or call. C memory is whatever a raw pointer to a layout
-  newtype, a C-reachable type or `c_void` points at, an array or slice of one
-  included, or a pointer or reference derived from one in the same body
-  (`addr_of!((*p).field)`, `&mut *p`, `p.cast()`, `p.add(n)`). An access is a
-  load or store through such a pointer, or a call of a `core::ptr` function or
-  pointer method that reads or writes through one (`read*`, `write*`,
-  `write_bytes`, `replace`, `swap*`, `copy*`). Forming a reference or a raw
-  pointer is not an access; using it later is. An access through any other
-  reference, such as `self.0.field` on `&self`, is checked by the compiler and
-  is not counted.
-- `{ty,ptr}_wrapper_shared_borrow_ffi_mut_arg` count the FFI calls in those
-  fns that pass a pointer into C memory to a parameter the binding declares
-  `*mut`. Bindgen types each pointer from the C prototype, `T *` as `*mut T`
-  and `const T *` as `*const T`, so these are the calls whose prototype lets C
-  write. C's `const` is not a guarantee, and many `T *` parameters are only
-  read: these count possible writes, not proven ones.
-
-Every access counts, whatever pointer it goes through. A shared borrow forbids
-writes to the memory it covers through any alias, so a pointer unrelated to
-`self` may still write it, and the compiler cannot rule that out. Two origins
-are exclusive and are not counted: a pointer from a `&mut` parameter or a
-reborrow of one (an out-parameter the caller lent), and a pointer to the fn's
-own locals (`&raw mut options` before an `_init` call). A raw pointer loaded
-out of a `&mut` struct is not exclusive: it points wherever it points. What a
-hit means depends on the wrapper kind:
-
-- **By value.** `&W` covers the C object's bytes, so a write to them through
-  any pointer is undefined behaviour unless they are in an `UnsafeCell`. Writes
-  derived from `self` are; a write through another pointer of the same C type
-  is if the caller passed aliasing pointers. `ty_wrapper_shared_borrow_wr`'s
-  target is 0.
-- **By pointer.** `&W` covers only the pointer, so a write to the pointee is
-  not undefined behaviour by itself. It is while another reference into the C
-  object lives, such as one the wrapper's `Deref` impl handed out
-  (`ptr_wrapper_deref_impl`); otherwise it is shared handles that mutate, and
-  a data race if the wrapper is also `Sync` (`ptr_wrapper_sync_impl`).
-
-**Origin.** Each site is also recorded under `<counter>:<origin>`, by where the
-pointer came from in the fn's own body, and the document's `provenance` record
-gives the totals, `{counter: {"self": N, "param": N, "other": N}}`:
-
-- `self`: the receiver, when it is a wrapper, including field loads and the
-  results of method calls on it (`self.as_ptr()`);
-- `param`: another parameter (in a closure, every value it captured);
-- `other`: anything else, such as a pointer C returned or a global.
-
-Origins are followed within one body only: a pointer is `self` when the call
-that returned it was passed `self`, whatever that fn does. A call result takes
-the origins of its pointer-like arguments (references, raw pointers, `NonNull`
-and wrappers), not of an index or length.
-
-**The `UnsafeCell` sanction.** A shared borrow does not freeze memory inside an
-`UnsafeCell`, so writes there are what the cell is for, and they are not
-counted:
-
-- a layout newtype that holds an `UnsafeCell` (directly or in a field) is not
-  a shared borrow, so `&W` on it does not make a shared-borrow fn;
-- a pointer to a type holding an `UnsafeCell` is not a pointer into C memory;
-- a pointer from `UnsafeCell::get` / `raw_get` or `Cell::as_ptr`, and
-  anything derived from it, is not followed.
-
-ffibox's layout types (`define_ctype!`) and handles hold no `UnsafeCell`, so
-the sanction never applies to them: their mutation goes through the exclusive
-`Mut` handles, and a write under their shared `Ref` handles counts.
-
-Writes reached through a helper fn are counted where the store is, and only if
-that fn is itself a shared-borrow fn. A Rust allocation typed as C memory and
-reached other than through a borrow of the local that owns it (`Box::into_raw`,
-a pointer stored in a field) counts like C memory, since C reachability is a
-property of types, not values; one reached through its owner
-(`buf.as_mut_ptr()`) is the fn's own. The MIR is read before optimization
-(`-Zmir-opt-level=0`, no inlining), so every access the source makes is
-present; the panic message an overflow check builds is not an access.
-
 ## ffibox surface
 
 `--ffibox` adds an `ffibox` record, `{"counts": {counter: N}, "by": {counter:
@@ -424,9 +335,7 @@ signature position (raw/void pointer, `unsafe fn`, `ty_wrapper_borrow_*`) is
 sited at its function's signature line; a block, dereference, projection,
 reference or call at the expression. A site inside macro output
 (`define_ctype!`, `#[derive]`) is the line in the measured crate that invoked
-the macro. A shared-borrow counter also takes `<counter>:<origin>`
-(`ptr_wrapper_shared_borrow_wr:self`) for the sites of one origin. Only
-counters that count source locations take `--sites`: the line
+the macro. Only counters that count source locations take `--sites`: the line
 and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
 `unsafe_block_stmts`) have none.
 
