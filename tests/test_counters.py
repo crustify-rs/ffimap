@@ -52,6 +52,14 @@ class EmissionTests(unittest.TestCase):
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
 
+    def test_deref_impls_split_by_wrapper_kind(self) -> None:
+        keys, _ = _emission()
+        self.assertNotIn("deref_impl_on_wrapper", keys)
+        for kind in ("ty_wrapper", "ptr_wrapper"):
+            for k in (f"{kind}_deref_impl", f"{kind}_deref_mut_impl"):
+                self.assertIn(k, keys)
+                self.assertIn(k, measure.SITE_COUNTERS)
+
     def test_new_counts_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(
             {"crate": crate, "unsafe_blocks": 0, "safe_fns_pub": n, "raw_ptr_fn_pub_safe": n, "sites": {}})

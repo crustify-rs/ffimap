@@ -165,7 +165,8 @@ def summarize(doc: dict) -> str:
               f" pub types: {c.get(f'ty_wrapper_{fam}_ty_pub_fields_pub')} pub fields + {c.get(f'ty_wrapper_{fam}_ty_pub_fields_priv')} private fields,"
               f" private types: {c.get(f'ty_wrapper_{fam}_ty_priv')})"
               for label, fam in (("by value", "by_val"), ("in std owner", "std_owner"))),
-            f"  Deref on wrapper     {c.get('deref_impl_on_wrapper')}   (target 0)",
+            f"  Deref on wrapper     by value: {c.get('ty_wrapper_deref_impl')} Deref + {c.get('ty_wrapper_deref_mut_impl')} DerefMut,"
+            f" by pointer: {c.get('ptr_wrapper_deref_impl')} Deref + {c.get('ptr_wrapper_deref_mut_impl')} DerefMut   (target 0)",
             f"  ffi calls            {c.get('ffi_calls')}",
         ]
     else:

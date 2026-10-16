@@ -222,10 +222,12 @@ may write. Access goes through the handles instead.
   `&(*p).field` / `&mut (*p).field` among them; raw borrows (`&raw const`,
   `addr_of!`) are not counted.
 
-- `deref_impl_on_wrapper` counts impls of `core::ops::Deref` or `DerefMut`
-  whose `Self` is a wrapper, layout newtype or handle. Such an impl turns every
-  `*w` and auto-deref into a reference to its target, typically the C object,
-  outside the handles. Nothing is sanctioned: target 0.
+- `ty_wrapper_deref_impl` / `ty_wrapper_deref_mut_impl` count the impls of
+  `core::ops::Deref` / `DerefMut` whose `Self` is a layout newtype, and
+  `ptr_wrapper_deref_impl` / `ptr_wrapper_deref_mut_impl` those whose `Self`
+  is a pointer wrapper. Such an impl turns every `*w` and auto-deref into a
+  reference to its target, typically the C object, outside the handles;
+  `DerefMut` hands out `&mut`. Nothing is sanctioned: target 0 for all four.
 - `ty_wrapper_send_impl` / `ty_wrapper_sync_impl` and `ptr_wrapper_send_impl`
   / `ptr_wrapper_sync_impl` narrow `unsafe_send_impl` and `unsafe_sync_impl`
   to the impls whose `Self` is a layout newtype (`ty_wrapper`) or a pointer

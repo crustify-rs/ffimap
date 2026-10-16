@@ -63,7 +63,8 @@ _COUNTS = (
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
     "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
-    "deref_impl_on_wrapper", "ffi_calls",
+    "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
+    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl", "ffi_calls",
 )
 #: The counters that count source locations, so `--sites` can list them. Line
 #: and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
@@ -91,7 +92,8 @@ SITE_COUNTERS = (
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
     "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
-    "deref_impl_on_wrapper", "ffi_calls",
+    "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
+    "ptr_wrapper_deref_impl", "ptr_wrapper_deref_mut_impl", "ffi_calls",
 )
 #: The `--ffibox` counters (`UM_FFIBOX` in the driver), in its order. Each is
 #: a breakdown `{type, handle kind or trait: N}` rather than a number, and each
