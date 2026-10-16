@@ -278,32 +278,6 @@
       }
     }
   },
-  "undocumented_unsafe": {
-    "sites": 4171,
-    "documented": 4147,
-    "undocumented": 24,
-    "per_file": {
-      "ffmpeg/libavutil/opt.rs": 4,
-      "ffmpeg/libavutil/avstring.rs": 2,
-      "ffmpeg/tests/equiv/mem.rs": 2,
-      "ffmpeg/libavutil/bprint.rs": 1,
-      "ffmpeg/libavutil/file.rs": 1,
-      "ffmpeg/libavutil/mem.rs": 1,
-      "ffmpeg/libavutil/pixdesc.rs": 1,
-      "ffmpeg/libavutil/pixelutils.rs": 1,
-      "ffmpeg/libavutil/rational.rs": 1,
-      "ffmpeg/libavutil/samplefmt.rs": 1,
-      "ffmpeg/tests/common/opt.rs": 1,
-      "ffmpeg/tests/equiv/avstring.rs": 1,
-      "ffmpeg/tests/equiv/file.rs": 1,
-      "ffmpeg/tests/equiv/opt.rs": 1,
-      "ffmpeg/tests/equiv/pixelutils.rs": 1,
-      "ffmpeg/tests/equiv/random_seed.rs": 1,
-      "ffmpeg/tests/ub_safe/compile_fail/hwcontext_transfer_source_is_destination.rs": 1,
-      "ffmpeg/tests/ub_safe/compile_fail/hwcontext_transfer_source_is_destination_handle.rs": 1,
-      "ffmpeg/tests/ub_safe/compile_fail/log_class_callback_call_is_private.rs": 1
-    }
-  },
   "derived": {
     "fns_pub": 1616,
     "fns_priv": 779,

@@ -31,11 +31,6 @@ are not the wrapper being audited.
 - `counts`: aggregate compiled-code metrics (numbers only), or `null`.
 - `counts_unavailable`: failure text when counts are unavailable.
 - `derived`: ratios and sums calculated from counts.
-- `undocumented_unsafe`: a lexical count of `unsafe` sites with no `// SAFETY:`
-  comment shortly above them (`sites`, `documented`, `undocumented`,
-  `per_file`). It needs no build and approximates
-  `clippy::undocumented_unsafe_blocks`: a long comment above its lookback
-  window, or a site inside a macro, can disagree with the lint.
 - `sites`: present when `--sites` names counters; see Counter sites.
 - `ffibox`: present with `--ffibox`; see ffibox surface. `null` when there are
   no counts.

@@ -71,7 +71,6 @@ The JSON document has these top-level fields:
 | `counts` | The compiler-derived counters, or `null` when the workspace could not be built. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `derived` | Ratios computed from `counts`, such as the share of public functions that are `unsafe`. |
-| `undocumented_unsafe` | `unsafe` sites without a `// SAFETY:` comment, per file. A lexical count that needs no build. |
 | `sites` | With `--sites`: source locations per requested counter. |
 | `ffibox` | With `--ffibox`: the ffibox surface, per counter and breakdown key. |
 
