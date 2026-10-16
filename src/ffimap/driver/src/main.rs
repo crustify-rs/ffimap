@@ -1231,9 +1231,13 @@ struct Counts {
     // `&(*p).field` / `&mut (*p).field` where `p: *C` and `C` has a wrapper --
     // a reference one level down into memory C may write. Should be 0.
     ty_field_borrow_wrapped: u64,
-    // `impl Deref` / `impl DerefMut` (core) whose Self is a wrapper, layout or
-    // handle. Never sanctioned: target 0.
-    deref_impl_on_wrapper: u64,
+    // `impl Deref` / `impl DerefMut` (core) whose Self is a layout wrapper
+    // (`ty_wrapper_*`) or a pointer wrapper (`ptr_wrapper_*`). Never
+    // sanctioned: target 0.
+    ty_wrapper_deref_impl: u64,
+    ty_wrapper_deref_mut_impl: u64,
+    ptr_wrapper_deref_impl: u64,
+    ptr_wrapper_deref_mut_impl: u64,
     // Calls to a foreign item -- one declared in an `extern` block
     // (`is_foreign_item`), which is the FFI boundary itself and is
     // crate-agnostic: a bindgen `*-sys` binding, `libc`, or a local
@@ -2139,18 +2143,34 @@ impl Callbacks for MetricsCallbacks {
                             }
                         }
                     }
-                    // `Deref` / `DerefMut` on a wrapper (layout or handle) turns
-                    // every `*w` and auto-deref into a reference to whatever it
-                    // targets -- typically the C object -- outside the handles.
+                    // `Deref` / `DerefMut` on a wrapper turns every `*w` and
+                    // auto-deref into a reference to whatever it targets --
+                    // typically the C object -- outside the handles.
                     let tr = tcx.impl_trait_ref(did).skip_binder().def_id;
                     if tcx.crate_name(tr.krate).as_str() == "core"
                         && matches!(tcx.item_name(tr).as_str(), "Deref" | "DerefMut")
                     {
+                        let mutable = tcx.item_name(tr).as_str() == "DerefMut";
                         let self_ty = tcx.type_of(did).instantiate_identity().skip_norm_wip();
                         if let ty::TyKind::Adt(d, _) = self_ty.kind() {
-                            if is_wrapper(tcx, d.did()) {
-                                c.deref_impl_on_wrapper += 1;
-                                sites.add("deref_impl_on_wrapper", counter_site(tcx, tcx.def_span(did)));
+                            let (slot, k) = if is_layout_wrapper(tcx, d.did()) {
+                                if mutable {
+                                    (Some(&mut c.ty_wrapper_deref_mut_impl), "ty_wrapper_deref_mut_impl")
+                                } else {
+                                    (Some(&mut c.ty_wrapper_deref_impl), "ty_wrapper_deref_impl")
+                                }
+                            } else if is_ptr_wrapper(tcx, d.did()) {
+                                if mutable {
+                                    (Some(&mut c.ptr_wrapper_deref_mut_impl), "ptr_wrapper_deref_mut_impl")
+                                } else {
+                                    (Some(&mut c.ptr_wrapper_deref_impl), "ptr_wrapper_deref_impl")
+                                }
+                            } else {
+                                (None, "")
+                            };
+                            if let Some(slot) = slot {
+                                *slot += 1;
+                                sites.add(k, counter_site(tcx, tcx.def_span(did)));
                             }
                         }
                     }
@@ -2380,8 +2400,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper_send_impl\":{},\"ty_wrapper_sync_impl\":{},\"ptr_wrapper_send_impl\":{},\"ptr_wrapper_sync_impl\":{},\"ty_wrapper\":{},\"ptr_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"deref_impl_on_wrapper\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper_send_impl, c.ty_wrapper_sync_impl, c.ptr_wrapper_send_impl, c.ptr_wrapper_sync_impl, c.ty_wrapper, c.ptr_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.deref_impl_on_wrapper, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper_send_impl\":{},\"ty_wrapper_sync_impl\":{},\"ptr_wrapper_send_impl\":{},\"ptr_wrapper_sync_impl\":{},\"ty_wrapper\":{},\"ptr_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"ty_wrapper_deref_impl\":{},\"ty_wrapper_deref_mut_impl\":{},\"ptr_wrapper_deref_impl\":{},\"ptr_wrapper_deref_mut_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper_send_impl, c.ty_wrapper_sync_impl, c.ptr_wrapper_send_impl, c.ptr_wrapper_sync_impl, c.ty_wrapper, c.ptr_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.ty_wrapper_deref_impl, c.ty_wrapper_deref_mut_impl, c.ptr_wrapper_deref_impl, c.ptr_wrapper_deref_mut_impl, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue
