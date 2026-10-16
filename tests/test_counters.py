@@ -45,8 +45,10 @@ class EmissionTests(unittest.TestCase):
         keys, _ = _emission()
         i = keys.index("unsafe_traits")
         names = ["unsafe_send_impl", "unsafe_sync_impl",
-                 "ty_wrapper_send_impl", "ty_wrapper_sync_impl"]
-        self.assertEqual(keys[i + 1:i + 5], names)
+                 "ty_wrapper_send_impl", "ty_wrapper_sync_impl",
+                 "ptr_wrapper_send_impl", "ptr_wrapper_sync_impl",
+                 "ty_wrapper", "ptr_wrapper"]
+        self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
 

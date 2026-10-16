@@ -153,6 +153,14 @@ is not a wrapper of anything, but its references are checked like a layout
 newtype's. How the layout newtypes relate to ffibox's `CCell` is in the
 `--ffibox` record (`ffibox_layout_not_ccell`, `ffibox_ccell_not_layout`).
 
+`ptr_wrapper` counts their by-pointer counterpart: handles whose pointer --
+`NonNull<T>`, `*const T` / `*mut T`, `&T` / `&mut T` -- points at a layout
+newtype, a C-reachable type, or `c_void`. A handle over Rust data or a scalar
+(`*mut u8`, `*const c_char`) is not a pointer wrapper: C reachability is
+decided for structs, unions and enums, so a primitive pointee never counts.
+The two sets do not overlap, since a handle stores a pointer and a layout
+newtype stores the C object's bytes.
+
 A layout newtype's memory is C's when it is reached through a C pointer, so a
 Rust reference to it asserts `noalias`, `readonly` or validity over memory C
 may write. Access goes through the handles instead.
@@ -218,12 +226,14 @@ may write. Access goes through the handles instead.
   whose `Self` is a wrapper, layout newtype or handle. Such an impl turns every
   `*w` and auto-deref into a reference to its target, typically the C object,
   outside the handles. Nothing is sanctioned: target 0.
-- `ty_wrapper_send_impl` and `ty_wrapper_sync_impl` narrow `unsafe_send_impl`
-  and `unsafe_sync_impl` to the impls whose `Self` is a wrapper, layout
-  newtype or handle. A handle holds a raw pointer, and most C structs do too,
-  so a wrapper is rarely `Send` or `Sync` on its own: each of these asserts
-  that the C library allows the object to move to, or be shared with, another
-  thread. Check that claim against the library's thread-safety contract.
+- `ty_wrapper_send_impl` / `ty_wrapper_sync_impl` and `ptr_wrapper_send_impl`
+  / `ptr_wrapper_sync_impl` narrow `unsafe_send_impl` and `unsafe_sync_impl`
+  to the impls whose `Self` is a layout newtype (`ty_wrapper`) or a pointer
+  wrapper (`ptr_wrapper`). Raw pointers, whether held by the wrapper or inside
+  the C struct, make most of these types neither `Send` nor `Sync` on their
+  own, so each impl asserts that the C library allows the object to move to,
+  or be shared with, another thread. Check that claim against the library's
+  thread-safety contract.
 
 Read these together with `ty_wrapper`; when there are no wrapper
 newtypes, zero is vacuous. The driver cannot tell a pointer to C memory from
