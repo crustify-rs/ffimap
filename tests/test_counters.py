@@ -44,10 +44,20 @@ class EmissionTests(unittest.TestCase):
     def test_thread_safety_opt_ins_are_emitted(self) -> None:
         keys, _ = _emission()
         i = keys.index("unsafe_traits")
-        names = ["unsafe_send_impl", "unsafe_sync_impl", "ty_wrapper"]
+        names = ["unsafe_send_impl", "unsafe_sync_impl", "c_type_wrapper"]
         self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
+
+    def test_c_type_borrows_split_by_target(self) -> None:
+        keys, _ = _emission()
+        i = keys.index("c_type_borrow_sanctioned")
+        names = ["c_type_borrow_sanctioned", "c_type_borrow_non_sanctioned",
+                 "c_type_borrow_opaque", "c_type_borrow_generic"]
+        self.assertEqual(keys[i:i + len(names)], names)
+        for k in names:
+            self.assertIn(k, measure.SITE_COUNTERS)
+        self.assertFalse([k for k in keys if k.startswith(("ty_wrapper", "ty_non_wrapper"))])
 
     def test_redundant_wrapper_counters_are_gone(self) -> None:
         keys, _ = _emission()
@@ -136,7 +146,7 @@ class PartitionTests(unittest.TestCase):
         src = MAIN_RS.read_text()
         self.assertNotIn("UM_SEAM_FNS", src)
         self.assertFalse([k for k in measure._COUNTS if k.endswith(("_seam", "_smell"))
-                          and not k.startswith("ty_wrapper_borrow")])
+                          and not k.startswith("c_type_borrow")])
 
     def test_raw_and_void_partitions_are_emitted(self) -> None:
         keys, _ = _emission()
@@ -149,8 +159,8 @@ class PartitionTests(unittest.TestCase):
                 self.assertIn(f"{fam}_{part}", keys)
                 self.assertIn(f"{fam}_{part}", measure.SITE_COUNTERS)
         for k in ("unsafe_fns", "unsafe_fns_pub", "unsafe_fns_priv",
-                  "ty_non_wrapper_borrow_pub_safe", "ty_non_wrapper_borrow_pub_unsafe",
-                  "ty_non_wrapper_borrow_priv_safe", "ty_non_wrapper_borrow_priv_unsafe"):
+                  "non_c_type_borrow_pub_safe", "non_c_type_borrow_pub_unsafe",
+                  "non_c_type_borrow_priv_safe", "non_c_type_borrow_priv_unsafe"):
             self.assertIn(k, keys)
 
     def test_wrapper_value_families_are_emitted(self) -> None:
@@ -158,8 +168,8 @@ class PartitionTests(unittest.TestCase):
         for fam in ("by_val", "std_owner"):
             for part in ("fn_sig_pub", "fn_sig_priv", "ty_pub_fields_pub",
                          "ty_pub_fields_priv", "ty_priv"):
-                self.assertIn(f"ty_wrapper_{fam}_{part}", keys)
-                self.assertIn(f"ty_wrapper_{fam}_{part}", measure.SITE_COUNTERS)
+                self.assertIn(f"c_type_{fam}_{part}", keys)
+                self.assertIn(f"c_type_{fam}_{part}", measure.SITE_COUNTERS)
 
     def test_ffibox_fn_and_ty_families_mirror(self) -> None:
         kinds = [k[len("fn_sig_"):-len("_pub")] for k in measure.FFIBOX_COUNTERS

@@ -86,7 +86,7 @@ crate: a `pub` item in a private module is not, unless it is re-exported, and a
   the consumer never sees. A handle that keeps its pointer in a private field
   behind safe methods therefore counts only on the backend side, while a
   `NonNull` or `AtomicPtr` on the public interface counts like a raw pointer:
-  its API is the pointer's, so using it is pointer management. `raw_ptr_has_ty_wrapper` counts the positions whose pointee is a C type that already has a
+  its API is the pointer's, so using it is pointer management. `raw_ptr_has_c_type_wrapper` counts the positions whose pointee is a C type that already has a
   wrapper. Generated bindings compiled into the crate are skipped: files under
   the build script's `OUT_DIR` and files named `bindings.rs`; bindings in a
   `-sys` crate are excluded with that crate.
@@ -137,7 +137,8 @@ types the build hands to C:
   crate (vtables, callback slots); a foreign static's own type; the type a
   pointer cast or `transmute` converts to or from `*c_void` (a payload handed
   to C, or C memory typed as Rust); and every `#[repr(C)]` type of a **sys
-  crate**.
+  crate**, and every enum without variants it declares (`pub enum git_blob
+  {}`, the opaque C type of hand-written bindings).
 - **Closure.** A field a C-reachable type holds by value or points to; either
   side of a pointer cast (`as`, `.cast()`) or `transmute` whose other side is
   C-reachable; and a local `#[repr(C)]` / `#[repr(transparent)]` type holding a
@@ -158,7 +159,7 @@ A wrapper is a struct that is either a **handle**, a `#[repr(transparent)]`
 newtype whose one non-zero-sized field is a raw pointer, `NonNull` or
 reference, or a **layout newtype**, `#[repr(transparent)]` or `#[repr(C)]`,
 holding a C-reachable type by value (local `#[repr(C)]` fields C does not
-reach are searched through). `ty_wrapper` counts the layout newtypes.
+reach are searched through). `c_type_wrapper` counts the layout newtypes.
 A local C type C reaches itself -- a hand-written mirror, a callback payload --
 is not a wrapper of anything, but its references are checked like a layout
 newtype's. How the layout newtypes relate to ffibox's `CCell` is in the
@@ -167,15 +168,24 @@ newtype's. How the layout newtypes relate to ffibox's `CCell` is in the
 Handles, newtypes over a pointer to a C object, are not counted as wrappers:
 the raw pointer a handle stores counts at its field in `raw_ptr_ty_*`, and a
 reference it hands out, through `Deref` or otherwise, in
-`ty_wrapper_borrow_non_sanctioned`.
+`c_type_borrow_non_sanctioned`.
 
 A layout newtype's memory is C's when it is reached through a C pointer, so a
 Rust reference to it asserts `noalias`, `readonly` or validity over memory C
 may write. Access goes through the handles instead.
 
-- `ty_wrapper_borrow_sanctioned` and `ty_wrapper_borrow_non_sanctioned` count
+The `c_type_*` counters below cover the **C types**: a sys crate's, the
+local `#[repr(C)]` / `#[repr(transparent)]` types C reaches, and the layout
+newtypes over them. A Rust type C reaches only as a `void *` payload, a
+callback's state say, is not one: C never reads its bytes. A C type is
+**opaque** when its values take up no bytes or there are none: an enum
+without variants, or bindgen's `struct { _unused: [u8; 0] }`. A reference
+to one covers no bytes of C's, so it asserts nothing over memory C may
+write; whether it is valid at all is the question it raises.
+
+- `c_type_borrow_sanctioned` and `c_type_borrow_non_sanctioned` count
   the borrows into C memory -- `&W` / `&mut W` (or `&[W]`, `Option<&W>`, ..),
-  W a layout newtype or a local C type -- wherever they occur:
+  W a C type that is not opaque -- wherever they occur:
   - in function signatures (the receiver included): sanctioned are the
     accessors `as_ref` / `as_mut`, which hand out borrowed handles over a
     Rust-owned value, and methods of impls of the standard value traits
@@ -190,16 +200,22 @@ may write. Access goes through the handles instead.
     (`p.as_ref()`, `NonNull::as_ref`, `slice::from_raw_parts`). Calls to the
     crate's own functions are not counted at the call site; their bodies are.
     Never sanctioned;
-  - in fields of the crate's types: a field holding such a reference, or a
-    reference to any C-reachable type (a handle over `&'a ffi::T`). Never
-    sanctioned.
+  - in fields of the crate's types: a field holding such a reference, a
+    handle over `&'a ffi::T` included. Never sanctioned.
 
   A shared `&W` over storage that holds an `UnsafeCell` is not counted: it
   asserts neither `readonly` nor `noalias`; `&mut W` still is. A
   `PhantomData<&W>` marker holds no reference and is not counted.
-  `ty_wrapper_borrow_non_sanctioned`'s target is 0.
-- `ty_wrapper_by_val_*` and `ty_wrapper_std_owner_*` count the layout newtypes
-  held by value outside ffibox's owners. `by_val` counts a newtype held
+  `c_type_borrow_non_sanctioned`'s target is 0.
+- `c_type_borrow_opaque` counts the borrows of those shapes, in any of the
+  three positions, whose `W` is an opaque C type. `c_type_borrow_generic`
+  counts the borrows a function body forms from a raw pointer, as above,
+  whose `W` is a type parameter or an associated type (`&*p` with
+  `p: *const T`, `NonNull<T::C>::as_ref`). The pass reads each generic body
+  once, not its instantiations, so it cannot tell whether `T` is a C type;
+  each site forms the reference for every `T` its callers pick.
+- `c_type_by_val_*` and `c_type_std_owner_*` count the C types, opaque ones
+  aside, held by value outside ffibox's owners. `by_val` counts one held
   directly: `Foo`, or `Foo` inside a tuple, an array or a standard value
   container (`Option`, `Result`, `Cell`, `RefCell`, `UnsafeCell`, `OnceCell`,
   `Mutex`, `RwLock`, `MaybeUninit`, `ManuallyDrop`, `Pin`). `std_owner` counts
@@ -207,25 +223,26 @@ may write. Access goes through the handles instead.
   `Pin<Box<Foo>>` and `Option<Arc<Foo>>` too). Each occurrence counts once,
   in one family. Nothing behind a reference or raw pointer counts, and no
   other type is searched: ffibox owners belong to the `--ffibox` record, and a
-  local type's fields are counted where it is declared.
+  local type's fields are counted where it is declared. The fields of a C
+  type are not counted: they are its C layout, and a layout newtype's C
+  field is its storage.
   - `_fn_sig_{pub,priv}`: parameters and returns, by the function's effective
     visibility. A constructor's `-> Self` counts. Methods implementing another
     crate's trait (`Clone::clone`) are left out.
   - `_ty_{pub_fields_pub,pub_fields_priv,priv}`: fields of the crate's structs,
     unions and enums, split as for `raw_ptr_ty_*`.
 
-  A by-value newtype is Rust-owned storage that moves, so a pointer C retained
+  A C object held by value is Rust-owned storage that moves, so a pointer C retained
   into it dangles after a move, and no owner runs its C destructor. Those are
   the cases ffibox's `CBox` and `CVal` exist for. A site is not a defect in
   itself: a plain record C never retains is sound by value. It means "check
   that C does not keep this address and that the value owns no C resources".
-- `ty_non_wrapper_borrow_{pub,priv}_{safe,unsafe}` are the counterpart: every
+- `non_c_type_borrow_{pub,priv}_{safe,unsafe}` are the counterpart: every
   `&T` / `&mut T` in a function signature (the receiver and nested references
   included), by the function's visibility and safety as for `raw_ptr_fn_*`,
-  where `T` -- or a slice's element -- is neither a layout newtype nor
-  C-reachable: `&CStr`, `&str`, `&[u8]`, `&mut Config`. These borrows stay on
-  the Rust side of the boundary. A reference to a C type itself counts in
-  neither family (see Known limitations).
+  where `T` -- or a slice's element -- is not a C type: `&CStr`, `&str`,
+  `&[u8]`, `&mut Config`. These borrows stay on the Rust side of the
+  boundary.
 - `raw_ptr_derefs_rd` and `raw_ptr_derefs_wr` count the dereferences `*p` of a
   raw pointer, decided by the operand's type, so `*` on a `Box`, a reference
   or a `Deref` impl is not one. Each falls in one of the two by what is done
@@ -245,7 +262,7 @@ may write. Access goes through the handles instead.
   crate's; so on an ffibox wrapper the two count what was written outside
   ffibox.
 
-Read these together with `ty_wrapper`; when there are no wrapper
+Read these together with `c_type_wrapper`; when there are no wrapper
 newtypes, zero is vacuous. The driver cannot tell a pointer to C memory from
 one to a Rust-owned value, so a site means "check where this pointer comes
 from".
@@ -302,7 +319,7 @@ unions and enums the crate defines, split as for `raw_ptr_ty_*`: by the type's
 visibility and, in a public type, by the field's own. They say what the
 crate's types hold, where the `fn_sig_*` families say what its functions take
 and return. Borrows of memory that is not C's are a main counter,
-`ty_non_wrapper_borrow_*`, since they do not depend on ffibox.
+`non_c_type_borrow_*`, since they do not depend on ffibox.
 
 Trait impls, counted as distinct crate-defined types per trait, so a type
 implementing `From<A>` and `From<B>` counts once for `From`:
@@ -331,7 +348,7 @@ non-ADT type, are not counted. The compiler's `TrivialClone` and
 in the source, as `[{"file": .., "count": N, "lines": [..]}]` per file. `count`
 is the number of increments in that file, so a counter's per-file counts sum to
 its value in `counts`; `lines` are the distinct lines they fell on, sorted. A
-signature position (raw/void pointer, `unsafe fn`, `ty_wrapper_borrow_*`) is
+signature position (raw/void pointer, `unsafe fn`, `c_type_borrow_*`) is
 sited at its function's signature line; a block, dereference, projection,
 reference or call at the expression. A site inside macro output
 (`define_ctype!`, `#[derive]`) is the line in the measured crate that invoked
@@ -342,14 +359,17 @@ and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
 ## Known limitations
 
 - **References into C memory the counters miss.** A reference to a field of C
-  memory whose type is not a layout newtype or local C type (`&(*p).len`, a
-  C scalar), an autoref on such a field (`(*p).field.method()` with
-  `&self`), and a reference to the C type itself (`&*p` with
-  `p: *const ffi::T`, or `NonNull<ffi::T>::as_ref`) are counted by no
-  counter, since `ty_wrapper_borrow_*` only cover wrapper types. See
+  memory whose type is not a C type (`&(*p).len`, a C scalar), and an autoref
+  on such a field (`(*p).field.method()` with `&self`), are counted by no
+  counter, since `c_type_borrow_*` only cover C types. See
   [TODO.md](TODO.md).
+- **Generic code.** Each generic body is read once, generically. A reference
+  to a type parameter counts in `c_type_borrow_generic`, whatever `T` turns
+  out to be; a `*mut T` counts as a raw-pointer position but never as a
+  `void_ptr_*` one or with a wrapper, and a generic type holding a `T` by
+  value is not a `c_type_by_val_*` position.
 - **Signatures and fields only for pointer positions.** Raw-pointer, `c_void`
-  and `ty_wrapper_borrow_*` signature counters read the parameter and return
+  and `c_type_borrow_*` signature counters read the parameter and return
   types of functions with bodies; raw-pointer and `c_void` positions also
   include struct and union fields. Raw pointers in locals, casts, closure parameters, enum variants and
   statics are not positions, and a trait method
@@ -363,5 +383,6 @@ and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
   `void *` with no visible cast in the crate, through integer round trips, or
   through a generic wrapper (`W<T>` over a C type: only declarations are read);
   and C types of a binding crate with neither a `links` key nor a `*-sys`
-  name, unless named with `--sys-crates`. Every `#[repr(C)]` type of a sys crate is
-  taken as C's, including ones C only passes by value.
+  name, unless named with `--sys-crates`. Every `#[repr(C)]` type and
+  variantless enum of a sys crate is taken as C's, including ones C only
+  passes by value.

@@ -140,7 +140,7 @@ def summarize(doc: dict) -> str:
             f"   ({c.get('unsafe_fns_pub')} pub + {c.get('unsafe_fns_priv')} private;"
             f" methods of other crates' traits excluded)",
             f"  unsafe Send/Sync     {c.get('unsafe_send_impl')} Send + {c.get('unsafe_sync_impl')} Sync",
-            f"  layout newtypes      {c.get('ty_wrapper')}",
+            f"  layout newtypes      {c.get('c_type_wrapper')}",
             f"  raw ptr positions    {sum(c.get('raw_ptr_' + k) or 0 for k in ('ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv', 'fn_pub_safe', 'fn_pub_unsafe', 'fn_priv_safe', 'fn_priv_unsafe'))}"
             f"   (pub types: {c.get('raw_ptr_ty_pub_fields_pub')} pub fields + {c.get('raw_ptr_ty_pub_fields_priv')} private fields,"
             f" private types: {c.get('raw_ptr_ty_priv')};"
@@ -154,17 +154,18 @@ def summarize(doc: dict) -> str:
             f" private types: {c.get('void_ptr_ty_priv')};"
             f" fn signatures: pub {c.get('void_ptr_fn_pub_safe')} safe + {c.get('void_ptr_fn_pub_unsafe')} unsafe,"
             f" private {c.get('void_ptr_fn_priv_safe')} safe + {c.get('void_ptr_fn_priv_unsafe')} unsafe)",
-            f"  non-wrapper borrows  {sum(c.get('ty_non_wrapper_borrow_' + k) or 0 for k in ('pub_safe', 'pub_unsafe', 'priv_safe', 'priv_unsafe'))}"
-            f"   (fn-signature references to memory that is not C's: pub {c.get('ty_non_wrapper_borrow_pub_safe')} safe"
-            f" + {c.get('ty_non_wrapper_borrow_pub_unsafe')} unsafe, private {c.get('ty_non_wrapper_borrow_priv_safe')} safe"
-            f" + {c.get('ty_non_wrapper_borrow_priv_unsafe')} unsafe)",
-            f"  borrows into C memory {(c.get('ty_wrapper_borrow_sanctioned') or 0) + (c.get('ty_wrapper_borrow_non_sanctioned') or 0)}"
-            f"   ({c.get('ty_wrapper_borrow_sanctioned')} sanctioned, {c.get('ty_wrapper_borrow_non_sanctioned')} non-sanctioned"
-            f" in signatures, bodies and fields -- target 0) over {c.get('ty_wrapper')} layout newtypes",
-            *(f"  wrapper {label:<13}{sum(c.get(f'ty_wrapper_{fam}_' + k) or 0 for k in ('fn_sig_pub', 'fn_sig_priv', 'ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv'))}"
-              f"   (fn signatures: pub {c.get(f'ty_wrapper_{fam}_fn_sig_pub')}, private {c.get(f'ty_wrapper_{fam}_fn_sig_priv')};"
-              f" pub types: {c.get(f'ty_wrapper_{fam}_ty_pub_fields_pub')} pub fields + {c.get(f'ty_wrapper_{fam}_ty_pub_fields_priv')} private fields,"
-              f" private types: {c.get(f'ty_wrapper_{fam}_ty_priv')})"
+            f"  non-C borrows        {sum(c.get('non_c_type_borrow_' + k) or 0 for k in ('pub_safe', 'pub_unsafe', 'priv_safe', 'priv_unsafe'))}"
+            f"   (fn-signature references to memory that is not C's: pub {c.get('non_c_type_borrow_pub_safe')} safe"
+            f" + {c.get('non_c_type_borrow_pub_unsafe')} unsafe, private {c.get('non_c_type_borrow_priv_safe')} safe"
+            f" + {c.get('non_c_type_borrow_priv_unsafe')} unsafe)",
+            f"  borrows into C memory {(c.get('c_type_borrow_sanctioned') or 0) + (c.get('c_type_borrow_non_sanctioned') or 0)}"
+            f"   ({c.get('c_type_borrow_sanctioned')} sanctioned, {c.get('c_type_borrow_non_sanctioned')} non-sanctioned"
+            f" in signatures, bodies and fields -- target 0; also {c.get('c_type_borrow_opaque')} of opaque C types,"
+            f" {c.get('c_type_borrow_generic')} of a type parameter)",
+            *(f"  C type {label:<14}{sum(c.get(f'c_type_{fam}_' + k) or 0 for k in ('fn_sig_pub', 'fn_sig_priv', 'ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv'))}"
+              f"   (fn signatures: pub {c.get(f'c_type_{fam}_fn_sig_pub')}, private {c.get(f'c_type_{fam}_fn_sig_priv')};"
+              f" pub types: {c.get(f'c_type_{fam}_ty_pub_fields_pub')} pub fields + {c.get(f'c_type_{fam}_ty_pub_fields_priv')} private fields,"
+              f" private types: {c.get(f'c_type_{fam}_ty_priv')})"
               for label, fam in (("by value", "by_val"), ("in std owner", "std_owner"))),
             f"  own Drop / Clone     {c.get('drop_impl')} types with an impl Drop, {c.get('clone_impl')} with a hand-written Clone",
             f"  ffi calls            {c.get('ffi_calls')}",
