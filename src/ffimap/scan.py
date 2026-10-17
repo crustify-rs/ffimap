@@ -162,6 +162,7 @@ def summarize(doc: dict) -> str:
             f"   ({c.get('c_type_borrow_sanctioned')} sanctioned, {c.get('c_type_borrow_non_sanctioned')} non-sanctioned"
             f" in signatures, bodies and fields -- target 0; also {c.get('c_type_borrow_opaque')} of opaque C types,"
             f" {c.get('c_type_borrow_generic')} of a type parameter)",
+            f"  slices from raw ptrs {c.get('raw_ptr_as_slice_borrow')}   (&[T], &str, &CStr formed from a raw pointer)",
             *(f"  C type {label:<14}{sum(c.get(f'c_type_{fam}_' + k) or 0 for k in ('fn_sig_pub', 'fn_sig_priv', 'ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv'))}"
               f"   (fn signatures: pub {c.get(f'c_type_{fam}_fn_sig_pub')}, private {c.get(f'c_type_{fam}_fn_sig_priv')};"
               f" pub types: {c.get(f'c_type_{fam}_ty_pub_fields_pub')} pub fields + {c.get(f'c_type_{fam}_ty_pub_fields_priv')} private fields,"

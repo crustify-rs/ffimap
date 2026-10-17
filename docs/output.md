@@ -214,6 +214,15 @@ write; whether it is valid at all is the question it raises.
   `p: *const T`, `NonNull<T::C>::as_ref`). The pass reads each generic body
   once, not its instantiations, so it cannot tell whether `T` is a C type;
   each site forms the reference for every `T` its callers pick.
+- `raw_ptr_as_slice_borrow` counts the references a function body forms from
+  a raw pointer, as above, to a slice-like target over a type that is not a
+  C type: `[T]`, `[T; N]`, `str`, or a standard byte string (`CStr`, `OsStr`,
+  `Path`). `CStr::from_ptr(p)`, `slice::from_raw_parts(p, n)` with `p: *const
+  u8`, `&*ptr::slice_from_raw_parts(p, n)` and `&(*p).name` of an array field
+  are each one. A slice of a C type counts in `c_type_borrow_*` instead. Each
+  asserts that C neither frees nor changes those bytes for the reference's
+  lifetime: a C string or buffer C releases or rewrites is a use-after-free
+  or a write under a shared borrow.
 - `c_type_by_val_*` and `c_type_std_owner_*` count the C types, opaque ones
   aside, held by value outside ffibox's owners. `by_val` counts one held
   directly: `Foo`, or `Foo` inside a tuple, an array or a standard value
@@ -359,7 +368,8 @@ and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
 ## Known limitations
 
 - **References into C memory the counters miss.** A reference to a field of C
-  memory whose type is not a C type (`&(*p).len`, a C scalar), and an autoref
+  memory whose type is neither a C type nor slice-like (`&(*p).len`, a C
+  scalar), and an autoref
   on such a field (`(*p).field.method()` with `&self`), are counted by no
   counter, since `c_type_borrow_*` only cover C types. See
   [TODO.md](TODO.md).
