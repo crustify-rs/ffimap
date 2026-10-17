@@ -8,8 +8,8 @@ campaign found it.
 
 | Example | Wraps | Written by | Branch | Scanned commit |
 |---|---|---|---|---|
-| [`ffmpeg/ffimap.json`](ffmpeg/ffimap.json) | FFmpeg (`libavutil`) | crustify | `crustify/campaigns/20261005` | `164ee2717c` |
-| [`libgit2/ffimap.json`](libgit2/ffimap.json) | libgit2 | crustify | `crustify/campaigns/20261008-170008` | `7109066913` |
+| [`ffmpeg-bindings/ffimap.json`](ffmpeg-bindings/ffimap.json) | FFmpeg (`libavutil`) | crustify | `crustify/campaigns/20261005` | `164ee2717c` |
+| [`libgit2-bindings/ffimap.json`](libgit2-bindings/ffimap.json) | libgit2 | crustify | `crustify/campaigns/20261008-170008` | `7109066913` |
 | [`git2-rs/ffimap.json`](git2-rs/ffimap.json) | libgit2 | hand-written (git2 0.21.0) | `crustify/campaign` of the audit | `cbc7a16b58`, upstream `db31ed4` |
 
 `crate_path` is the workspace's path in the campaign's container. git2-rs
