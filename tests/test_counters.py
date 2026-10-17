@@ -77,14 +77,14 @@ class FfiboxTests(unittest.TestCase):
     def test_breakdowns_merge_across_crates_and_skip_sys(self) -> None:
         line = lambda crate, n: json.dumps({
             "crate": crate,
-            "ffibox": {"fn_sig_ffibox_owner_pub": {"CBox": n}, "drop_impl": {"crate::Owner": 1}},
+            "ffibox": {"fn_sig_ffibox_owner_pub": {"CBox": n}, "ffibox_impl_manual": {"CDrop": 1}},
             "sites": {"fn_sig_ffibox_owner_pub": [{"file": "a.rs", "count": n, "lines": [1]}]}})
         _, sites, seen, ffibox = measure._collect_emissions(
             "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
         # an ffibox line is not a metrics line
         self.assertEqual(seen, 0)
         self.assertEqual(ffibox["fn_sig_ffibox_owner_pub"], {"CBox": 5})
-        self.assertEqual(ffibox["drop_impl"], {"crate::Owner": 2})
+        self.assertEqual(ffibox["ffibox_impl_manual"], {"CDrop": 2})
         self.assertEqual(ffibox["fn_sig_ffibox_handle_priv"], {})
         self.assertEqual(sum(r["count"] for r in sites["fn_sig_ffibox_owner_pub"]), 5)
 

@@ -165,6 +165,7 @@ def summarize(doc: dict) -> str:
               f" private types: {c.get(f'ty_wrapper_{fam}_ty_priv')})"
               for label, fam in (("by value", "by_val"), ("in std owner", "std_owner"))),
             f"  Deref on wrapper     {c.get('ty_wrapper_deref_impl')} Deref + {c.get('ty_wrapper_deref_mut_impl')} DerefMut   (target 0)",
+            f"  own Drop / Clone     {c.get('drop_impl')} types with an impl Drop, {c.get('clone_impl')} with a hand-written Clone",
             f"  ffi calls            {c.get('ffi_calls')}",
         ]
     else:
@@ -201,8 +202,6 @@ def summarize(doc: dict) -> str:
             f"  CCell vs shape       {n['ffibox_ccell_not_layout']} CCell without layout shape,"
             f" {n['ffibox_layout_not_ccell']} layout without CCell"
             f"   ({keys('ffibox_ccell_not_layout', 'ffibox_layout_not_ccell')})",
-            f"  own Drop impls       {n['drop_impl']}   ({keys('drop_impl')})",
-            f"  own Clone impls      {n['clone_impl']}   ({keys('clone_impl')})",
         ]
     elif "ffibox" in doc:
         lines.append("  ffibox               unavailable — no counts")

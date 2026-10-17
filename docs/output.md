@@ -237,6 +237,14 @@ may write. Access goes through the handles instead.
   neither `Send` nor `Sync` on their own, so each impl asserts that the C
   library allows the object to move to, or be shared with, another thread.
   Check that claim against the library's thread-safety contract.
+- `drop_impl` counts the crate-defined types with an `impl Drop`, and
+  `clone_impl` those with a hand-written, not derived, `impl Clone`; one per
+  type. Each is an owner or a copy written by hand: a decision about how
+  a C object is torn down or duplicated, which deserves a look. A type that
+  owns through another crate's owner (`Box`, or ffibox's `CBox` / `CArc` /
+  `CVec` and its clone policies) has neither, since those impls are that
+  crate's; so on an ffibox wrapper the two count what was written outside
+  ffibox.
 
 Read these together with `ty_wrapper`; when there are no wrapper
 newtypes, zero is vacuous. The driver cannot tell a pointer to C memory from
@@ -269,8 +277,8 @@ raw pointers (`Option<CBox<T>>` is one `CBox`):
   receiver counts here when it is such a handle, since that is where a C
   function's borrowed `T *` lands.
 - `fn_sig_non_ffibox_owner_*`: one of the crate's own owners, keyed by type: a
-  crate-defined type with an `impl Drop` that no ffibox macro emitted (the
-  `drop_impl` types). Together with `fn_sig_ffibox_*` it says how much of the
+  crate-defined type with an `impl Drop`, one of the types the main counter
+  `drop_impl` counts. Together with `fn_sig_ffibox_*` it says how much of the
   ownership an API hands out goes through ffibox and how much does not.
   (`fn_sig_ffibox_owner_*` is its ffibox counterpart.)
 - `fn_sig_non_ffibox_handle_*`: one of the crate's other handles, keyed by
@@ -312,14 +320,6 @@ implementing `From<A>` and `From<B>` counts once for `From`:
   keyed by type, that implement `CCell` without being layout newtypes by shape
   (a wrapper without the layout it claims), and the layout newtypes that do
   not implement `CCell` (wrappers written outside ffibox).
-- `drop_impl`: crate-defined types with an `impl Drop` that no ffibox macro
-  emitted, keyed by type. Each is an owner written instead of using ffibox's
-  `CBox` / `CArc` / `CVec`, so it deserves a look.
-- `clone_impl`: crate-defined types with a hand-written `impl Clone`, neither
-  derived nor emitted by an ffibox macro, keyed by type. A derived `Clone`
-  copies field by field; a hand-written one is a decision about how the C
-  object is copied, which ffibox's clone policies (`CDupClone`, `CRefClone`,
-  ..) otherwise make.
 
 Impls for a type the crate does not define, or for a reference or other
 non-ADT type, are not counted. The compiler's `TrivialClone` and

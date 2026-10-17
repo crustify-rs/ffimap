@@ -1219,6 +1219,13 @@ struct Counts {
     // Never sanctioned: target 0.
     ty_wrapper_deref_impl: u64,
     ty_wrapper_deref_mut_impl: u64,
+    // Crate-defined types with an `impl Drop` (`drop_impl`) or a hand-written
+    // `impl Clone`, not derived (`clone_impl`), one per type: each a decision
+    // about how a value is torn down or copied, worth checking against the C
+    // object it may hold. A type that owns through another crate's owner
+    // (`Box`, ffibox's `CBox`) has neither: that owner's impls are its crate's.
+    drop_impl: u64,
+    clone_impl: u64,
     // Calls to a foreign item -- one declared in an `extern` block
     // (`is_foreign_item`), which is the FFI boundary itself and is
     // crate-agnostic: a bindgen `*-sys` binding, `libc`, or a local
@@ -1541,7 +1548,7 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
 ///    method's receiver counts here when it is such a handle: that is where a
 ///    C function's borrowed `T *` lands.
 ///  - `fn_sig_non_ffibox_owner_*`: likewise for the crate's own owners, the types
-///    with an `impl Drop` no ffibox macro emitted (`drop_impl`), keyed by type:
+///    with an `impl Drop` (the main pass's `drop_impl`), keyed by type:
 ///    ownership the API hands out outside ffibox's `CBox` / `CArc` / `CVec`.
 ///  - `fn_sig_non_ffibox_handle_*`: likewise for the crate's other handles,
 ///    types that point at a C object (`holds_c_pointer`: a raw pointer,
@@ -1568,12 +1575,6 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
 ///    shape (`structural_wrapper`) -- a wrapper without the layout it claims --
 ///    and the layout newtypes that do not implement `CCell` -- wrappers written
 ///    outside ffibox.
-///  - `drop_impl`: crate-defined types with an `impl Drop` no ffibox macro
-///    emitted, keyed by type: owners written instead of ffibox's `CBox` /
-///    `CArc` / `CVec`.
-///  - `clone_impl`: crate-defined types with a hand-written `impl Clone`
-///    (neither derived nor emitted by an ffibox macro), keyed by type: copies
-///    written instead of ffibox's clone policies.
 const FFIBOX_COUNTERS: &[&str] = &[
     "fn_sig_ffibox_owner_pub",
     "fn_sig_ffibox_owner_priv",
@@ -1601,8 +1602,6 @@ const FFIBOX_COUNTERS: &[&str] = &[
     "ffibox_define_ctype_manual",
     "ffibox_ccell_not_layout",
     "ffibox_layout_not_ccell",
-    "drop_impl",
-    "clone_impl",
 ];
 
 /// Compiler-emitted marker impls a `#[derive]` adds beside the trait asked
@@ -1775,8 +1774,8 @@ fn ffibox_positions<'tcx>(
     }
 }
 
-/// The crate's own owners: local types with an `impl Drop` that no ffibox
-/// macro emitted (the `drop_impl` set).
+/// The crate's own owners: local types with an `impl Drop` (the types the
+/// main pass's `drop_impl` counts) that no ffibox macro emitted.
 fn own_owners(tcx: TyCtxt<'_>) -> HashSet<DefId> {
     let mut out = HashSet::new();
     for ld in tcx.hir_crate_items(()).definitions() {
@@ -1940,20 +1939,6 @@ fn ffibox_json(tcx: TyCtxt<'_>, krate: rustc_span::Symbol) -> String {
                         let c = if by_macro { "ffibox_define_ctype_macro" } else { "ffibox_define_ctype_manual" };
                         ffibox_bump(&mut m, &mut sites, c, tcx.def_path_str(ty_did), site);
                     }
-                    continue;
-                }
-                // A crate type's own `Drop` is an owner written instead of
-                // ffibox's; one an ffibox macro emitted is ffibox's design.
-                if !by_macro && tcx.crate_name(tr.krate).as_str() == "core" {
-                    match name.as_str() {
-                        "Drop" => ffibox_bump(&mut m, &mut sites, "drop_impl", tcx.def_path_str(ty_did), site),
-                        // A `#[derive(Clone)]` copies field by field and is not a
-                        // decision about the C object; a hand-written one is.
-                        "Clone" if !tcx.is_automatically_derived(did) => {
-                            ffibox_bump(&mut m, &mut sites, "clone_impl", tcx.def_path_str(ty_did), site)
-                        }
-                        _ => {}
-                    }
                 }
             }
             _ => {}
@@ -2043,6 +2028,8 @@ impl Callbacks for MetricsCallbacks {
 
         let mut c = Counts::default();
         let mut sites = Sites::default();
+        // (trait, type): `impl Clone for Foo<A>` and `for Foo<B>` are one type.
+        let mut own_impls: HashSet<(DefId, DefId)> = HashSet::new();
         // Every body owner (fn, closure, const/static initializer, ...). Each is
         // a separate typeck context; intravisit does not descend into nested
         // bodies, so visiting every owner covers the whole crate exactly once.
@@ -2131,6 +2118,23 @@ impl Callbacks for MetricsCallbacks {
                             };
                             if let Some(slot) = slot {
                                 *slot += 1;
+                                sites.add(k, counter_site(tcx, tcx.def_span(did)));
+                            }
+                        }
+                    }
+                    // A crate type's own `Drop` / hand-written `Clone`. A
+                    // `#[derive(Clone)]` copies field by field and decides
+                    // nothing about a C object.
+                    if let ty::TyKind::Adt(d, _) = tcx.type_of(did).instantiate_identity().skip_norm_wip().kind() {
+                        let tr = tcx.impl_trait_ref(did).skip_binder().def_id;
+                        let k = match tcx.item_name(tr).as_str() {
+                            "Drop" => Some("drop_impl"),
+                            "Clone" if !tcx.is_automatically_derived(did) => Some("clone_impl"),
+                            _ => None,
+                        };
+                        if let Some(k) = k {
+                            if d.did().is_local() && is_std_crate(tcx, tr) && own_impls.insert((tr, d.did())) {
+                                *if k == "drop_impl" { &mut c.drop_impl } else { &mut c.clone_impl } += 1;
                                 sites.add(k, counter_site(tcx, tcx.def_span(did)));
                             }
                         }
@@ -2361,8 +2365,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper_send_impl\":{},\"ty_wrapper_sync_impl\":{},\"ty_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"ty_wrapper_deref_impl\":{},\"ty_wrapper_deref_mut_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper_send_impl, c.ty_wrapper_sync_impl, c.ty_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.ty_wrapper_deref_impl, c.ty_wrapper_deref_mut_impl, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper_send_impl\":{},\"ty_wrapper_sync_impl\":{},\"ty_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"ty_wrapper_deref_impl\":{},\"ty_wrapper_deref_mut_impl\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper_send_impl, c.ty_wrapper_sync_impl, c.ty_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.ty_wrapper_deref_impl, c.ty_wrapper_deref_mut_impl, c.drop_impl, c.clone_impl, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue
