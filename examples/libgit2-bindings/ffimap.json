@@ -25,8 +25,6 @@
     "unsafe_traits": 1,
     "unsafe_send_impl": 73,
     "unsafe_sync_impl": 71,
-    "ty_wrapper_send_impl": 26,
-    "ty_wrapper_sync_impl": 25,
     "ty_wrapper": 72,
     "ty_wrapper_borrow_sanctioned": 159,
     "ty_wrapper_borrow_non_sanctioned": 0,
@@ -64,8 +62,6 @@
     "ty_field_proj_wrapped": 338,
     "ty_field_proj_outside_impl": 4,
     "ty_field_borrow_wrapped": 0,
-    "ty_wrapper_deref_impl": 0,
-    "ty_wrapper_deref_mut_impl": 0,
     "drop_impl": 6,
     "clone_impl": 7,
     "ffi_calls": 530

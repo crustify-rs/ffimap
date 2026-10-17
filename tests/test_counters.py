@@ -44,19 +44,17 @@ class EmissionTests(unittest.TestCase):
     def test_thread_safety_opt_ins_are_emitted(self) -> None:
         keys, _ = _emission()
         i = keys.index("unsafe_traits")
-        names = ["unsafe_send_impl", "unsafe_sync_impl",
-                 "ty_wrapper_send_impl", "ty_wrapper_sync_impl", "ty_wrapper"]
+        names = ["unsafe_send_impl", "unsafe_sync_impl", "ty_wrapper"]
         self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
 
-    def test_deref_impls_on_layout_wrappers(self) -> None:
+    def test_redundant_wrapper_counters_are_gone(self) -> None:
         keys, _ = _emission()
-        self.assertNotIn("deref_impl_on_wrapper", keys)
+        for k in ("deref_impl_on_wrapper", "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
+                  "ty_wrapper_send_impl", "ty_wrapper_sync_impl"):
+            self.assertNotIn(k, keys)
         self.assertFalse([k for k in keys if k.startswith("ptr_wrapper")])
-        for k in ("ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl"):
-            self.assertIn(k, keys)
-            self.assertIn(k, measure.SITE_COUNTERS)
 
     def test_new_counts_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(

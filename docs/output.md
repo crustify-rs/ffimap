@@ -57,7 +57,11 @@ crate: a `pub` item in a private module is not, unless it is re-exported, and a
 - `unsafe_send_impl` and `unsafe_sync_impl` count the `unsafe impl Send` and
   `unsafe impl Sync` among `unsafe_impls`: every type the crate opts into
   thread safety by assertion instead of earning it from its fields. A negative
-  impl (`impl !Send`) is not unsafe and is not counted.
+  impl (`impl !Send`) is not unsafe and is not counted. Each impl asserts that
+  a value may move to, or be shared with, another thread; for a type holding
+  a C object, that is the C library's to allow, so check it against the
+  library's thread-safety contract. A wrong one is a data race reachable from
+  safe code.
 - Every raw-pointer position falls in exactly one of seven counters, by where
   it sits. A position is a `*const T` / `*mut T`, a `NonNull<T>`, which is a
   `*const T` that is never null, or an `AtomicPtr<T>`, a `*mut T` behind an
@@ -176,7 +180,9 @@ may write. Access goes through the handles instead.
     accessors `as_ref` / `as_mut`, which hand out borrowed handles over a
     Rust-owned value, and methods of impls of the standard value traits
     `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash` and `Debug`,
-    derived or not; every other position is non-sanctioned;
+    derived or not; every other position is non-sanctioned, the `&self` /
+    `&mut self` of an `impl Deref` / `DerefMut` on a layout newtype included,
+    which turns every `*w` and auto-deref into a reference to the C object;
   - in function bodies: an expression that forms such a reference from a raw
     pointer -- `&*p`, `&mut *p`, `&(*p).f` (casts included), an autoref through
     `*p` for a `&self` method, or a call to a function from another crate that
@@ -226,17 +232,6 @@ may write. Access goes through the handles instead.
   `&(*p).field` / `&mut (*p).field` among them; raw borrows (`&raw const`,
   `addr_of!`) are not counted.
 
-- `ty_wrapper_deref_impl` / `ty_wrapper_deref_mut_impl` count the impls of
-  `core::ops::Deref` / `DerefMut` whose `Self` is a layout newtype. Such an
-  impl turns every `*w` and auto-deref into a reference to its target,
-  typically the C object, outside the handles; `DerefMut` hands out `&mut`.
-  Nothing is sanctioned: target 0 for both.
-- `ty_wrapper_send_impl` / `ty_wrapper_sync_impl` narrow `unsafe_send_impl`
-  and `unsafe_sync_impl` to the impls whose `Self` is a layout newtype
-  (`ty_wrapper`). Raw pointers inside the C struct make most of these types
-  neither `Send` nor `Sync` on their own, so each impl asserts that the C
-  library allows the object to move to, or be shared with, another thread.
-  Check that claim against the library's thread-safety contract.
 - `drop_impl` counts the crate-defined types with an `impl Drop`, and
   `clone_impl` those with a hand-written, not derived, `impl Clone`; one per
   type. Each is an owner or a copy written by hand: a decision about how
