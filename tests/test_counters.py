@@ -53,7 +53,7 @@ class EmissionTests(unittest.TestCase):
         keys, _ = _emission()
         i = keys.index("c_type_borrow_sanctioned")
         names = ["c_type_borrow_sanctioned", "c_type_borrow_non_sanctioned",
-                 "c_type_borrow_opaque", "c_type_borrow_generic"]
+                 "c_type_borrow_opaque", "c_type_borrow_generic", "raw_ptr_as_slice_borrow"]
         self.assertEqual(keys[i:i + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)

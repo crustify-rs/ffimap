@@ -33,6 +33,7 @@
     "c_type_borrow_non_sanctioned": 37,
     "c_type_borrow_opaque": 105,
     "c_type_borrow_generic": 3,
+    "raw_ptr_as_slice_borrow": 47,
     "c_type_by_val_fn_sig_pub": 128,
     "c_type_by_val_fn_sig_priv": 5,
     "c_type_by_val_ty_pub_fields_pub": 1,

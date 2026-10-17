@@ -169,6 +169,25 @@ fn c_ref_kind<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Option<CRef> {
     }
 }
 
+/// True if `t` is a reference to a slice-like target -- `[T]`, `[T; N]`, `str`,
+/// or a standard byte string over one (`CStr`, `OsStr`, `Path`) -- or holds one
+/// (`Option<&CStr>`, `Result<&str, _>`).
+fn holds_slice_ref<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
+    match t.kind() {
+        ty::TyKind::Ref(_, p, _) => match p.kind() {
+            ty::TyKind::Slice(_) | ty::TyKind::Array(..) | ty::TyKind::Str => true,
+            ty::TyKind::Adt(d, _) => {
+                is_std_crate(tcx, d.did()) && matches!(tcx.item_name(d.did()).as_str(), "CStr" | "OsStr" | "Path")
+            }
+            _ => false,
+        },
+        ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "PhantomData" => false,
+        ty::TyKind::Adt(_, args) => args.types().any(|a| holds_slice_ref(tcx, a)),
+        ty::TyKind::Tuple(tys) => tys.iter().any(|a| holds_slice_ref(tcx, a)),
+        _ => false,
+    }
+}
+
 /// The strongest `c_ref_kind` among the references `t` holds: itself, or one
 /// nested in a reference, generic argument, tuple or array (`Option<&W>`).
 fn c_refs_in<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Option<CRef> {
@@ -1179,6 +1198,11 @@ struct Counts {
     // a raw pointer in a body, of a type parameter or associated type.
     c_type_borrow_opaque: u64,
     c_type_borrow_generic: u64,
+    // References to a slice-like target -- `[T]`, `[T; N]`, `str`, `CStr`,
+    // `OsStr`, `Path` -- over a type that is not a C type, formed from a raw
+    // pointer in a body: `CStr::from_ptr(p)`, `slice::from_raw_parts(p, n)`,
+    // `&*slice_ptr`, `&(*p).name` of an array field.
+    raw_ptr_as_slice_borrow: u64,
     // Layout newtypes held by VALUE on the crate's surface, outside ffibox
     // owners: `by_val` directly (`Foo`, `Option<Foo>`, `(Foo, u8)`, `[Foo; N]`,
     // `Cell<Foo>`, ..), `std_owner` under a Rust heap owner (`Box<Foo>`,
@@ -1413,6 +1437,24 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
         }
     }
 
+    /// A reference formed from a raw pointer at `e`, of type `t`: into its
+    /// `c_type_borrow_*` counter, or `raw_ptr_as_slice_borrow` for a slice-like
+    /// one over another type. `nested` looks into `Option<&T>` and the like, for
+    /// a call's result. True when counted.
+    fn raw_formed_ref(&mut self, e: &'tcx hir::Expr<'tcx>, t: Ty<'tcx>, nested: bool) -> bool {
+        let kind = if nested { c_refs_in(self.tcx, t) } else { c_ref_kind(self.tcx, t) };
+        if let Some(k) = kind {
+            self.body_ref(e, k);
+            return true;
+        }
+        let slice = if nested { holds_slice_ref(self.tcx, t) } else { matches!(t.kind(), ty::TyKind::Ref(..)) && holds_slice_ref(self.tcx, t) };
+        if slice {
+            self.c.raw_ptr_as_slice_borrow += 1;
+            self.sites.add("raw_ptr_as_slice_borrow", counter_site(self.tcx, e.span));
+        }
+        slice
+    }
+
     fn body_ref(&mut self, e: &'tcx hir::Expr<'tcx>, kind: CRef) {
         let (slot, k) = match kind {
             CRef::Sized => (&mut self.c.c_type_borrow_non_sanctioned, "c_type_borrow_non_sanctioned"),
@@ -1429,8 +1471,7 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
         match e.kind {
             // `&*p`, `&mut *p`, `&(*p).f`
             hir::ExprKind::AddrOf(hir::BorrowKind::Ref, _, operand) if self.raw_based_place(operand) => {
-                if let Some(k) = c_ref_kind(tcx, self.typeck.expr_ty(e)) {
-                    self.body_ref(e, k);
+                if self.raw_formed_ref(e, self.typeck.expr_ty(e), false) {
                     return;
                 }
             }
@@ -1443,8 +1484,7 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
                 if callee.is_some_and(|d| !d.is_local())
                     && args.iter().any(|a| is_raw_or_non_null(tcx, self.typeck.expr_ty_adjusted(a)))
                 {
-                    if let Some(k) = c_refs_in(tcx, self.typeck.expr_ty(e)) {
-                        self.body_ref(e, k);
+                    if self.raw_formed_ref(e, self.typeck.expr_ty(e), true) {
                         return;
                     }
                 }
@@ -1456,8 +1496,7 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
                         .chain(args.iter())
                         .any(|a| is_raw_or_non_null(tcx, self.typeck.expr_ty(a)))
                 {
-                    if let Some(k) = c_refs_in(tcx, self.typeck.expr_ty(e)) {
-                        self.body_ref(e, k);
+                    if self.raw_formed_ref(e, self.typeck.expr_ty(e), true) {
                         return;
                     }
                 }
@@ -1467,12 +1506,10 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
         // an autoref through `*p`: `(*p).method()` with `&self` on the wrapper
         if self.raw_based_place(e) {
             let borrow = self.typeck.expr_adjustments(e).iter().find_map(|a| {
-                matches!(a.kind, rustc_middle::ty::adjustment::Adjust::Borrow(_))
-                    .then(|| c_ref_kind(tcx, a.target))
-                    .flatten()
+                matches!(a.kind, rustc_middle::ty::adjustment::Adjust::Borrow(_)).then_some(a.target)
             });
-            if let Some(k) = borrow {
-                self.body_ref(e, k);
+            if let Some(t) = borrow {
+                self.raw_formed_ref(e, t, false);
             }
         }
     }
@@ -2371,8 +2408,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_wrapper\":{},\"c_type_borrow_sanctioned\":{},\"c_type_borrow_non_sanctioned\":{},\"c_type_borrow_opaque\":{},\"c_type_borrow_generic\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_wrapper, c.c_type_borrow_sanctioned, c.c_type_borrow_non_sanctioned, c.c_type_borrow_opaque, c.c_type_borrow_generic, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_wrapper\":{},\"c_type_borrow_sanctioned\":{},\"c_type_borrow_non_sanctioned\":{},\"c_type_borrow_opaque\":{},\"c_type_borrow_generic\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_wrapper, c.c_type_borrow_sanctioned, c.c_type_borrow_non_sanctioned, c.c_type_borrow_opaque, c.c_type_borrow_generic, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue
