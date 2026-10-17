@@ -8,9 +8,10 @@
 //!   * `unsafe_blocks`        - number of `unsafe { ... }` blocks
 //!   * `unsafe_block_stmts`   - statements lexically inside unsafe blocks
 //!   * `unsafe_block_lines`   - source lines spanned by unsafe blocks (outermost)
-//!   * `raw_ptr_derefs`       - dereferences `*p` where `p: *const T | *mut T`
+//!   * `raw_ptr_derefs_{rd,wr}` - dereferences `*p` where `p: *const T | *mut T`
 //!                              (decided by the *type* of the operand via typeck,
-//!                              so `*Box`/`*&`/`Deref` impls are NOT counted)
+//!                              so `*Box`/`*&`/`Deref` impls are NOT counted),
+//!                              by whether the place is written
 //!   * `raw_ptr_derefs_outside_impl` - of those, the subset outside any
 //!                              `impl`/trait body (port-body raw access vs. the
 //!                              sanctioned accessor/seam centralisation)
@@ -412,15 +413,6 @@ fn raw_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut Vec<Ty<'tcx>>) {
 /// True if `p` (a pointee) is `c_void`.
 fn is_c_void(tcx: TyCtxt<'_>, p: Ty<'_>) -> bool {
     matches!(p.kind(), ty::TyKind::Adt(def, _) if tcx.item_name(def.did()).as_str() == "c_void")
-}
-
-/// True if the pointee `p` is a C type that has a wrapper
-/// (i.e. a safe wrapper exists for it) — or is itself such a wrapper.
-fn pointee_has_wrapper(tcx: TyCtxt<'_>, p: Ty<'_>, wrapped_c: &HashSet<DefId>) -> bool {
-    match p.kind() {
-        ty::TyKind::Adt(def, _) => wrapped_c.contains(&def.did()) || is_wrapper(tcx, def.did()),
-        _ => false,
-    }
 }
 
 /// The wrapper inventory of the current crate: `wrapper ADT -> the C types it
@@ -1192,8 +1184,13 @@ struct Counts {
     // of those positions, the ones whose pointee is a C type with a wrapper
     // (`*mut ffi::git_oid` where `GitOid` exists)
     raw_ptr_has_ty_wrapper: u64,
-    raw_ptr_derefs: u64,
-    raw_ptr_derefs_outside_impl: u64, // ...of those, the subset NOT in any impl/trait body
+    // Dereferences `*p` of a raw pointer, by what is done with the place `*p`
+    // (or a field or index below it): `_wr` when it is assigned (`=`, `op=`)
+    // or borrowed mutably (`&mut`, `&raw mut`, a `&mut self` autoref), `_rd`
+    // otherwise. `*(*p).next = x` is a read of `(*p).next` and a write.
+    raw_ptr_derefs_rd: u64,
+    raw_ptr_derefs_wr: u64,
+    raw_ptr_derefs_outside_impl: u64, // ...of both, the subset NOT in any impl/trait body
     // the `*c_void` positions among them, partitioned the same way:
     // void_ptr_ty_pub_fields_{pub,priv}, void_ptr_ty_priv,
     // void_ptr_fn_{pub,priv}_{safe,unsafe}
@@ -1204,13 +1201,6 @@ struct Counts {
     void_ptr_fn_pub_unsafe: u64,
     void_ptr_fn_priv_safe: u64,
     void_ptr_fn_priv_unsafe: u64,
-    // `(*p).field` where `p: *C` and `C` has a wrapper (bypasses the
-    // accessor): total, and the subset outside any impl/trait (the smell).
-    ty_field_proj_wrapped: u64,
-    ty_field_proj_outside_impl: u64,
-    // `&(*p).field` / `&mut (*p).field` where `p: *C` and `C` has a wrapper --
-    // a reference one level down into memory C may write. Should be 0.
-    ty_field_borrow_wrapped: u64,
     // Crate-defined types with an `impl Drop` (`drop_impl`) or a hand-written
     // `impl Clone`, not derived (`clone_impl`), one per type: each a decision
     // about how a value is torn down or copied, worth checking against the C
@@ -1323,7 +1313,6 @@ struct BodyVisitor<'a, 'tcx> {
     in_wrapper: bool, // this body is inside an `impl <wrapper T>`
     in_ffi: bool,     // this body IS / is inside the C-ABI boundary
     in_impl: bool,    // this body is inside any impl/trait
-    wrapped_c: &'a HashSet<DefId>,
     c: &'a mut Counts,
     sites: &'a mut Sites,
 }
@@ -1338,6 +1327,36 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
                 hir::ExprKind::Unary(hir::UnOp::Deref, inner) => {
                     return self.typeck.expr_ty_adjusted(inner).is_raw_ptr();
                 }
+                _ => return false,
+            }
+        }
+    }
+
+    /// Is the place the raw-pointer dereference `e` (`*p`) begins written:
+    /// it, or a field or index below it, is assigned (`=`, `op=`), borrowed
+    /// mutably (`&mut`, `&raw mut` / `addr_of_mut!`), or auto-borrowed mutably
+    /// (a `&mut self` method, an `IndexMut`)?
+    fn place_written(&self, e: &'tcx hir::Expr<'tcx>) -> bool {
+        let mut cur = e;
+        loop {
+            let mut_borrow = self.typeck.expr_adjustments(cur).iter().any(|a| {
+                matches!(a.kind, rustc_middle::ty::adjustment::Adjust::Borrow(_))
+                    && matches!(a.target.kind(), ty::TyKind::Ref(_, _, m) | ty::TyKind::RawPtr(_, m) if m.is_mut())
+            });
+            if mut_borrow {
+                return true;
+            }
+            let hir::Node::Expr(parent) = self.tcx.parent_hir_node(cur.hir_id) else {
+                return false;
+            };
+            match parent.kind {
+                hir::ExprKind::Field(base, _) | hir::ExprKind::Index(base, _, _) if base.hir_id == cur.hir_id => {
+                    cur = parent
+                }
+                hir::ExprKind::Assign(lhs, _, _) | hir::ExprKind::AssignOp(_, lhs, _) => {
+                    return lhs.hir_id == cur.hir_id;
+                }
+                hir::ExprKind::AddrOf(_, m, _) => return m.is_mut(),
                 _ => return false,
             }
         }
@@ -1471,47 +1490,19 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
             // `*operand` where operand is a raw pointer (type-decided)
             hir::ExprKind::Unary(hir::UnOp::Deref, inner) => {
                 if self.typeck.expr_ty(inner).is_raw_ptr() {
-                    self.c.raw_ptr_derefs += 1;
-                    self.sites.add("raw_ptr_derefs", counter_site(self.tcx, e.span));
+                    let (k, slot) = if self.place_written(e) {
+                        ("raw_ptr_derefs_wr", &mut self.c.raw_ptr_derefs_wr)
+                    } else {
+                        ("raw_ptr_derefs_rd", &mut self.c.raw_ptr_derefs_rd)
+                    };
+                    *slot += 1;
+                    self.sites.add(k, counter_site(self.tcx, e.span));
                     // The actionable split: derefs in wrapper accessor / seam
                     // bodies (inside an impl) are the sanctioned centralisation;
                     // those outside any impl are port-body raw access.
                     if !self.in_impl {
                         self.c.raw_ptr_derefs_outside_impl += 1;
                         self.sites.add("raw_ptr_derefs_outside_impl", counter_site(self.tcx, e.span));
-                    }
-                }
-            }
-            // `(*p).field` where `p: *C` and `C` has a wrapper (also covers the
-            // `addr_of!((*p).field)` form, whose operand IS this field expr).
-            hir::ExprKind::Field(base, _) => {
-                if let hir::ExprKind::Unary(hir::UnOp::Deref, inner) = base.kind {
-                    if let ty::TyKind::RawPtr(pointee, _) = self.typeck.expr_ty(inner).kind() {
-                        if pointee_has_wrapper(self.tcx, *pointee, self.wrapped_c) {
-                            self.c.ty_field_proj_wrapped += 1;
-                            self.sites.add("ty_field_proj_wrapped", counter_site(self.tcx, e.span));
-                            if !self.in_impl {
-                                self.c.ty_field_proj_outside_impl += 1;
-                                self.sites.add("ty_field_proj_outside_impl", counter_site(self.tcx, e.span));
-                            }
-                        }
-                    }
-                }
-            }
-            // `&(*p).field` / `&mut (*p).field` where `p: *C` and `C` has a
-            // wrapper: a reference over a FIELD of memory C may write -- the
-            // same rule that keeps `&W` out, one level down. `addr_of!` /
-            // `&raw` lower to `BorrowKind::Raw`, so matching only
-            // `BorrowKind::Ref` is exactly the sanctioned/forbidden split.
-            hir::ExprKind::AddrOf(hir::BorrowKind::Ref, _, operand) => {
-                if let hir::ExprKind::Field(base, _) = operand.kind {
-                    if let hir::ExprKind::Unary(hir::UnOp::Deref, inner) = base.kind {
-                        if let ty::TyKind::RawPtr(pointee, _) = self.typeck.expr_ty(inner).kind() {
-                            if pointee_has_wrapper(self.tcx, *pointee, self.wrapped_c) {
-                                self.c.ty_field_borrow_wrapped += 1;
-                                self.sites.add("ty_field_borrow_wrapped", counter_site(self.tcx, e.span));
-                            }
-                        }
                     }
                 }
             }
@@ -2133,7 +2124,6 @@ impl Callbacks for MetricsCallbacks {
                     in_wrapper,
                     in_ffi,
                     in_impl,
-                    wrapped_c: &wrapped_c,
                     c: &mut c,
                     sites: &mut sites,
                 };
@@ -2319,8 +2309,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"ty_field_proj_wrapped\":{},\"ty_field_proj_outside_impl\":{},\"ty_field_borrow_wrapped\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.ty_field_proj_wrapped, c.ty_field_proj_outside_impl, c.ty_field_borrow_wrapped, c.drop_impl, c.clone_impl, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue

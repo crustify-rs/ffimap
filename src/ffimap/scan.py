@@ -146,6 +146,9 @@ def summarize(doc: dict) -> str:
             f" private types: {c.get('raw_ptr_ty_priv')};"
             f" fn signatures: pub {c.get('raw_ptr_fn_pub_safe')} safe + {c.get('raw_ptr_fn_pub_unsafe')} unsafe,"
             f" private {c.get('raw_ptr_fn_priv_safe')} safe + {c.get('raw_ptr_fn_priv_unsafe')} unsafe)",
+            f"  raw ptr derefs       {(c.get('raw_ptr_derefs_rd') or 0) + (c.get('raw_ptr_derefs_wr') or 0)}"
+            f"   ({c.get('raw_ptr_derefs_rd')} read + {c.get('raw_ptr_derefs_wr')} written;"
+            f" {c.get('raw_ptr_derefs_outside_impl')} outside impls)",
             f"  void ptr positions   {sum(c.get('void_ptr_' + k) or 0 for k in ('ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv', 'fn_pub_safe', 'fn_pub_unsafe', 'fn_priv_safe', 'fn_priv_unsafe'))}"
             f"   (pub types: {c.get('void_ptr_ty_pub_fields_pub')} pub fields + {c.get('void_ptr_ty_pub_fields_priv')} private fields,"
             f" private types: {c.get('void_ptr_ty_priv')};"
