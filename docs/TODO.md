@@ -5,10 +5,10 @@
 Three ways to form a Rust reference into memory C may write go uncounted
 (see Known limitations in [output.md](output.md)):
 
-- **Deep places.** `ty_field_borrow_wrapped` matches only `&(*p).field`, one field
-  below the raw-pointer dereference. Follow the whole place instead — any
-  depth of fields and indexing back to a raw-pointer deref — so `&(*p).a.b`,
-  `&(*p).arr[i]` and `&mut (*p).a[i].b` count.
+- **Fields of other types.** `ty_wrapper_borrow_non_sanctioned` follows the
+  whole place back to a raw-pointer deref, but counts only a reference whose
+  type holds a layout newtype or local C type, so `&(*p).len` or
+  `&mut (*p).a[i].b` of a C scalar counts nowhere.
 - **Autoref on a field.** `(*p).field.method()` with a `&self` method borrows
   the field implicitly. Count `Adjust::Borrow` adjustments on raw-based places,
   as `ty_wrapper_borrow_non_sanctioned` already does for whole wrappers.
