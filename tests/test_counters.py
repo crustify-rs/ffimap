@@ -140,6 +140,23 @@ class SysCrateTests(unittest.TestCase):
         with mock.patch("ffimap.measure.subprocess.run", return_value=done):
             self.assertEqual(measure.sys_crates(Path("."), ["libc"]), ["libc", "libgit2_sys", "pcre2_sys"])
 
+    def test_links_wrapper_over_bindings_is_not_a_sys_crate(self) -> None:
+        from unittest import mock
+        meta = {"packages": [
+            {"name": "aws-lc-sys", "links": "aws_lc_0_46_0", "dependencies": [],
+             "targets": [{"name": "aws_lc_sys", "kind": ["lib"]}]},
+            {"name": "aws-lc-rs", "links": "aws_lc_rs_1_18_2_sys",
+             "dependencies": [{"name": "aws-lc-sys", "kind": None}],
+             "targets": [{"name": "aws_lc_rs", "kind": ["lib"]}]},
+            {"name": "ring", "links": "ring_core_0_17", "dependencies": [{"name": "cc", "kind": "build"}],
+             "targets": [{"name": "ring", "kind": ["lib"]}]},
+            {"name": "testing", "links": "testing_sys",
+             "dependencies": [{"name": "aws-lc-sys", "kind": "dev"}],
+             "targets": [{"name": "testing", "kind": ["lib"]}]}]}
+        done = mock.Mock(returncode=0, stdout=json.dumps(meta))
+        with mock.patch("ffimap.measure.subprocess.run", return_value=done):
+            self.assertEqual(measure.sys_crates(Path(".")), ["aws_lc_sys", "ring", "testing"])
+
 
 class PartitionTests(unittest.TestCase):
     def test_driver_carries_no_seam_names(self) -> None:

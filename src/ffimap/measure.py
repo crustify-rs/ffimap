@@ -121,14 +121,27 @@ def sys_crates(ws: Path, extra: list[str] | None = None) -> list[str]:
     name: every package in the build's dependency graph with a Cargo `links`
     key or named `*-sys` (bindings that link nothing themselves, such as
     `pcre2-sys`, set no `links`), plus ``extra``. `cargo metadata` resolves the graph; when it cannot,
-    only the workspace's own packages are read."""
+    only the workspace's own packages are read.
+
+    A `links` package that is not named `*-sys` but depends on one that is, or
+    on another `links` package, is a wrapper over bindings rather than
+    bindings: aws-lc-rs sets `links` only to pass build metadata on, and its
+    lib is the audit subject over aws-lc-sys."""
     names: set[str] = {n.replace("-", "_") for n in extra or ()}
     for args in (["--format-version", "1"], ["--no-deps", "--format-version", "1"]):
         r = subprocess.run(["cargo", "metadata", *args], cwd=ws,
                            capture_output=True, text=True)
         if r.returncode == 0:
-            for pkg in json.loads(r.stdout)["packages"]:
-                if not (pkg.get("links") or pkg["name"].endswith(("-sys", "_sys"))):
+            packages = json.loads(r.stdout)["packages"]
+            by_name = lambda pkg: pkg["name"].endswith(("-sys", "_sys"))
+            bindings = {pkg["name"] for pkg in packages if pkg.get("links") or by_name(pkg)}
+            for pkg in packages:
+                if pkg["name"] not in bindings:
+                    continue
+                if not by_name(pkg) and any(
+                        d["name"] in bindings and d["name"] != pkg["name"]
+                        and d.get("kind") is None
+                        for d in pkg.get("dependencies", ())):
                     continue
                 libs = [t["name"] for t in pkg["targets"]
                         if {"lib", "rlib", "staticlib", "cdylib", "dylib"} & set(t["kind"])]
