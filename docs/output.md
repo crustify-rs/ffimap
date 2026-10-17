@@ -226,11 +226,15 @@ may write. Access goes through the handles instead.
   C-reachable: `&CStr`, `&str`, `&[u8]`, `&mut Config`. These borrows stay on
   the Rust side of the boundary. A reference to a C type itself counts in
   neither family (see Known limitations).
-- `ty_field_proj_wrapped` counts field accesses `(*p).field` through a raw pointer
-  to a wrapped C type or a wrapper, and `ty_field_proj_outside_impl` the subset
-  outside any `impl` or trait body. `ty_field_borrow_wrapped` counts the references
-  `&(*p).field` / `&mut (*p).field` among them; raw borrows (`&raw const`,
-  `addr_of!`) are not counted.
+- `raw_ptr_derefs_rd` and `raw_ptr_derefs_wr` count the dereferences `*p` of a
+  raw pointer, decided by the operand's type, so `*` on a `Box`, a reference
+  or a `Deref` impl is not one. Each falls in one of the two by what is done
+  with the place `*p`, or a field or index below it: `_wr` when it is
+  assigned (`=`, `op=`) or borrowed mutably (`&mut`, `&raw mut` /
+  `addr_of_mut!`, a `&mut self` method or `IndexMut` autoref), `_rd`
+  otherwise, shared borrows and `addr_of!` included. `*(*p).next = x` is a
+  read of `(*p).next` and a write. `raw_ptr_derefs_outside_impl` counts the
+  dereferences of either kind outside any `impl` or trait body.
 
 - `drop_impl` counts the crate-defined types with an `impl Drop`, and
   `clone_impl` those with a hand-written, not derived, `impl Clone`; one per
@@ -337,17 +341,18 @@ and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
 
 ## Known limitations
 
-- **References into C memory the counters miss.** `ty_field_borrow_wrapped` matches
-  only `&(*p).field` one field deep, so `&(*p).a.b` and `&(*p).arr[i]` are not
-  counted; an autoref on a field (`(*p).field.method()` with `&self`) is not
-  counted; and a reference to the C type itself (`&*p` with
-  `p: *const ffi::T`, or `NonNull<ffi::T>::as_ref`) is counted by no counter,
-  since `ty_wrapper_borrow_*` only cover wrapper types. See [TODO.md](TODO.md).
+- **References into C memory the counters miss.** A reference to a field of C
+  memory whose type is not a layout newtype or local C type (`&(*p).len`, a
+  C scalar), an autoref on such a field (`(*p).field.method()` with
+  `&self`), and a reference to the C type itself (`&*p` with
+  `p: *const ffi::T`, or `NonNull<ffi::T>::as_ref`) are counted by no
+  counter, since `ty_wrapper_borrow_*` only cover wrapper types. See
+  [TODO.md](TODO.md).
 - **Signatures and fields only for pointer positions.** Raw-pointer, `c_void`
   and `ty_wrapper_borrow_*` signature counters read the parameter and return
   types of functions with bodies; raw-pointer and `c_void` positions also
   include struct and union fields. Raw pointers in locals, casts, closure parameters, enum variants and
-  statics are not positions, `NonNull` is never one, and a trait method
+  statics are not positions, and a trait method
   declared without a default body is not counted.
 - **Pointer origin.** No counter can tell C-owned memory from Rust-owned memory
   behind a pointer. C reachability is a property of a TYPE, not of a value: a

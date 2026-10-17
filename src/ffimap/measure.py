@@ -57,11 +57,10 @@ _COUNTS = (
     "raw_ptr_ty_pub_fields_pub", "raw_ptr_ty_pub_fields_priv",
     "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe", "raw_ptr_fn_pub_unsafe",
     "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe", "raw_ptr_has_ty_wrapper",
-    "raw_ptr_derefs", "raw_ptr_derefs_outside_impl",
+    "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "raw_ptr_derefs_outside_impl",
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
-    "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
-    "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
+    "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
     "drop_impl", "clone_impl", "ffi_calls",
 )
 #: The counters that count source locations, so `--sites` can list them. Line
@@ -84,11 +83,10 @@ SITE_COUNTERS = (
     "ty_non_wrapper_borrow_priv_unsafe", "raw_ptr_ty_pub_fields_pub",
     "raw_ptr_ty_pub_fields_priv", "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe",
     "raw_ptr_fn_pub_unsafe", "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe",
-    "raw_ptr_has_ty_wrapper", "raw_ptr_derefs", "raw_ptr_derefs_outside_impl",
+    "raw_ptr_has_ty_wrapper", "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "raw_ptr_derefs_outside_impl",
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
-    "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe", "ty_field_proj_wrapped",
-    "ty_field_proj_outside_impl", "ty_field_borrow_wrapped",
+    "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
     "drop_impl", "clone_impl", "ffi_calls",
 )
 #: The `--ffibox` counters (`UM_FFIBOX` in the driver), in its order. Each is
