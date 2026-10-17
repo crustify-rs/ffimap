@@ -33,7 +33,7 @@ use rustc_hir as hir;
 use rustc_hir::def::DefKind;
 use rustc_hir::intravisit::{self, Visitor};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
-use rustc_middle::ty::{self, Ty, TyCtxt, TypeckResults};
+use rustc_middle::ty::{self, Ty, TyCtxt, TypeVisitableExt, TypeckResults};
 use rustc_span::def_id::DefId;
 use rustc_span::hygiene::ExpnKind;
 use rustc_span::Span;
@@ -110,24 +110,79 @@ fn ref_to_wrapper_sanctioned(tcx: TyCtxt<'_>, did: DefId) -> bool {
         && STD_VALUE_TRAITS.contains(&tcx.item_name(tr).as_str())
 }
 
-/// True if `t` holds a reference to a layout newtype anywhere: `&W`, `&mut W`,
-/// `&[W]`, or one nested in a generic, tuple or array (`Option<&W>`).
-fn contains_ref_to_type_wrapper<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
-    let is_w = |t: Ty<'_>| matches!(t.kind(), ty::TyKind::Adt(d, _) if is_type_wrapper(tcx, d.did()));
+/// What a borrow points at, when that is C memory (`c_type_borrow_*`), weakest
+/// first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CRef {
+    /// A zero-sized or uninhabited C type (`enum git_blob {}`, bindgen's
+    /// `_unused: [u8; 0]`): the reference covers no bytes of C's.
+    Opaque,
+    /// A type parameter or associated type (`T`, `T::C`): C memory for some
+    /// instantiations, which the pass, reading generic bodies, does not see.
+    Generic,
+    /// A C type with bytes.
+    Sized,
+}
+
+/// True if `did` is a C type: a sys crate's, a local `#[repr(C)]` /
+/// `#[repr(transparent)]` type C reaches, or a layout newtype over one. A Rust
+/// type C reaches only as a `void *` payload is not one: C never reads its bytes.
+fn is_c_type(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    is_type_wrapper(tcx, did) || is_sys_c_type(tcx, did)
+}
+
+/// True when values of `t` take up no bytes or there are none: an opaque C type.
+fn is_opaque<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
     match t.kind() {
-        ty::TyKind::Ref(_, inner, m) if !m.is_mut() && has_unsafe_cell(tcx, *inner, 0) => false,
-        ty::TyKind::Ref(_, inner, _) => match inner.kind() {
-            _ if is_w(*inner) => true,
-            ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) if is_w(*e) => true,
-            _ => contains_ref_to_type_wrapper(tcx, *inner),
-        },
-        // a zero-sized marker such as a handle's `PhantomData<&'a mut W>` holds no reference
-        ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "PhantomData" => false,
-        ty::TyKind::Adt(_, args) => args.types().any(|a| contains_ref_to_type_wrapper(tcx, a)),
-        ty::TyKind::Tuple(tys) => tys.iter().any(|a| contains_ref_to_type_wrapper(tcx, a)),
-        ty::TyKind::Array(e, _) | ty::TyKind::Slice(e) => contains_ref_to_type_wrapper(tcx, *e),
-        _ => false,
+        ty::TyKind::Adt(d, _) if d.is_enum() && d.variants().is_empty() => true,
+        // A signature's late-bound lifetimes, or a type parameter: no layout to
+        // ask for, so taken to have bytes.
+        _ if t.has_escaping_bound_vars() || t.has_param() => false,
+        _ => tcx
+            .layout_of(ty::TypingEnv::fully_monomorphized().as_query_input(tcx.erase_and_anonymize_regions(t)))
+            .is_ok_and(|l| l.size.bytes() == 0),
     }
+}
+
+/// The C memory `t` borrows when it is a reference -- `&T` / `&mut T`, or one to
+/// a slice or array of `T` -- whose `T` is a C type (`Sized` or `Opaque`) or a
+/// type parameter or associated type (`Generic`). `None` for any other `t`, and
+/// for a shared `&T` over `UnsafeCell` storage, which asserts neither readonly
+/// nor noalias: only `&mut T` is the hazard there.
+fn c_ref_kind<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Option<CRef> {
+    let ty::TyKind::Ref(_, p, m) = t.kind() else {
+        return None;
+    };
+    if !m.is_mut() && has_unsafe_cell(tcx, *p, 0) {
+        return None;
+    }
+    let e = match p.kind() {
+        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => *e,
+        _ => *p,
+    };
+    match e.kind() {
+        ty::TyKind::Param(_) | ty::TyKind::Alias(..) => Some(CRef::Generic),
+        ty::TyKind::Adt(d, _) if is_c_type(tcx, d.did()) => {
+            Some(if is_opaque(tcx, e) { CRef::Opaque } else { CRef::Sized })
+        }
+        _ => None,
+    }
+}
+
+/// The strongest `c_ref_kind` among the references `t` holds: itself, or one
+/// nested in a reference, generic argument, tuple or array (`Option<&W>`).
+fn c_refs_in<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Option<CRef> {
+    let here = c_ref_kind(tcx, t);
+    let inner = match t.kind() {
+        ty::TyKind::Ref(_, inner, _) if here.is_none() => c_refs_in(tcx, *inner),
+        // a zero-sized marker such as a handle's `PhantomData<&'a mut W>` holds no reference
+        ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "PhantomData" => None,
+        ty::TyKind::Adt(_, args) => args.types().filter_map(|a| c_refs_in(tcx, a)).max(),
+        ty::TyKind::Tuple(tys) => tys.iter().filter_map(|a| c_refs_in(tcx, a)).max(),
+        ty::TyKind::Array(e, _) | ty::TyKind::Slice(e) => c_refs_in(tcx, *e),
+        _ => None,
+    };
+    here.max(inner)
 }
 
 /// True when `span` comes from generated source compiled into the crate --
@@ -184,7 +239,7 @@ impl PtrSite {
 /// Count one raw-pointer position (pointee `p`) into its partition,
 /// `raw_ptr_ty_{pub,priv}` or `raw_ptr_fn_{pub,priv}_{safe,unsafe}`;
 /// `*c_void` positions likewise into `void_ptr_*`, and a pointee with a wrapper
-/// into `raw_ptr_has_ty_wrapper`.
+/// into `raw_ptr_has_c_type_wrapper`.
 fn count_ptr_position(
     tcx: TyCtxt<'_>,
     p: Ty<'_>,
@@ -202,14 +257,14 @@ fn count_ptr_position(
         sites.add(void, site.clone());
     }
     if matches!(p.kind(), ty::TyKind::Adt(d, _) if wrapped_c.contains(&d.did())) {
-        c.raw_ptr_has_ty_wrapper += 1;
-        sites.add("raw_ptr_has_ty_wrapper", site);
+        c.raw_ptr_has_c_type_wrapper += 1;
+        sites.add("raw_ptr_has_c_type_wrapper", site);
     }
 }
 
 /// The references in `t` (`&T` / `&mut T`, nested ones included) to something
 /// that is not C's: `T`, or a slice or array's element, is neither a layout
-/// wrapper (`ty_wrapper_borrow_*` counts those) nor C-reachable. `&CStr`,
+/// wrapper (`c_type_borrow_*` counts those) nor C-reachable. `&CStr`,
 /// `&str`, `&[u8]`, `&mut Config` all count: memory that stays on the Rust
 /// side of the boundary.
 fn non_wrapper_borrows<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> u64 {
@@ -218,8 +273,7 @@ fn non_wrapper_borrows<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> u64 {
             ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => *e,
             _ => u,
         };
-        matches!(peel_transparent(tcx, u).kind(), ty::TyKind::Adt(d, _)
-            if is_type_wrapper(tcx, d.did()) || is_c_visible(tcx, d.did()))
+        matches!(peel_transparent(tcx, u).kind(), ty::TyKind::Adt(d, _) if is_c_type(tcx, d.did()))
     };
     match t.kind() {
         ty::TyKind::Ref(_, p, _) => u64::from(!is_c(*p)) + non_wrapper_borrows(tcx, *p),
@@ -232,7 +286,7 @@ fn non_wrapper_borrows<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> u64 {
     }
 }
 
-/// True if `did` is a layout newtype wrapping a C type -- the set `ty_wrapper`
+/// True if `did` is a layout newtype wrapping a C type -- the set `c_type_wrapper`
 /// counts.
 fn is_layout_wrapper(tcx: TyCtxt<'_>, did: DefId) -> bool {
     matches!(structural_wrapper(tcx, did), Some((true, cs)) if !cs.is_empty())
@@ -252,7 +306,7 @@ const STD_OWNERS: &[&str] = &["Box", "Rc", "Arc", "Vec", "VecDeque"];
 /// `(by_val, std_owner)`, the occurrences held directly -- through tuples,
 /// arrays and `STD_VALUE_CONTAINERS` (`Option<Foo>`) -- and those under one
 /// of the `STD_OWNERS` (`Box<Foo>`, `Option<Arc<Foo>>`, `Vec<Foo>`). Nothing
-/// behind a reference or raw pointer counts (`ty_wrapper_borrow_*` and
+/// behind a reference or raw pointer counts (`c_type_borrow_*` and
 /// `raw_ptr_*` have those), and other ADTs are not searched: ffibox owners are
 /// the `--ffibox` record's, and a local type's fields are counted at its own
 /// definition.
@@ -260,7 +314,7 @@ fn wrapper_values<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, owned: bool) -> (u64, u6
     let one = if owned { (0, 1) } else { (1, 0) };
     let add = |a: (u64, u64), b: (u64, u64)| (a.0 + b.0, a.1 + b.1);
     match t.kind() {
-        ty::TyKind::Adt(d, _) if is_layout_wrapper(tcx, d.did()) => one,
+        ty::TyKind::Adt(d, _) if is_c_type(tcx, d.did()) && !is_opaque(tcx, t) => one,
         ty::TyKind::Adt(d, args) if matches!(tcx.crate_name(d.did().krate).as_str(), "core" | "alloc" | "std") => {
             let name = tcx.item_name(d.did());
             let owned = if STD_OWNERS.contains(&name.as_str()) {
@@ -287,10 +341,11 @@ fn count_n(slot: &mut u64, k: &'static str, n: u64, site: &(String, usize), site
 }
 
 /// Layout newtypes held by value in the fields of a type the crate declares,
-/// into `ty_wrapper_{by_val,std_owner}_ty_{pub_fields_pub,pub_fields_priv,priv}`,
+/// into `c_type_{by_val,std_owner}_ty_{pub_fields_pub,pub_fields_priv,priv}`,
 /// split as `raw_ptr_ty_*`.
 fn count_wrapper_value_fields(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites: &mut Sites) {
-    if in_generated_file(tcx, tcx.def_span(did)) {
+    // A C type's own fields are its C layout, a layout newtype's its storage.
+    if in_generated_file(tcx, tcx.def_span(did)) || is_c_type(tcx, did) {
         return;
     }
     let vis = tcx.effective_visibilities(());
@@ -304,12 +359,12 @@ fn count_wrapper_value_fields(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites
         let site = counter_site(tcx, tcx.def_span(f.did));
         let field_exported = f.did.as_local().is_some_and(|l| vis.is_exported(l));
         let (vs, vk, os, ok) = match (exported, field_exported) {
-            (true, true) => (&mut c.ty_wrapper_by_val_ty_pub_fields_pub, "ty_wrapper_by_val_ty_pub_fields_pub",
-                             &mut c.ty_wrapper_std_owner_ty_pub_fields_pub, "ty_wrapper_std_owner_ty_pub_fields_pub"),
-            (true, false) => (&mut c.ty_wrapper_by_val_ty_pub_fields_priv, "ty_wrapper_by_val_ty_pub_fields_priv",
-                              &mut c.ty_wrapper_std_owner_ty_pub_fields_priv, "ty_wrapper_std_owner_ty_pub_fields_priv"),
-            (false, _) => (&mut c.ty_wrapper_by_val_ty_priv, "ty_wrapper_by_val_ty_priv",
-                           &mut c.ty_wrapper_std_owner_ty_priv, "ty_wrapper_std_owner_ty_priv"),
+            (true, true) => (&mut c.c_type_by_val_ty_pub_fields_pub, "c_type_by_val_ty_pub_fields_pub",
+                             &mut c.c_type_std_owner_ty_pub_fields_pub, "c_type_std_owner_ty_pub_fields_pub"),
+            (true, false) => (&mut c.c_type_by_val_ty_pub_fields_priv, "c_type_by_val_ty_pub_fields_priv",
+                              &mut c.c_type_std_owner_ty_pub_fields_priv, "c_type_std_owner_ty_pub_fields_priv"),
+            (false, _) => (&mut c.c_type_by_val_ty_priv, "c_type_by_val_ty_priv",
+                           &mut c.c_type_std_owner_ty_priv, "c_type_std_owner_ty_priv"),
         };
         count_n(vs, vk, v, &site, sites);
         count_n(os, ok, o, &site, sites);
@@ -321,7 +376,7 @@ fn count_wrapper_value_fields(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites
 /// `raw_ptr_ty_{pub,priv}` by the effective visibility of the TYPE: every
 /// raw pointer a public type holds counts, private fields included, since it
 /// is that type's representation. A field holding a borrow into C memory also
-/// counts into `ty_wrapper_borrow_non_sanctioned`.
+/// counts into `c_type_borrow_non_sanctioned`.
 fn count_raw_ptr_fields(
     tcx: TyCtxt<'_>,
     did: DefId,
@@ -339,15 +394,18 @@ fn count_raw_ptr_fields(
         raw_pointees(tcx, ft, &mut pointees);
         let site = counter_site(tcx, tcx.def_span(f.did));
         let field_exported = f.did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
-        // A field holding a borrow into C memory: a reference to a layout
-        // wrapper, or to any C-reachable type (a handle over `&'a ffi::T`).
-        let c_ref = contains_ref_to_type_wrapper(tcx, ft)
-            || matches!(peel_transparent(tcx, ft).kind(), ty::TyKind::Ref(_, p, m)
-                if (m.is_mut() || !has_unsafe_cell(tcx, *p, 0))
-                    && matches!(peel_transparent(tcx, *p).kind(), ty::TyKind::Adt(d, _) if is_c_visible(tcx, d.did())));
-        if c_ref {
-            c.ty_wrapper_borrow_non_sanctioned += 1;
-            sites.add("ty_wrapper_borrow_non_sanctioned", site.clone());
+        // A field holding a borrow into C memory, nested (`Option<&W>`) or
+        // behind a handle over `&'a ffi::T`. A generic `&'a T` is not one.
+        match c_refs_in(tcx, ft).max(c_ref_kind(tcx, peel_transparent(tcx, ft))) {
+            Some(CRef::Sized) => {
+                c.c_type_borrow_non_sanctioned += 1;
+                sites.add("c_type_borrow_non_sanctioned", site.clone());
+            }
+            Some(CRef::Opaque) => {
+                c.c_type_borrow_opaque += 1;
+                sites.add("c_type_borrow_opaque", site.clone());
+            }
+            _ => {}
         }
         for p in pointees {
             count_ptr_position(tcx, p, PtrSite::Type { exported, field_exported }, wrapped_c, site.clone(), c, sites);
@@ -359,20 +417,6 @@ fn count_raw_ptr_fields(
 fn is_raw_or_non_null(tcx: TyCtxt<'_>, t: Ty<'_>) -> bool {
     t.is_raw_ptr()
         || matches!(t.kind(), ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "NonNull")
-}
-
-fn is_ref_to_type_wrapper<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
-    if let ty::TyKind::Ref(_, pointee, m) = t.kind() {
-        // A shared `&W` over `UnsafeCell` storage asserts neither readonly
-        // nor noalias: only `&mut W` is the hazard there.
-        if !m.is_mut() && has_unsafe_cell(tcx, *pointee, 0) {
-            return false;
-        }
-        if let ty::TyKind::Adt(def, _) = pointee.kind() {
-            return is_type_wrapper(tcx, def.did());
-        }
-    }
-    false
 }
 
 /// The pointees of every raw pointer position in `t`: `t` itself when it is a
@@ -460,7 +504,9 @@ fn sys_crates() -> &'static HashSet<String> {
 
 fn is_sys_c_type(tcx: TyCtxt<'_>, did: DefId) -> bool {
     matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
-        && tcx.adt_def(did).repr().c()
+        // `#[repr(C)]`, or `enum git_blob {}`: the variantless enum hand-written
+        // bindings declare an opaque C type as
+        && (tcx.adt_def(did).repr().c() || (tcx.adt_def(did).is_enum() && tcx.adt_def(did).variants().is_empty()))
         && sys_crates().contains(tcx.crate_name(did.krate).as_str())
 }
 
@@ -1113,7 +1159,7 @@ struct Counts {
     // `#[repr(C)]` / `#[repr(transparent)]` struct storing a C-reachable type's
     // bytes inline (see "C visibility"). How these relate to ffibox's `CCell` is the `--ffibox` record's
     // (`ffibox_layout_not_ccell` / `ffibox_ccell_not_layout`).
-    ty_wrapper: u64,
+    c_type_wrapper: u64,
     // Borrows into C memory: `&W` / `&mut W` (or `&[W]`, `Option<&W>`, ..),
     // W a layout newtype or a local C type, wherever they occur:
     //  * fn signatures (the receiver included): sanctioned on REF_ACCESSORS
@@ -1125,9 +1171,14 @@ struct Counts {
     //    reference to any C-reachable type (a handle over `&'a ffi::T`) --
     //    never sanctioned.
     // A shared `&W` over `UnsafeCell` storage is not a borrow here.
-    // ty_wrapper_borrow_non_sanctioned's target is 0.
-    ty_wrapper_borrow_sanctioned: u64,
-    ty_wrapper_borrow_non_sanctioned: u64,
+    // c_type_borrow_non_sanctioned's target is 0.
+    c_type_borrow_sanctioned: u64,
+    c_type_borrow_non_sanctioned: u64,
+    // The borrows of the same shapes the two leave out: `_opaque`, of a
+    // zero-sized or uninhabited C type, in any position; `_generic`, formed from
+    // a raw pointer in a body, of a type parameter or associated type.
+    c_type_borrow_opaque: u64,
+    c_type_borrow_generic: u64,
     // Layout newtypes held by VALUE on the crate's surface, outside ffibox
     // owners: `by_val` directly (`Foo`, `Option<Foo>`, `(Foo, u8)`, `[Foo; N]`,
     // `Cell<Foo>`, ..), `std_owner` under a Rust heap owner (`Box<Foo>`,
@@ -1141,27 +1192,27 @@ struct Counts {
     // A by-value layout newtype is Rust-owned storage that can be moved,
     // so a C pointer retained into it dangles, and no owner runs its C
     // destructor: the cases ffibox's `CBox` / `CVal` exist for.
-    ty_wrapper_by_val_fn_sig_pub: u64,
-    ty_wrapper_by_val_fn_sig_priv: u64,
-    ty_wrapper_by_val_ty_pub_fields_pub: u64,
-    ty_wrapper_by_val_ty_pub_fields_priv: u64,
-    ty_wrapper_by_val_ty_priv: u64,
-    ty_wrapper_std_owner_fn_sig_pub: u64,
-    ty_wrapper_std_owner_fn_sig_priv: u64,
-    ty_wrapper_std_owner_ty_pub_fields_pub: u64,
-    ty_wrapper_std_owner_ty_pub_fields_priv: u64,
-    ty_wrapper_std_owner_ty_priv: u64,
+    c_type_by_val_fn_sig_pub: u64,
+    c_type_by_val_fn_sig_priv: u64,
+    c_type_by_val_ty_pub_fields_pub: u64,
+    c_type_by_val_ty_pub_fields_priv: u64,
+    c_type_by_val_ty_priv: u64,
+    c_type_std_owner_fn_sig_pub: u64,
+    c_type_std_owner_fn_sig_priv: u64,
+    c_type_std_owner_ty_pub_fields_pub: u64,
+    c_type_std_owner_ty_pub_fields_priv: u64,
+    c_type_std_owner_ty_priv: u64,
     // `&T` / `&mut T` in fn signatures (the receiver and nested references
     // included), by the fn's visibility and safety as for raw_ptr_fn_*, where
     // `T` -- or a slice's element --
     // is neither a layout wrapper nor C-reachable: `&CStr`, `&str`, `&[u8]`,
-    // `&mut Config`. The counterpart of ty_wrapper_borrow_*: borrows that stay
+    // `&mut Config`. The counterpart of c_type_borrow_*: borrows that stay
     // on the Rust side of the boundary. A reference to a C type itself counts
     // in neither.
-    ty_non_wrapper_borrow_pub_safe: u64,
-    ty_non_wrapper_borrow_pub_unsafe: u64,
-    ty_non_wrapper_borrow_priv_safe: u64,
-    ty_non_wrapper_borrow_priv_unsafe: u64,
+    non_c_type_borrow_pub_safe: u64,
+    non_c_type_borrow_pub_unsafe: u64,
+    non_c_type_borrow_priv_safe: u64,
+    non_c_type_borrow_priv_unsafe: u64,
     // Raw-pointer positions in the items the crate defines, nested ones
     // included, each in exactly one counter by where it sits:
     //   raw_ptr_ty_pub_fields_{pub,priv}, raw_ptr_ty_priv  (fields of types)
@@ -1183,7 +1234,7 @@ struct Counts {
     raw_ptr_fn_priv_unsafe: u64,
     // of those positions, the ones whose pointee is a C type with a wrapper
     // (`*mut ffi::git_oid` where `GitOid` exists)
-    raw_ptr_has_ty_wrapper: u64,
+    raw_ptr_has_c_type_wrapper: u64,
     // Dereferences `*p` of a raw pointer, by what is done with the place `*p`
     // (or a field or index below it): `_wr` when it is assigned (`=`, `op=`)
     // or borrowed mutably (`&mut`, `&raw mut`, a `&mut self` autoref), `_rd`
@@ -1362,10 +1413,14 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
         }
     }
 
-    fn body_ref(&mut self, e: &'tcx hir::Expr<'tcx>) {
-        self.c.ty_wrapper_borrow_non_sanctioned += 1;
-        self.sites
-            .add("ty_wrapper_borrow_non_sanctioned", counter_site(self.tcx, e.span));
+    fn body_ref(&mut self, e: &'tcx hir::Expr<'tcx>, kind: CRef) {
+        let (slot, k) = match kind {
+            CRef::Sized => (&mut self.c.c_type_borrow_non_sanctioned, "c_type_borrow_non_sanctioned"),
+            CRef::Opaque => (&mut self.c.c_type_borrow_opaque, "c_type_borrow_opaque"),
+            CRef::Generic => (&mut self.c.c_type_borrow_generic, "c_type_borrow_generic"),
+        };
+        *slot += 1;
+        self.sites.add(k, counter_site(self.tcx, e.span));
     }
 
     /// Count a reference to a layout newtype formed from a raw pointer at `e`.
@@ -1373,12 +1428,11 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
         let tcx = self.tcx;
         match e.kind {
             // `&*p`, `&mut *p`, `&(*p).f`
-            hir::ExprKind::AddrOf(hir::BorrowKind::Ref, _, operand)
-                if is_ref_to_type_wrapper(tcx, self.typeck.expr_ty(e))
-                    && self.raw_based_place(operand) =>
-            {
-                self.body_ref(e);
-                return;
+            hir::ExprKind::AddrOf(hir::BorrowKind::Ref, _, operand) if self.raw_based_place(operand) => {
+                if let Some(k) = c_ref_kind(tcx, self.typeck.expr_ty(e)) {
+                    self.body_ref(e, k);
+                    return;
+                }
             }
             // a non-local call from a raw pointer / NonNull to a reference
             hir::ExprKind::Call(f, args) => {
@@ -1387,35 +1441,38 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
                     _ => None,
                 };
                 if callee.is_some_and(|d| !d.is_local())
-                    && contains_ref_to_type_wrapper(tcx, self.typeck.expr_ty(e))
                     && args.iter().any(|a| is_raw_or_non_null(tcx, self.typeck.expr_ty_adjusted(a)))
                 {
-                    self.body_ref(e);
-                    return;
+                    if let Some(k) = c_refs_in(tcx, self.typeck.expr_ty(e)) {
+                        self.body_ref(e, k);
+                        return;
+                    }
                 }
             }
             hir::ExprKind::MethodCall(_, recv, args, _) => {
                 let callee = self.typeck.type_dependent_def_id(e.hir_id);
                 if callee.is_some_and(|d| !d.is_local())
-                    && contains_ref_to_type_wrapper(tcx, self.typeck.expr_ty(e))
                     && std::iter::once(recv)
                         .chain(args.iter())
                         .any(|a| is_raw_or_non_null(tcx, self.typeck.expr_ty(a)))
                 {
-                    self.body_ref(e);
-                    return;
+                    if let Some(k) = c_refs_in(tcx, self.typeck.expr_ty(e)) {
+                        self.body_ref(e, k);
+                        return;
+                    }
                 }
             }
             _ => {}
         }
         // an autoref through `*p`: `(*p).method()` with `&self` on the wrapper
         if self.raw_based_place(e) {
-            let borrows = self.typeck.expr_adjustments(e).iter().any(|a| {
+            let borrow = self.typeck.expr_adjustments(e).iter().find_map(|a| {
                 matches!(a.kind, rustc_middle::ty::adjustment::Adjust::Borrow(_))
-                    && is_ref_to_type_wrapper(tcx, a.target)
+                    .then(|| c_ref_kind(tcx, a.target))
+                    .flatten()
             });
-            if borrows {
-                self.body_ref(e);
+            if let Some(k) = borrow {
+                self.body_ref(e, k);
             }
         }
     }
@@ -1545,7 +1602,7 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
 ///    as for `raw_ptr_ty_*`: by the type's effective visibility and, in a
 ///    public type, by the field's own. What the crate's types hold, where
 ///    `fn_sig_*` is what its fns take and return. Borrows of non-wrapper
-///    memory are a main counter (`ty_non_wrapper_borrow_*`), independent of
+///    memory are a main counter (`non_c_type_borrow_*`), independent of
 ///    ffibox.
 ///  - `ffibox_impl_macro` / `ffibox_impl_manual`: distinct crate-defined types
 ///    implementing each ffibox trait, keyed by trait, split by whether an
@@ -2035,11 +2092,11 @@ impl Callbacks for MetricsCallbacks {
                     // handle is a wrapper too, but it is not the set this audit
                     // polices: `&handle` covers Rust-owned pointer storage and
                     // is ordinary, while `&W` on a layout newtype is the hazard
-                    // `ty_wrapper_borrow_*` exists to keep at 0.
+                    // `c_type_borrow_*` exists to keep at 0.
                     let is_layout = is_layout_wrapper(tcx, did);
                     if is_layout {
-                        c.ty_wrapper += 1;
-                        sites.add("ty_wrapper", counter_site(tcx, tcx.def_span(did)));
+                        c.c_type_wrapper += 1;
+                        sites.add("c_type_wrapper", counter_site(tcx, tcx.def_span(did)));
                     }
                 }
                 DefKind::Impl { of_trait: true } => {
@@ -2141,14 +2198,19 @@ impl Callbacks for MetricsCallbacks {
                     .copied()
                     .chain(std::iter::once(sig.output()))
                 {
-                    if is_ref_to_type_wrapper(tcx, t) {
+                    let kind = c_ref_kind(tcx, t);
+                    if kind == Some(CRef::Opaque) {
+                        c.c_type_borrow_opaque += 1;
+                        sites.add("c_type_borrow_opaque", counter_site(tcx, tcx.def_span(did)));
+                    }
+                    if kind == Some(CRef::Sized) {
                         let site = counter_site(tcx, tcx.def_span(did));
                         if ref_to_wrapper_sanctioned(tcx, did) {
-                            c.ty_wrapper_borrow_sanctioned += 1;
-                            sites.add("ty_wrapper_borrow_sanctioned", site);
+                            c.c_type_borrow_sanctioned += 1;
+                            sites.add("c_type_borrow_sanctioned", site);
                         } else {
-                            c.ty_wrapper_borrow_non_sanctioned += 1;
-                            sites.add("ty_wrapper_borrow_non_sanctioned", site);
+                            c.c_type_borrow_non_sanctioned += 1;
+                            sites.add("c_type_borrow_non_sanctioned", site);
                         }
                     }
                 }
@@ -2182,10 +2244,10 @@ impl Callbacks for MetricsCallbacks {
                     if n > 0 {
                         let site = counter_site(tcx, tcx.def_span(did));
                         let (slot, k) = match (exported, safe) {
-                            (true, true) => (&mut c.ty_non_wrapper_borrow_pub_safe, "ty_non_wrapper_borrow_pub_safe"),
-                            (true, false) => (&mut c.ty_non_wrapper_borrow_pub_unsafe, "ty_non_wrapper_borrow_pub_unsafe"),
-                            (false, true) => (&mut c.ty_non_wrapper_borrow_priv_safe, "ty_non_wrapper_borrow_priv_safe"),
-                            (false, false) => (&mut c.ty_non_wrapper_borrow_priv_unsafe, "ty_non_wrapper_borrow_priv_unsafe"),
+                            (true, true) => (&mut c.non_c_type_borrow_pub_safe, "non_c_type_borrow_pub_safe"),
+                            (true, false) => (&mut c.non_c_type_borrow_pub_unsafe, "non_c_type_borrow_pub_unsafe"),
+                            (false, true) => (&mut c.non_c_type_borrow_priv_safe, "non_c_type_borrow_priv_safe"),
+                            (false, false) => (&mut c.non_c_type_borrow_priv_unsafe, "non_c_type_borrow_priv_unsafe"),
                         };
                         *slot += n;
                         for _ in 0..n {
@@ -2201,11 +2263,11 @@ impl Callbacks for MetricsCallbacks {
                         .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
                     let site = counter_site(tcx, tcx.def_span(did));
                     if exported {
-                        count_n(&mut c.ty_wrapper_by_val_fn_sig_pub, "ty_wrapper_by_val_fn_sig_pub", v, &site, &mut sites);
-                        count_n(&mut c.ty_wrapper_std_owner_fn_sig_pub, "ty_wrapper_std_owner_fn_sig_pub", o, &site, &mut sites);
+                        count_n(&mut c.c_type_by_val_fn_sig_pub, "c_type_by_val_fn_sig_pub", v, &site, &mut sites);
+                        count_n(&mut c.c_type_std_owner_fn_sig_pub, "c_type_std_owner_fn_sig_pub", o, &site, &mut sites);
                     } else {
-                        count_n(&mut c.ty_wrapper_by_val_fn_sig_priv, "ty_wrapper_by_val_fn_sig_priv", v, &site, &mut sites);
-                        count_n(&mut c.ty_wrapper_std_owner_fn_sig_priv, "ty_wrapper_std_owner_fn_sig_priv", o, &site, &mut sites);
+                        count_n(&mut c.c_type_by_val_fn_sig_priv, "c_type_by_val_fn_sig_priv", v, &site, &mut sites);
+                        count_n(&mut c.c_type_std_owner_fn_sig_priv, "c_type_std_owner_fn_sig_priv", o, &site, &mut sites);
                     }
                 }
                 // Raw pointers in the signature, args and return: every
@@ -2309,8 +2371,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"ty_wrapper\":{},\"ty_wrapper_borrow_sanctioned\":{},\"ty_wrapper_borrow_non_sanctioned\":{},\"ty_wrapper_by_val_fn_sig_pub\":{},\"ty_wrapper_by_val_fn_sig_priv\":{},\"ty_wrapper_by_val_ty_pub_fields_pub\":{},\"ty_wrapper_by_val_ty_pub_fields_priv\":{},\"ty_wrapper_by_val_ty_priv\":{},\"ty_wrapper_std_owner_fn_sig_pub\":{},\"ty_wrapper_std_owner_fn_sig_priv\":{},\"ty_wrapper_std_owner_ty_pub_fields_pub\":{},\"ty_wrapper_std_owner_ty_pub_fields_priv\":{},\"ty_wrapper_std_owner_ty_priv\":{},\"ty_non_wrapper_borrow_pub_safe\":{},\"ty_non_wrapper_borrow_pub_unsafe\":{},\"ty_non_wrapper_borrow_priv_safe\":{},\"ty_non_wrapper_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_ty_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.ty_wrapper, c.ty_wrapper_borrow_sanctioned, c.ty_wrapper_borrow_non_sanctioned, c.ty_wrapper_by_val_fn_sig_pub, c.ty_wrapper_by_val_fn_sig_priv, c.ty_wrapper_by_val_ty_pub_fields_pub, c.ty_wrapper_by_val_ty_pub_fields_priv, c.ty_wrapper_by_val_ty_priv, c.ty_wrapper_std_owner_fn_sig_pub, c.ty_wrapper_std_owner_fn_sig_priv, c.ty_wrapper_std_owner_ty_pub_fields_pub, c.ty_wrapper_std_owner_ty_pub_fields_priv, c.ty_wrapper_std_owner_ty_priv, c.ty_non_wrapper_borrow_pub_safe, c.ty_non_wrapper_borrow_pub_unsafe, c.ty_non_wrapper_borrow_priv_safe, c.ty_non_wrapper_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_ty_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_wrapper\":{},\"c_type_borrow_sanctioned\":{},\"c_type_borrow_non_sanctioned\":{},\"c_type_borrow_opaque\":{},\"c_type_borrow_generic\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_wrapper, c.c_type_borrow_sanctioned, c.c_type_borrow_non_sanctioned, c.c_type_borrow_opaque, c.c_type_borrow_generic, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue
