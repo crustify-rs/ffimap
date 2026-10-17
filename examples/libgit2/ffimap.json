@@ -1,7 +1,11 @@
 {
   "crate_path": "/target/crustify/rust",
   "sys_crates": [
-    "libgit2_sys"
+    "clang_sys",
+    "libgit2_sys",
+    "pcre2_sys",
+    "prettyplease",
+    "windows_sys"
   ],
   "counts": {
     "code_lines": 15692,
@@ -62,6 +66,8 @@
     "ty_field_borrow_wrapped": 0,
     "ty_wrapper_deref_impl": 0,
     "ty_wrapper_deref_mut_impl": 0,
+    "drop_impl": 6,
+    "clone_impl": 7,
     "ffi_calls": 530
   },
   "counts_unavailable": null,
@@ -92,9 +98,7 @@
       "ffibox_define_ctype_macro": 33,
       "ffibox_define_ctype_manual": 32,
       "ffibox_ccell_not_layout": 0,
-      "ffibox_layout_not_ccell": 7,
-      "drop_impl": 6,
-      "clone_impl": 7
+      "ffibox_layout_not_ccell": 7
     },
     "by": {
       "fn_sig_ffibox_owner_pub": {
@@ -263,23 +267,6 @@
         "libgit2::config::sys::config::SharedEntry": 1,
         "libgit2::config::sys::config::value_filter::Filtered": 1,
         "libgit2::core::types::Repr": 1
-      },
-      "drop_impl": {
-        "libgit2::config::sys::config::BackendTransaction": 1,
-        "libgit2::config::sys::config::Entered": 1,
-        "libgit2::core::global::Runtime": 1,
-        "libgit2::core::types::RustWriteStream": 1,
-        "libgit2::index::index::IndexEntryBuf": 1,
-        "libgit2::odb::sys::odb_backend::OdbDataStrVec": 1
-      },
-      "clone_impl": {
-        "libgit2::config::config::ConfigMap": 1,
-        "libgit2::config::sys::config::BackendMemoryOptions": 1,
-        "libgit2::core::types::SignatureView": 1,
-        "libgit2::index::index::IndexEntryBuf": 1,
-        "libgit2::index::index::IndexTime": 1,
-        "libgit2::index::pathspec::MatchListRef": 1,
-        "libgit2::odb::sys::odb_backend::OdbDataStrVec": 1
       }
     }
   },

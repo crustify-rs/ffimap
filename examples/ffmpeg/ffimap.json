@@ -71,6 +71,8 @@
     "ty_field_borrow_wrapped": 0,
     "ty_wrapper_deref_impl": 0,
     "ty_wrapper_deref_mut_impl": 0,
+    "drop_impl": 4,
+    "clone_impl": 1,
     "ffi_calls": 594
   },
   "counts_unavailable": null,
@@ -101,9 +103,7 @@
       "ffibox_define_ctype_macro": 59,
       "ffibox_define_ctype_manual": 0,
       "ffibox_ccell_not_layout": 0,
-      "ffibox_layout_not_ccell": 0,
-      "drop_impl": 4,
-      "clone_impl": 1
+      "ffibox_layout_not_ccell": 0
     },
     "by": {
       "fn_sig_ffibox_owner_pub": {
@@ -271,16 +271,7 @@
       },
       "ffibox_define_ctype_manual": {},
       "ffibox_ccell_not_layout": {},
-      "ffibox_layout_not_ccell": {},
-      "drop_impl": {
-        "libavutil::bprint::Terminate": 1,
-        "libavutil::frame::SideDataArray": 1,
-        "libavutil::hwcontext::HwConfig": 1,
-        "libavutil::mem::DynArray": 1
-      },
-      "clone_impl": {
-        "libavutil::refstruct::TypedRefStructPool": 1
-      }
+      "ffibox_layout_not_ccell": {}
     }
   },
   "derived": {
