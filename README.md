@@ -88,3 +88,13 @@ crustify generated, over FFmpeg and libgit2, and the hand-written git2-rs.
 ```sh
 python -m unittest discover -s tests
 ```
+
+## Maintainers
+
+- Marius Momeu ([marius.momeu@berkeley.edu](mailto:marius.momeu@berkeley.edu))
+
+## Acknowledgements
+
+This material is based upon work supported by the Defense Advanced Research
+Projects Agency (DARPA) Translating All C To Rust (TRACTOR) program under
+Agreement No. HR00112590134.
