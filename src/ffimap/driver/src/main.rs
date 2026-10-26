@@ -657,6 +657,52 @@ impl<'a, 'tcx> Visitor<'tcx> for CastCollector<'a, 'tcx> {
     }
 }
 
+/// Seeds from the `extern` blocks of EVERY linked crate, not only this one.
+///
+/// A safe wrapper crate declares no `extern` block of its own: the foreign
+/// declarations live in its `-sys` crate, a separate compilation unit whose HIR
+/// this pass never walks. Without this, scanning the safe crate finds almost no
+/// provenance seeds, and `is_sys_c_type` is left standing in for them -- which
+/// admits every `#[repr(C)]` type a sys crate DECLARES, reachable or not.
+///
+/// `foreign_modules` is `separate_provide_extern` and is encoded into crate
+/// metadata (rustc_middle/src/queries.rs: "the foreign modules of a linked
+/// crate"), so upstream `extern` blocks are readable from here; `fn_sig` and
+/// `type_of` are `separate_provide_extern` too, so their signatures resolve.
+///
+/// Every foreign item is C's side, whatever the block's ABI, as the local arm
+/// has it (`tcx.is_foreign_item(did) || sig.abi() != ExternAbi::Rust`).
+fn upstream_foreign_seeds(tcx: TyCtxt<'_>, seeds: &mut Vec<DefId>) -> (usize, usize) {
+    let (mut modules, mut items) = (0, 0);
+    for &cnum in tcx.crates(()) {
+        for m in tcx.foreign_modules(cnum).values() {
+            modules += 1;
+            for &did in &m.foreign_items {
+                items += 1;
+                match tcx.def_kind(did) {
+                    DefKind::Fn => {
+                        let sig = tcx.fn_sig(did).skip_binder().skip_binder();
+                        for t in sig.inputs_and_output.iter() {
+                            c_pointee_adts(tcx, t, false, seeds);
+                            c_fnptr_adts(tcx, t, seeds);
+                        }
+                    }
+                    DefKind::Static { .. } => {
+                        let t = tcx.type_of(did).instantiate_identity().skip_norm_wip();
+                        if let Some(d) = field_adt(tcx, t) {
+                            seeds.push(d.did());
+                        }
+                        c_pointee_adts(tcx, t, false, seeds);
+                        c_fnptr_adts(tcx, t, seeds);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    (modules, items)
+}
+
 fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
     let mut seeds: Vec<DefId> = Vec::new();
     let mut pairs: Vec<(DefId, DefId)> = Vec::new();
@@ -699,13 +745,34 @@ fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
             _ => {}
         }
     }
+    let local_seeds = seeds.len();
+    let (xmods, xitems) = if std::env::var_os("FFIMAP_XCRATE").is_some() {
+        upstream_foreign_seeds(tcx, &mut seeds)
+    } else {
+        (0, 0)
+    };
     for owner in tcx.hir_body_owners() {
         let typeck = tcx.typeck(owner);
         CastCollector { tcx, typeck, seeds: &mut seeds, pairs: &mut pairs }
             .visit_body(tcx.hir_body_owned_by(owner));
     }
+    if std::env::var_os("FFIMAP_XCRATE_STATS").is_some() {
+        eprintln!(
+            "XCRATE {{\"crate\":\"{}\",\"local_seeds\":{},\"upstream_modules\":{},\"upstream_items\":{},\"seeds_total\":{}}}",
+            tcx.crate_name(rustc_span::def_id::LOCAL_CRATE),
+            local_seeds,
+            xmods,
+            xitems,
+            seeds.len()
+        );
+    }
     let mut vis: HashSet<DefId> = seeds.into_iter().collect();
-    let reach = |vis: &HashSet<DefId>, d: DefId| vis.contains(&d) || is_sys_c_type(tcx, d);
+    // SPIKE: the closure's own `reach` ORs the sys shortcut too, so dropping it
+    // only at `is_c_visible` leaves the closure contaminated by it.
+    let no_sys = std::env::var_os("FFIMAP_NO_SYS_SHORTCUT").is_some();
+    let reach = |vis: &HashSet<DefId>, d: DefId| {
+        vis.contains(&d) || (!no_sys && is_sys_c_type(tcx, d))
+    };
     let mut expanded: HashSet<DefId> = HashSet::new();
     loop {
         let before = vis.len();
@@ -766,16 +833,66 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+thread_local! {
+    /// SPIKE tally: for every distinct `DefId` the pass asks about, which of
+    /// the two terms of `is_c_visible` said yes. `sys_only` is what the
+    /// `is_sys_c_type` shortcut contributes that provenance does not reach --
+    /// the set that would be LOST by dropping the shortcut.
+    static VERDICTS: std::cell::RefCell<HashMap<DefId, (bool, bool)>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// SPIKE: emit the tally of which term of `is_c_visible` decided each type.
+fn emit_verdicts(tcx: TyCtxt<'_>) {
+    if std::env::var_os("FFIMAP_XCRATE_STATS").is_none() {
+        return;
+    }
+    let (mut sys_only, mut both, mut closure_only, mut neither) = (0, 0, 0, 0);
+    let mut lost: Vec<String> = Vec::new();
+    VERDICTS.with(|v| {
+        for (&did, &(sys, closure)) in v.borrow().iter() {
+            match (sys, closure) {
+                (true, false) => {
+                    sys_only += 1;
+                    lost.push(tcx.def_path_str(did));
+                }
+                (true, true) => both += 1,
+                (false, true) => closure_only += 1,
+                (false, false) => neither += 1,
+            }
+        }
+    });
+    lost.sort();
+    eprintln!(
+        "VERDICTS {{\"crate\":\"{}\",\"sys_only\":{},\"both\":{},\"closure_only\":{},\"neither\":{},\"lost\":{:?}}}",
+        tcx.crate_name(rustc_span::def_id::LOCAL_CRATE),
+        sys_only,
+        both,
+        closure_only,
+        neither,
+        lost
+    );
+}
+
 /// True when C can reach memory of type `did` (see the section comment).
 fn is_c_visible(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    is_sys_c_type(tcx, did)
-        || C_VISIBLE.with(|c| {
-            let mut b = c.borrow_mut();
-            if b.is_none() {
-                *b = Some(compute_c_visible(tcx));
-            }
-            b.as_ref().unwrap().contains(&did)
-        })
+    let sys = is_sys_c_type(tcx, did);
+    let closure = C_VISIBLE.with(|c| {
+        let mut b = c.borrow_mut();
+        if b.is_none() {
+            *b = Some(compute_c_visible(tcx));
+        }
+        b.as_ref().unwrap().contains(&did)
+    });
+    if std::env::var_os("FFIMAP_XCRATE_STATS").is_some() {
+        VERDICTS.with(|v| {
+            v.borrow_mut().insert(did, (sys, closure));
+        });
+    }
+    if std::env::var_os("FFIMAP_NO_SYS_SHORTCUT").is_some() {
+        return closure;
+    }
+    sys || closure
 }
 
 /// True when `t` holds an `UnsafeCell` (directly, or in a field, transitively):
@@ -2412,6 +2529,7 @@ impl Callbacks for MetricsCallbacks {
             krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_wrapper, c.c_type_borrow_sanctioned, c.c_type_borrow_non_sanctioned, c.c_type_borrow_opaque, c.c_type_borrow_generic, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
             sites.json()
         );
+        emit_verdicts(tcx);
         Compilation::Continue
     }
 }
