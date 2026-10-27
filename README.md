@@ -50,7 +50,7 @@ progress and errors go to stderr.
 
 ```text
 ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE[,CRATE...]]
-                 [--sites COUNTER ... | all]
+                 [--seams NAMES] [--sites COUNTER ... | all]
 ```
 
 | Option | Effect |
@@ -58,6 +58,7 @@ ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE[,CRATE...]]
 | `--json` | Print the full JSON document instead of the summary. |
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). `all` names every counter that counts locations. |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, beside those found automatically (crates with a Cargo `links` key or named `*-sys`). Use it for bindings such as `libc`. |
+| `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |
 | `--ffibox` | Also count the crate's use of [ffibox](https://github.com/crustify-rs/ffibox): owners and handles in signatures and fields, and ffibox trait impls. Adds an `ffibox` record whose counters also take `--sites`. |
 
 ## Output
@@ -77,8 +78,13 @@ The JSON document has these top-level fields:
 When the build fails, ffimap reports no counts rather than approximate ones.
 Generated `-sys` binding crates are never counted as the subject.
 
-Every counter, how C types are identified, and the known limitations are
-described in [docs/output.md](docs/output.md).
+[docs/output.md](docs/output.md) describes the document's shape, the
+conventions every counter is read under, and the known limitations. The
+counters themselves are described per area, in
+[docs/unsafe.md](docs/unsafe.md) (the unsafe surface),
+[docs/raw.md](docs/raw.md) (raw and `void` pointers),
+[docs/ctypes.md](docs/ctypes.md) (C types, wrappers and borrows into C memory)
+and [docs/ffibox.md](docs/ffibox.md) (the `--ffibox` record).
 
 [examples/](examples) has full documents from three real wrappers: two that
 crustify generated, over FFmpeg and libgit2, and the hand-written git2-rs.
