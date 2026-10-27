@@ -44,22 +44,28 @@ def site_counters(requested: list[str], ffibox: bool = False) -> list[str]:
 
 
 def compose(workspace: Path, sites: list[str] | None = None,
-            ffibox: bool = False, sys_crates: list[str] | None = None) -> dict:
+            ffibox: bool = False, sys_crates: list[str] | None = None,
+            seams: list[str] | None = None) -> dict:
     """Scan the workspace and return the metrics document.
 
     ``sites`` names counters whose source locations to report, as a ``sites``
     record beside ``counts`` with one list per counter. ``ffibox`` adds the
     ``ffibox`` record: the crate's ffibox surface. ``sys_crates`` add to the
     sys crates found by Cargo's `links` keys; the set is recorded in
-    ``sys_crates``, since which types are C's rests on it.
+    ``sys_crates``, since which types are C's rests on it. ``seams`` names the
+    functions that only convert between a wrapper and its raw pointer; they
+    are reported as the ``of_which.seam`` share of each fn-signature counter.
     """
     wanted = site_counters(sites, ffibox) if sites else None
     sys = measure.sys_crates(workspace, sys_crates)
     doc: dict = {"crate_path": str(workspace), "sys_crates": sys}
     all_sites: dict = {}
+    flat: dict = {}
     try:
-        doc["counts"], all_sites, breakdowns = measure.measure(
-            workspace, ffibox=ffibox, sys=sys)
+        flat, all_sites, breakdowns = measure.measure(
+            workspace, ffibox=ffibox, sys=sys, seams=seams)
+        # `derived` reads the flat counters; the document carries the tree.
+        doc["counts"] = measure.nest_counts(flat)
         doc["counts_unavailable"] = None
     except measure.DriverUnavailable as e:
         # No counts rather than substitute ones: see measure.py.
@@ -72,7 +78,7 @@ def compose(workspace: Path, sites: list[str] | None = None,
         doc["ffibox"] = _ffibox_record(breakdowns)
     if wanted is not None:
         doc["sites"] = {k: all_sites.get(k, []) for k in wanted}
-    doc["derived"] = _derive(doc)
+    doc["derived"] = _derive(flat)
     return doc
 
 
@@ -82,10 +88,13 @@ def _ffibox_record(breakdowns: dict | None) -> dict | None:
     if breakdowns is None:
         return None
     by = {k: dict(sorted(breakdowns.get(k, {}).items())) for k in measure.FFIBOX_COUNTERS}
-    return {"counts": {k: sum(v.values()) for k, v in by.items()}, "by": by}
+    flat = {k: sum(v.values()) for k, v in by.items()}
+    # `counts` is the tree; `by` stays keyed by the flat leaf name, since a
+    # breakdown belongs to one leaf (as a site list does).
+    return {"counts": measure.nest_ffibox(flat), "by": by}
 
 
-def _derive(doc: dict) -> dict:
+def _derive(c: dict) -> dict:
     """Ratios a reader actually compares crates on.
 
     Absolute unsafe-block counts are close to meaningless across crates of
@@ -96,42 +105,42 @@ def _derive(doc: dict) -> dict:
     crate pushes across its public API boundary, where the caller has to
     discharge it.
     """
-    c = doc.get("counts") or {}
     if not c:
         return {}
-    loc = c.get("code_lines") or 0
-    ub = c.get("unsafe_blocks") or 0
-    fns = c.get("unsafe_fns") or 0
     pub_fns = (c.get("safe_fns_pub") or 0) + (c.get("unsafe_fns_pub") or 0)
     priv_fns = (c.get("safe_fns_priv") or 0) + (c.get("unsafe_fns_priv") or 0)
+    # Sums only. No ratios: a ratio moves when its denominator moves, so one
+    # reads as a change in the crate when only the other term changed --
+    # `unsafe_fns_pub / unsafe_fns` rises when private unsafe fns are DELETED.
+    # The counts are all here; a consumer that wants a rate divides its own.
     return {
         # Categorical: what the crate's public interface hands its callers.
         "fns_pub": pub_fns,
         "fns_priv": priv_fns,
-        "unsafe_fn_pub_ratio": round((c.get("unsafe_fns_pub") or 0) / fns, 4) if fns else None,
-        "unsafe_fn_share_of_pub_fns": round((c.get("unsafe_fns_pub") or 0) / pub_fns, 4) if pub_fns else None,
         "raw_ptr_pub": (c.get("raw_ptr_ty_pub_fields_pub") or 0)
                        + (c.get("raw_ptr_ty_pub_fields_priv") or 0) + (c.get("raw_ptr_fn_pub_safe") or 0)
                        + (c.get("raw_ptr_fn_pub_unsafe") or 0),
         "raw_ptr_pub_safe_interface": (c.get("raw_ptr_ty_pub_fields_pub") or 0)
                                       + (c.get("raw_ptr_fn_pub_safe") or 0),
-        # Context, explicitly NOT a quality score. See the docstring.
-        "unsafe_loc_ratio": round((c.get("unsafe_block_code_lines") or 0) / loc, 4) if loc else None,
-        "loc_per_unsafe_block": round(loc / ub, 1) if ub else None,
     }
 
 
 
 
 def summarize(doc: dict) -> str:
-    c = doc.get("counts") or {}
+    # The summary is a human rendering, so it reads the flat leaf names; the
+    # document itself carries the tree.
+    c = measure.flatten_counts(doc.get("counts") or {})
     d = doc.get("derived", {})
     lines: list[str] = []
     if c:
         lines += [
             f"  code lines           {c.get('code_lines')}",
-            f"  unsafe blocks        {c.get('unsafe_blocks')}"
-            f"   ({d.get('unsafe_loc_ratio')} of code lines — context, not a score)",
+            f"  unsafe code lines    {c.get('unsafe_block_code_lines')}"
+            f" of {c.get('code_lines')}"
+            f"   (in {c.get('unsafe_blocks')} unsafe blocks; the line count is the"
+            f" comparable one — block count moves with the crate's"
+            f" one-op-per-block policy)",
             f"  fns                  {d.get('fns_pub', 0) + d.get('fns_priv', 0)}"
             f"   (pub {c.get('safe_fns_pub')} safe + {c.get('unsafe_fns_pub')} unsafe,"
             f" private {c.get('safe_fns_priv')} safe + {c.get('unsafe_fns_priv')} unsafe;"
@@ -140,7 +149,7 @@ def summarize(doc: dict) -> str:
             f"   ({c.get('unsafe_fns_pub')} pub + {c.get('unsafe_fns_priv')} private;"
             f" methods of other crates' traits excluded)",
             f"  unsafe Send/Sync     {c.get('unsafe_send_impl')} Send + {c.get('unsafe_sync_impl')} Sync",
-            f"  layout newtypes      {c.get('c_type_wrapper')}",
+            f"  layout newtypes      {c.get('c_type_layout_wrapper')}",
             f"  raw ptr positions    {sum(c.get('raw_ptr_' + k) or 0 for k in ('ty_pub_fields_pub', 'ty_pub_fields_priv', 'ty_priv', 'fn_pub_safe', 'fn_pub_unsafe', 'fn_priv_safe', 'fn_priv_unsafe'))}"
             f"   (pub types: {c.get('raw_ptr_ty_pub_fields_pub')} pub fields + {c.get('raw_ptr_ty_pub_fields_priv')} private fields,"
             f" private types: {c.get('raw_ptr_ty_priv')};"

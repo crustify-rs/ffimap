@@ -44,20 +44,48 @@ class EmissionTests(unittest.TestCase):
     def test_thread_safety_opt_ins_are_emitted(self) -> None:
         keys, _ = _emission()
         i = keys.index("unsafe_traits")
-        names = ["unsafe_send_impl", "unsafe_sync_impl", "c_type_wrapper"]
+        names = ["unsafe_send_impl", "unsafe_sync_impl", "c_type_layout_wrapper"]
         self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
 
-    def test_c_type_borrows_split_by_target(self) -> None:
+    def test_c_type_borrows_split_by_position_then_kind(self) -> None:
         keys, _ = _emission()
-        i = keys.index("c_type_borrow_sanctioned")
-        names = ["c_type_borrow_sanctioned", "c_type_borrow_non_sanctioned",
-                 "c_type_borrow_opaque", "c_type_borrow_generic", "raw_ptr_as_slice_borrow"]
+        i = keys.index("c_type_borrow_fn_sig_sanctioned_pub")
+        names = [
+            "c_type_borrow_fn_sig_sanctioned_pub", "c_type_borrow_fn_sig_sanctioned_priv",
+            "c_type_borrow_fn_sig_non_sanctioned_pub", "c_type_borrow_fn_sig_non_sanctioned_priv",
+            "c_type_borrow_fn_sig_opaque_pub", "c_type_borrow_fn_sig_opaque_priv",
+            "c_type_borrow_fn_body_non_sanctioned", "c_type_borrow_fn_body_opaque",
+            "c_type_borrow_fn_body_generic",
+            "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
+            "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
+            "c_type_borrow_ty_non_sanctioned_priv",
+            "c_type_borrow_ty_opaque_pub_fields_pub",
+            "c_type_borrow_ty_opaque_pub_fields_priv",
+            "c_type_borrow_ty_opaque_priv",
+            "raw_ptr_as_slice_borrow",
+        ]
         self.assertEqual(keys[i:i + len(names)], names)
         for k in names:
             self.assertIn(k, measure.SITE_COUNTERS)
         self.assertFalse([k for k in keys if k.startswith(("ty_wrapper", "ty_non_wrapper"))])
+
+    def test_absent_position_kind_cells_are_not_emitted(self) -> None:
+        """A kind that cannot occur in a position gets no counter at all,
+        rather than one that is always 0: sanctioned is a signature-only
+        distinction, and `generic` -- a borrow whose referent is a type
+        parameter -- is only decidable in a body."""
+        keys, _ = _emission()
+        for absent in ("c_type_borrow_fn_sig_generic_pub", "c_type_borrow_fn_sig_generic_priv",
+                       "c_type_borrow_fn_body_sanctioned",
+                       "c_type_borrow_ty_sanctioned_priv",
+                       "c_type_borrow_ty_generic_priv"):
+            self.assertNotIn(absent, keys)
+        # ...and the pre-split names are gone entirely.
+        for old in ("c_type_borrow_sanctioned", "c_type_borrow_non_sanctioned",
+                    "c_type_borrow_opaque", "c_type_borrow_generic"):
+            self.assertNotIn(old, keys)
 
     def test_redundant_wrapper_counters_are_gone(self) -> None:
         keys, _ = _emission()
@@ -98,9 +126,13 @@ class FfiboxTests(unittest.TestCase):
 
     def test_record_totals_every_counter(self) -> None:
         rec = scan._ffibox_record({"fn_sig_ffibox_handle_pub": {"Ref": 4, "Mut": 1}})
-        self.assertEqual(set(rec["counts"]), set(measure.FFIBOX_COUNTERS))
-        self.assertEqual(rec["counts"]["fn_sig_ffibox_handle_pub"], 5)
-        self.assertEqual(rec["counts"]["fn_sig_ffibox_owner_pub"], 0)
+        # `counts` is the tree; every counter is still there, as a leaf.
+        self.assertEqual(set(measure.flatten_ffibox(rec["counts"])),
+                         set(measure.FFIBOX_COUNTERS))
+        self.assertEqual(rec["counts"]["fn_sig"]["ffibox"]["handle"]["pub"], 5)
+        self.assertEqual(rec["counts"]["fn_sig"]["ffibox"]["owner"]["pub"], 0)
+        # `by` stays keyed by the flat leaf name: a breakdown belongs to a leaf.
+        self.assertEqual(rec["by"]["fn_sig_ffibox_handle_pub"], {"Mut": 1, "Ref": 4})
         self.assertIsNone(scan._ffibox_record(None))
 
     def test_ffibox_sites_need_the_flag(self) -> None:
@@ -142,11 +174,31 @@ class SysCrateTests(unittest.TestCase):
 
 
 class PartitionTests(unittest.TestCase):
-    def test_driver_carries_no_seam_names(self) -> None:
+    def test_driver_hardcodes_no_seam_names(self) -> None:
+        """Seam names come from `--seams`, never from the driver.
+
+        The driver reads them out of `UM_SEAM_FNS`; it must not carry a list
+        of its own, or the classification stops being the user's to declare
+        and starts being a guess that differs per codebase.
+        """
         src = MAIN_RS.read_text()
-        self.assertNotIn("UM_SEAM_FNS", src)
-        self.assertFalse([k for k in measure._COUNTS if k.endswith(("_seam", "_smell"))
-                          and not k.startswith("c_type_borrow")])
+        self.assertIn("UM_SEAM_FNS", src)
+        for guess in ('"from_raw"', '"as_ptr"', '"from_ptr"', '"as_mut_ptr"', '"raw"'):
+            self.assertNotIn(guess, src, f"driver hardcodes the seam name {guess}")
+
+    def test_seam_counters_are_subsets_not_partitions(self) -> None:
+        """A seam is counted in its own counter AND in the base one, so the
+        two must never be summed: the document hangs them off `of_which`."""
+        for leaf, parent in (("safe_fns_seam_pub", ("safe_fns", "pub")),
+                             ("unsafe_fns_seam_priv", ("unsafe_fns", "priv")),
+                             ("raw_ptr_fn_seam_pub_safe", ("raw_ptr_fn", "pub", "safe"))):
+            self.assertIn(leaf, measure._COUNTS)
+            self.assertIn(leaf, measure.SITE_COUNTERS)
+            self.assertEqual(measure._OF_WHICH[leaf], (parent, "seam"))
+        tree = measure.nest_counts({"safe_fns_pub": 10, "safe_fns_priv": 0,
+                                    "safe_fns_seam_pub": 7})
+        self.assertEqual(tree["safe_fns"]["pub"], {"total": 10, "of_which": {"seam": 7}})
+        self.assertEqual(tree["safe_fns"]["total"], 10)   # not 17
 
     def test_raw_and_void_partitions_are_emitted(self) -> None:
         keys, _ = _emission()

@@ -124,11 +124,14 @@ enum CRef {
     Sized,
 }
 
-/// True if `did` is a C type: a sys crate's, a local `#[repr(C)]` /
-/// `#[repr(transparent)]` type C reaches, or a layout newtype over one. A Rust
-/// type C reaches only as a `void *` payload is not one: C never reads its bytes.
+/// True if `did` is a C type: one C can reach the memory of (see
+/// `compute_c_visible`), or a layout newtype over one.
+///
+/// Decided by provenance, never by the crate a type is declared in: a sys
+/// crate's `#[repr(C)]` type that nothing in the build hands to C is not a C
+/// type, and a C type declared outside one still is.
 fn is_c_type(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    is_type_wrapper(tcx, did) || is_sys_c_type(tcx, did)
+    is_type_wrapper(tcx, did) || is_c_accessible(tcx, did)
 }
 
 /// True when values of `t` take up no bytes or there are none: an opaque C type.
@@ -233,10 +236,22 @@ enum PtrSite {
     /// type, of the field itself (reachable from outside the crate or not).
     Type { exported: bool, field_exported: bool },
     /// A parameter or return, by the fn's effective visibility and safety.
-    Fn { exported: bool, safe: bool },
+    Fn { exported: bool, safe: bool, seam: bool },
 }
 
 impl PtrSite {
+    /// The `raw_ptr_fn_seam_*` subset counter, when this position sits in a
+    /// declared seam. `None` for a field, or a fn that is not one.
+    fn seam_counter(self) -> Option<&'static str> {
+        match self {
+            PtrSite::Fn { seam: false, .. } | PtrSite::Type { .. } => None,
+            PtrSite::Fn { exported: true, safe: true, .. } => Some("raw_ptr_fn_seam_pub_safe"),
+            PtrSite::Fn { exported: true, safe: false, .. } => Some("raw_ptr_fn_seam_pub_unsafe"),
+            PtrSite::Fn { exported: false, safe: true, .. } => Some("raw_ptr_fn_seam_priv_safe"),
+            PtrSite::Fn { exported: false, safe: false, .. } => Some("raw_ptr_fn_seam_priv_unsafe"),
+        }
+    }
+
     /// The `raw_ptr_*` and `void_ptr_*` partition counters for this position.
     fn counters(self) -> (&'static str, &'static str) {
         match self {
@@ -247,10 +262,10 @@ impl PtrSite {
                 ("raw_ptr_ty_pub_fields_priv", "void_ptr_ty_pub_fields_priv")
             }
             PtrSite::Type { exported: false, .. } => ("raw_ptr_ty_priv", "void_ptr_ty_priv"),
-            PtrSite::Fn { exported: true, safe: true } => ("raw_ptr_fn_pub_safe", "void_ptr_fn_pub_safe"),
-            PtrSite::Fn { exported: true, safe: false } => ("raw_ptr_fn_pub_unsafe", "void_ptr_fn_pub_unsafe"),
-            PtrSite::Fn { exported: false, safe: true } => ("raw_ptr_fn_priv_safe", "void_ptr_fn_priv_safe"),
-            PtrSite::Fn { exported: false, safe: false } => ("raw_ptr_fn_priv_unsafe", "void_ptr_fn_priv_unsafe"),
+            PtrSite::Fn { exported: true, safe: true, .. } => ("raw_ptr_fn_pub_safe", "void_ptr_fn_pub_safe"),
+            PtrSite::Fn { exported: true, safe: false, .. } => ("raw_ptr_fn_pub_unsafe", "void_ptr_fn_pub_unsafe"),
+            PtrSite::Fn { exported: false, safe: true, .. } => ("raw_ptr_fn_priv_safe", "void_ptr_fn_priv_safe"),
+            PtrSite::Fn { exported: false, safe: false, .. } => ("raw_ptr_fn_priv_unsafe", "void_ptr_fn_priv_unsafe"),
         }
     }
 }
@@ -271,6 +286,10 @@ fn count_ptr_position(
     let (raw, void) = at.counters();
     *c.slot(raw) += 1;
     sites.add(raw, site.clone());
+    if let Some(k) = at.seam_counter() {
+        *c.slot(k) += 1;
+        sites.add(k, site.clone());
+    }
     if is_c_void(tcx, p) {
         *c.slot(void) += 1;
         sites.add(void, site.clone());
@@ -305,7 +324,7 @@ fn non_wrapper_borrows<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> u64 {
     }
 }
 
-/// True if `did` is a layout newtype wrapping a C type -- the set `c_type_wrapper`
+/// True if `did` is a layout newtype wrapping a C type -- the set `c_type_layout_wrapper`
 /// counts.
 fn is_layout_wrapper(tcx: TyCtxt<'_>, did: DefId) -> bool {
     matches!(structural_wrapper(tcx, did), Some((true, cs)) if !cs.is_empty())
@@ -395,7 +414,7 @@ fn count_wrapper_value_fields(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites
 /// `raw_ptr_ty_{pub,priv}` by the effective visibility of the TYPE: every
 /// raw pointer a public type holds counts, private fields included, since it
 /// is that type's representation. A field holding a borrow into C memory also
-/// counts into `c_type_borrow_non_sanctioned`.
+/// counts into `c_type_borrow_ty_{non_sanctioned,opaque}_*`.
 fn count_raw_ptr_fields(
     tcx: TyCtxt<'_>,
     did: DefId,
@@ -415,14 +434,26 @@ fn count_raw_ptr_fields(
         let field_exported = f.did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
         // A field holding a borrow into C memory, nested (`Option<&W>`) or
         // behind a handle over `&'a ffi::T`. A generic `&'a T` is not one.
+        let borrow_slot = |kind: &str| -> &'static str {
+            match (kind, exported, field_exported) {
+                ("non_sanctioned", true, true) => "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
+                ("non_sanctioned", true, false) => "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
+                ("non_sanctioned", _, _) => "c_type_borrow_ty_non_sanctioned_priv",
+                (_, true, true) => "c_type_borrow_ty_opaque_pub_fields_pub",
+                (_, true, false) => "c_type_borrow_ty_opaque_pub_fields_priv",
+                (_, _, _) => "c_type_borrow_ty_opaque_priv",
+            }
+        };
         match c_refs_in(tcx, ft).max(c_ref_kind(tcx, peel_transparent(tcx, ft))) {
             Some(CRef::Sized) => {
-                c.c_type_borrow_non_sanctioned += 1;
-                sites.add("c_type_borrow_non_sanctioned", site.clone());
+                let k = borrow_slot("non_sanctioned");
+                *c.slot(k) += 1;
+                sites.add(k, site.clone());
             }
             Some(CRef::Opaque) => {
-                c.c_type_borrow_opaque += 1;
-                sites.add("c_type_borrow_opaque", site.clone());
+                let k = borrow_slot("opaque");
+                *c.slot(k) += 1;
+                sites.add(k, site.clone());
             }
             _ => {}
         }
@@ -504,7 +535,7 @@ fn is_c_void(tcx: TyCtxt<'_>, p: Ty<'_>) -> bool {
 // Passing a type by VALUE is a copy and seeds nothing. Generic wrappers
 // (`W<T>` over a C type) and memory C reaches through an erased `void *`
 // with no visible cast are not seen; a reachable TYPE does not mean every
-// value of it lives in C memory (see docs/audit/unsafe-output.md).
+// value of it lives in C memory (see docs/ctypes.md).
 
 /// The crates whose `#[repr(C)]` types are C's, by crate name: `UM_SYS_CRATES`,
 /// comma-separated, set by `ffimap` from Cargo's `links` keys plus
@@ -521,12 +552,28 @@ fn sys_crates() -> &'static HashSet<String> {
     })
 }
 
-fn is_sys_c_type(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
-        // `#[repr(C)]`, or `enum git_blob {}`: the variantless enum hand-written
-        // bindings declare an opaque C type as
-        && (tcx.adt_def(did).repr().c() || (tcx.adt_def(did).is_enum() && tcx.adt_def(did).variants().is_empty()))
-        && sys_crates().contains(tcx.crate_name(did.krate).as_str())
+/// The function names `--seams` declared, by bare item name: `UM_SEAM_FNS`,
+/// comma-separated, set by `ffimap`. A seam is the conversion between a
+/// wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`, `from_ptr`); the
+/// driver never guesses the names, so an unset variable means no seam is
+/// reported and every counter reads as it always did.
+fn seam_fns() -> &'static HashSet<String> {
+    static SEAMS: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
+    SEAMS.get_or_init(|| {
+        std::env::var("UM_SEAM_FNS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(String::from)
+            .collect()
+    })
+}
+
+/// True when `did`'s own name is one of the declared seam names.
+fn is_seam_fn(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    !seam_fns().is_empty()
+        && tcx.opt_item_name(did).is_some_and(|n| seam_fns().contains(n.as_str()))
 }
 
 fn is_std_crate(tcx: TyCtxt<'_>, did: DefId) -> bool {
@@ -602,13 +649,18 @@ fn ptr_pointee_adt<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Option<Ty<'tcx>> {
     }
 }
 
-/// Pointer casts and transmutes in the crate's bodies, as the C-reachability
-/// seeds and pairs they imply.
+/// The `*c_void` round trips in the crate's bodies.
+///
+/// Each cast site is read on its own, for the one fact it states: this type
+/// was round-tripped through `*c_void` here. Nothing is composed across sites,
+/// and no value is followed -- the collector reads the two types of a single
+/// `x as T`, `.cast::<T>()` or `transmute::<A, B>` expression and stops.
 struct CastCollector<'a, 'tcx> {
     tcx: TyCtxt<'tcx>,
     typeck: &'tcx TypeckResults<'tcx>,
-    seeds: &'a mut Vec<DefId>,
-    pairs: &'a mut Vec<(DefId, DefId)>,
+    /// Types whose only tie to C is a `*c_void` round trip: C carries the
+    /// pointer, and nothing says it reads the bytes. See `compute_c_visible`.
+    erased: &'a mut Vec<DefId>,
 }
 
 impl<'a, 'tcx> CastCollector<'a, 'tcx> {
@@ -620,12 +672,19 @@ impl<'a, 'tcx> CastCollector<'a, 'tcx> {
             ty::TyKind::Adt(d, _) if !is_std_crate(self.tcx, d.did()) => Some(d.did()),
             _ => None,
         };
+        // A cast between two NAMED types records nothing. Reading it as
+        // evidence would mean composing casts from unrelated program points
+        // into a chain, which says nothing about who owns the bytes; measured
+        // on libgit2-bindings (12 edges) and git2-rs (42), it admitted no type
+        // that declarations and containment did not already reach.
         match (adt(a), adt(b)) {
-            (Some(x), Some(y)) if x != y => self.pairs.push((x, y)),
-            // `*mut T as *mut c_void` hands T to C; `*mut c_void as *mut T`
-            // types C's memory as T.
-            (Some(x), None) if is_c_void(self.tcx, b) => self.seeds.push(x),
-            (None, Some(y)) if is_c_void(self.tcx, a) => self.seeds.push(y),
+            // A `*c_void` round trip, in either direction. It cannot say who
+            // owns the bytes: `*mut T as *mut c_void` hands a Rust payload to
+            // C, and `*mut c_void as *mut T` is what BOTH C's own memory and
+            // that payload's trampoline look like on the way back. Erased
+            // evidence only, never a layout claim.
+            (Some(x), None) if is_c_void(self.tcx, b) => self.erased.push(x),
+            (None, Some(y)) if is_c_void(self.tcx, a) => self.erased.push(y),
             _ => {}
         }
     }
@@ -661,9 +720,8 @@ impl<'a, 'tcx> Visitor<'tcx> for CastCollector<'a, 'tcx> {
 ///
 /// A safe wrapper crate declares no `extern` block of its own: the foreign
 /// declarations live in its `-sys` crate, a separate compilation unit whose HIR
-/// this pass never walks. Without this, scanning the safe crate finds almost no
-/// provenance seeds, and `is_sys_c_type` is left standing in for them -- which
-/// admits every `#[repr(C)]` type a sys crate DECLARES, reachable or not.
+/// this pass never walks. Without this, scanning a safe crate would find
+/// almost no provenance seeds at all.
 ///
 /// `foreign_modules` is `separate_provide_extern` and is encoded into crate
 /// metadata (rustc_middle/src/queries.rs: "the foreign modules of a linked
@@ -672,13 +730,10 @@ impl<'a, 'tcx> Visitor<'tcx> for CastCollector<'a, 'tcx> {
 ///
 /// Every foreign item is C's side, whatever the block's ABI, as the local arm
 /// has it (`tcx.is_foreign_item(did) || sig.abi() != ExternAbi::Rust`).
-fn upstream_foreign_seeds(tcx: TyCtxt<'_>, seeds: &mut Vec<DefId>) -> (usize, usize) {
-    let (mut modules, mut items) = (0, 0);
+fn upstream_foreign_seeds(tcx: TyCtxt<'_>, seeds: &mut Vec<DefId>) {
     for &cnum in tcx.crates(()) {
         for m in tcx.foreign_modules(cnum).values() {
-            modules += 1;
             for &did in &m.foreign_items {
-                items += 1;
                 match tcx.def_kind(did) {
                     DefKind::Fn => {
                         let sig = tcx.fn_sig(did).skip_binder().skip_binder();
@@ -689,7 +744,7 @@ fn upstream_foreign_seeds(tcx: TyCtxt<'_>, seeds: &mut Vec<DefId>) -> (usize, us
                     }
                     DefKind::Static { .. } => {
                         let t = tcx.type_of(did).instantiate_identity().skip_norm_wip();
-                        if let Some(d) = field_adt(tcx, t) {
+                        if let Some(d) = field_adt(tcx, t).filter(|d| !is_std_crate(tcx, d.did())) {
                             seeds.push(d.did());
                         }
                         c_pointee_adts(tcx, t, false, seeds);
@@ -700,12 +755,25 @@ fn upstream_foreign_seeds(tcx: TyCtxt<'_>, seeds: &mut Vec<DefId>) -> (usize, us
             }
         }
     }
-    (modules, items)
 }
 
-fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
+/// True when `did`'s layout is one C can describe: `#[repr(C)]`,
+/// `#[repr(transparent)]`, or an enum with a primitive representation.
+///
+/// Its absence is a fact, not a judgement: a `repr(Rust)` type has no
+/// guaranteed layout, so C cannot be reading its bytes as a type of its own.
+/// It is how the Rust tail of a hybrid allocation is told from the C base it
+/// sits behind -- `#[repr(C)] struct Filtered { base: Iterator, state: State }`
+/// hands C a pointer whose offset-zero prefix is C's, while `state` is Rust's
+/// private storage that merely shares the allocation.
+fn has_c_repr(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    let repr = tcx.adt_def(did).repr();
+    repr.c() || repr.transparent() || repr.int.is_some()
+}
+
+fn compute_c_visible(tcx: TyCtxt<'_>) -> (HashSet<DefId>, HashSet<DefId>) {
     let mut seeds: Vec<DefId> = Vec::new();
-    let mut pairs: Vec<(DefId, DefId)> = Vec::new();
+    let mut erased: Vec<DefId> = Vec::new();
     let mut local_layouts: Vec<DefId> = Vec::new();
     for ld in tcx.hir_crate_items(()).definitions() {
         let did = ld.to_def_id();
@@ -723,7 +791,10 @@ fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
             DefKind::Static { .. } => {
                 let t = tcx.type_of(did).instantiate_identity().skip_norm_wip();
                 if tcx.is_foreign_item(did) {
-                    if let Some(d) = field_adt(tcx, t) {
+                    // Not a std type: bindgen gives every C function pointer
+                    // the type `Option<unsafe extern "C" fn(..)>`, and the
+                    // `Option` is Rust's, not C's.
+                    if let Some(d) = field_adt(tcx, t).filter(|d| !is_std_crate(tcx, d.did())) {
                         seeds.push(d.did());
                     }
                     c_pointee_adts(tcx, t, false, &mut seeds);
@@ -745,34 +816,14 @@ fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
             _ => {}
         }
     }
-    let local_seeds = seeds.len();
-    let (xmods, xitems) = if std::env::var_os("FFIMAP_XCRATE").is_some() {
-        upstream_foreign_seeds(tcx, &mut seeds)
-    } else {
-        (0, 0)
-    };
+    upstream_foreign_seeds(tcx, &mut seeds);
     for owner in tcx.hir_body_owners() {
         let typeck = tcx.typeck(owner);
-        CastCollector { tcx, typeck, seeds: &mut seeds, pairs: &mut pairs }
+        CastCollector { tcx, typeck, erased: &mut erased }
             .visit_body(tcx.hir_body_owned_by(owner));
     }
-    if std::env::var_os("FFIMAP_XCRATE_STATS").is_some() {
-        eprintln!(
-            "XCRATE {{\"crate\":\"{}\",\"local_seeds\":{},\"upstream_modules\":{},\"upstream_items\":{},\"seeds_total\":{}}}",
-            tcx.crate_name(rustc_span::def_id::LOCAL_CRATE),
-            local_seeds,
-            xmods,
-            xitems,
-            seeds.len()
-        );
-    }
     let mut vis: HashSet<DefId> = seeds.into_iter().collect();
-    // SPIKE: the closure's own `reach` ORs the sys shortcut too, so dropping it
-    // only at `is_c_visible` leaves the closure contaminated by it.
-    let no_sys = std::env::var_os("FFIMAP_NO_SYS_SHORTCUT").is_some();
-    let reach = |vis: &HashSet<DefId>, d: DefId| {
-        vis.contains(&d) || (!no_sys && is_sys_c_type(tcx, d))
-    };
+    let reach = |vis: &HashSet<DefId>, d: DefId| vis.contains(&d);
     let mut expanded: HashSet<DefId> = HashSet::new();
     loop {
         let before = vis.len();
@@ -788,22 +839,18 @@ fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
                 if is_phantom(tcx, ft) || is_zst_marker(tcx, ft) {
                     continue;
                 }
+                // A field held BY VALUE is C's only if C could describe its
+                // layout. Without that, the field is the Rust tail of an
+                // allocation whose C base sits at offset zero, and admitting
+                // it drags in every Rust type the tail reaches.
                 if let Some(a) = field_adt(tcx, ft) {
-                    if !is_std_crate(tcx, a.did()) {
+                    if !is_std_crate(tcx, a.did()) && has_c_repr(tcx, a.did()) {
                         vis.insert(a.did());
                     }
                 }
                 let mut ps = Vec::new();
                 c_pointee_adts(tcx, ft, false, &mut ps);
                 vis.extend(ps);
-            }
-        }
-        for &(a, b) in &pairs {
-            if reach(&vis, a) {
-                vis.insert(b);
-            }
-            if reach(&vis, b) {
-                vis.insert(a);
             }
         }
         // A local layout type holding a reachable type by value.
@@ -825,74 +872,48 @@ fn compute_c_visible(tcx: TyCtxt<'_>) -> HashSet<DefId> {
             break;
         }
     }
-    vis
+    // The erased class is never closed over: if C does not read a payload's
+    // bytes, it does not read its fields' bytes either. A type with other
+    // evidence stays accessible, so the two sets overlap.
+    let erased: HashSet<DefId> = erased.into_iter().filter(|d| !vis.contains(d)).collect();
+    (vis, erased)
 }
 
 thread_local! {
-    static C_VISIBLE: std::cell::RefCell<Option<HashSet<DefId>>> =
+    /// `(accessible, erased)`, computed once (see `compute_c_visible`).
+    static C_VISIBLE: std::cell::RefCell<Option<(HashSet<DefId>, HashSet<DefId>)>> =
         const { std::cell::RefCell::new(None) };
 }
 
-thread_local! {
-    /// SPIKE tally: for every distinct `DefId` the pass asks about, which of
-    /// the two terms of `is_c_visible` said yes. `sys_only` is what the
-    /// `is_sys_c_type` shortcut contributes that provenance does not reach --
-    /// the set that would be LOST by dropping the shortcut.
-    static VERDICTS: std::cell::RefCell<HashMap<DefId, (bool, bool)>> =
-        std::cell::RefCell::new(HashMap::new());
-}
-
-/// SPIKE: emit the tally of which term of `is_c_visible` decided each type.
-fn emit_verdicts(tcx: TyCtxt<'_>) {
-    if std::env::var_os("FFIMAP_XCRATE_STATS").is_none() {
-        return;
-    }
-    let (mut sys_only, mut both, mut closure_only, mut neither) = (0, 0, 0, 0);
-    let mut lost: Vec<String> = Vec::new();
-    VERDICTS.with(|v| {
-        for (&did, &(sys, closure)) in v.borrow().iter() {
-            match (sys, closure) {
-                (true, false) => {
-                    sys_only += 1;
-                    lost.push(tcx.def_path_str(did));
-                }
-                (true, true) => both += 1,
-                (false, true) => closure_only += 1,
-                (false, false) => neither += 1,
-            }
-        }
-    });
-    lost.sort();
-    eprintln!(
-        "VERDICTS {{\"crate\":\"{}\",\"sys_only\":{},\"both\":{},\"closure_only\":{},\"neither\":{},\"lost\":{:?}}}",
-        tcx.crate_name(rustc_span::def_id::LOCAL_CRATE),
-        sys_only,
-        both,
-        closure_only,
-        neither,
-        lost
-    );
-}
-
-/// True when C can reach memory of type `did` (see the section comment).
-fn is_c_visible(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    let sys = is_sys_c_type(tcx, did);
-    let closure = C_VISIBLE.with(|c| {
+fn with_c_sets<R>(tcx: TyCtxt<'_>, f: impl FnOnce(&(HashSet<DefId>, HashSet<DefId>)) -> R) -> R {
+    C_VISIBLE.with(|c| {
         let mut b = c.borrow_mut();
         if b.is_none() {
             *b = Some(compute_c_visible(tcx));
         }
-        b.as_ref().unwrap().contains(&did)
-    });
-    if std::env::var_os("FFIMAP_XCRATE_STATS").is_some() {
-        VERDICTS.with(|v| {
-            v.borrow_mut().insert(did, (sys, closure));
-        });
-    }
-    if std::env::var_os("FFIMAP_NO_SYS_SHORTCUT").is_some() {
-        return closure;
-    }
-    sys || closure
+        f(b.as_ref().unwrap())
+    })
+}
+
+/// True when C READS the bytes of `did` as its own type: the type reached a
+/// foreign signature, a foreign static, a C-ABI fn pointer or a named pointer
+/// cast, or it is held by value or pointed at by one that did.
+///
+/// This is the classifier every C-type and wrapper decision uses. A Rust
+/// payload C only carries as a `void *` is excluded -- see `is_c_visible`.
+fn is_c_accessible(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    with_c_sets(tcx, |(acc, _)| acc.contains(&did))
+}
+
+/// True when C can reach memory of type `did` AT ALL: `is_c_accessible`, plus
+/// the types whose only evidence is a `*c_void` round trip, which cannot say
+/// who owns the bytes.
+///
+/// Not an input to any classification: a payload handed to C is an observable
+/// of its own, not a C type.
+#[allow(dead_code, reason = "the erased class is reported, not classified on")]
+fn is_c_visible(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    with_c_sets(tcx, |(acc, era)| acc.contains(&did) || era.contains(&did))
 }
 
 /// True when `t` holds an `UnsafeCell` (directly, or in a field, transitively):
@@ -1106,7 +1127,7 @@ fn embedded_c(
         let Some(d) = field_adt(tcx, ft) else {
             continue;
         };
-        if is_c_visible(tcx, d.did()) {
+        if is_c_accessible(tcx, d.did()) {
             if !out.contains(&d.did()) {
                 out.push(d.did());
             }
@@ -1171,7 +1192,7 @@ fn structural_wrapper(tcx: TyCtxt<'_>, did: DefId) -> Option<(bool, Vec<DefId>)>
         if !cs.is_empty() {
             return Some((true, cs));
         }
-        if did.is_local() && is_c_visible(tcx, did) {
+        if did.is_local() && is_c_accessible(tcx, did) {
             return Some((true, Vec::new()));
         }
     }
@@ -1295,7 +1316,7 @@ struct Counts {
     // `#[repr(C)]` / `#[repr(transparent)]` struct storing a C-reachable type's
     // bytes inline (see "C visibility"). How these relate to ffibox's `CCell` is the `--ffibox` record's
     // (`ffibox_layout_not_ccell` / `ffibox_ccell_not_layout`).
-    c_type_wrapper: u64,
+    c_type_layout_wrapper: u64,
     // Borrows into C memory: `&W` / `&mut W` (or `&[W]`, `Option<&W>`, ..),
     // W a layout newtype or a local C type, wherever they occur:
     //  * fn signatures (the receiver included): sanctioned on REF_ACCESSORS
@@ -1307,14 +1328,36 @@ struct Counts {
     //    reference to any C-reachable type (a handle over `&'a ffi::T`) --
     //    never sanctioned.
     // A shared `&W` over `UnsafeCell` storage is not a borrow here.
-    // c_type_borrow_non_sanctioned's target is 0.
-    c_type_borrow_sanctioned: u64,
-    c_type_borrow_non_sanctioned: u64,
-    // The borrows of the same shapes the two leave out: `_opaque`, of a
-    // zero-sized or uninhabited C type, in any position; `_generic`, formed from
-    // a raw pointer in a body, of a type parameter or associated type.
-    c_type_borrow_opaque: u64,
-    c_type_borrow_generic: u64,
+    // Split by POSITION first, because that is what "on the public interface"
+    // means: a `&*p` inside a `pub fn`'s body is an internal operation, not
+    // something the interface hands a caller. Only the signature positions
+    // carry a visibility, by the fn's effective visibility; the field ones
+    // carry the type's and the field's, as raw_ptr_ty_* do.
+    //
+    // Not every kind occurs in every position, and the absent ones are not
+    // emitted rather than emitted as a constant 0:
+    //   sanctioned -- signatures only (REF_ACCESSORS / STD_VALUE_TRAITS impls);
+    //   generic    -- bodies only: the referent is a type parameter or
+    //                 associated type, so whether it is C memory depends on
+    //                 the instantiation, which a generically-read body does
+    //                 not show;
+    //   opaque / non_sanctioned -- all three positions.
+    // c_type_borrow_fn_sig_non_sanctioned_*'s target is 0.
+    c_type_borrow_fn_sig_sanctioned_pub: u64,
+    c_type_borrow_fn_sig_sanctioned_priv: u64,
+    c_type_borrow_fn_sig_non_sanctioned_pub: u64,
+    c_type_borrow_fn_sig_non_sanctioned_priv: u64,
+    c_type_borrow_fn_sig_opaque_pub: u64,
+    c_type_borrow_fn_sig_opaque_priv: u64,
+    c_type_borrow_fn_body_non_sanctioned: u64,
+    c_type_borrow_fn_body_opaque: u64,
+    c_type_borrow_fn_body_generic: u64,
+    c_type_borrow_ty_non_sanctioned_pub_fields_pub: u64,
+    c_type_borrow_ty_non_sanctioned_pub_fields_priv: u64,
+    c_type_borrow_ty_non_sanctioned_priv: u64,
+    c_type_borrow_ty_opaque_pub_fields_pub: u64,
+    c_type_borrow_ty_opaque_pub_fields_priv: u64,
+    c_type_borrow_ty_opaque_priv: u64,
     // References to a slice-like target -- `[T]`, `[T; N]`, `str`, `CStr`,
     // `OsStr`, `Path` -- over a type that is not a C type, formed from a raw
     // pointer in a body: `CStr::from_ptr(p)`, `slice::from_raw_parts(p, n)`,
@@ -1406,6 +1449,18 @@ struct Counts {
     // `extern "C"` block all resolve to it. Calling one is an unsafe op, so
     // this is the crate-wide unsafe-FFI-call surface. Resolution-based on the
     // callee, so alias- and re-export-proof.
+    // Of the fn-signature counters above, the share whose function is a
+    // declared `--seams` name: plumbing between a wrapper and its raw
+    // pointer, which a consumer of the safe API never performs. Subsets,
+    // never summed into their parent. All zero without `--seams`.
+    safe_fns_seam_pub: u64,
+    safe_fns_seam_priv: u64,
+    unsafe_fns_seam_pub: u64,
+    unsafe_fns_seam_priv: u64,
+    raw_ptr_fn_seam_pub_safe: u64,
+    raw_ptr_fn_seam_pub_unsafe: u64,
+    raw_ptr_fn_seam_priv_safe: u64,
+    raw_ptr_fn_seam_priv_unsafe: u64,
     ffi_calls: u64,
 }
 
@@ -1428,6 +1483,29 @@ impl Counts {
             "void_ptr_fn_pub_unsafe" => &mut self.void_ptr_fn_pub_unsafe,
             "void_ptr_fn_priv_safe" => &mut self.void_ptr_fn_priv_safe,
             "void_ptr_fn_priv_unsafe" => &mut self.void_ptr_fn_priv_unsafe,
+            "c_type_borrow_fn_sig_sanctioned_pub" => &mut self.c_type_borrow_fn_sig_sanctioned_pub,
+            "c_type_borrow_fn_sig_sanctioned_priv" => &mut self.c_type_borrow_fn_sig_sanctioned_priv,
+            "c_type_borrow_fn_sig_non_sanctioned_pub" => &mut self.c_type_borrow_fn_sig_non_sanctioned_pub,
+            "c_type_borrow_fn_sig_non_sanctioned_priv" => &mut self.c_type_borrow_fn_sig_non_sanctioned_priv,
+            "c_type_borrow_fn_sig_opaque_pub" => &mut self.c_type_borrow_fn_sig_opaque_pub,
+            "c_type_borrow_fn_sig_opaque_priv" => &mut self.c_type_borrow_fn_sig_opaque_priv,
+            "c_type_borrow_fn_body_non_sanctioned" => &mut self.c_type_borrow_fn_body_non_sanctioned,
+            "c_type_borrow_fn_body_opaque" => &mut self.c_type_borrow_fn_body_opaque,
+            "c_type_borrow_fn_body_generic" => &mut self.c_type_borrow_fn_body_generic,
+            "c_type_borrow_ty_non_sanctioned_pub_fields_pub" => &mut self.c_type_borrow_ty_non_sanctioned_pub_fields_pub,
+            "c_type_borrow_ty_non_sanctioned_pub_fields_priv" => &mut self.c_type_borrow_ty_non_sanctioned_pub_fields_priv,
+            "c_type_borrow_ty_non_sanctioned_priv" => &mut self.c_type_borrow_ty_non_sanctioned_priv,
+            "c_type_borrow_ty_opaque_pub_fields_pub" => &mut self.c_type_borrow_ty_opaque_pub_fields_pub,
+            "c_type_borrow_ty_opaque_pub_fields_priv" => &mut self.c_type_borrow_ty_opaque_pub_fields_priv,
+            "c_type_borrow_ty_opaque_priv" => &mut self.c_type_borrow_ty_opaque_priv,
+            "safe_fns_seam_pub" => &mut self.safe_fns_seam_pub,
+            "safe_fns_seam_priv" => &mut self.safe_fns_seam_priv,
+            "unsafe_fns_seam_pub" => &mut self.unsafe_fns_seam_pub,
+            "unsafe_fns_seam_priv" => &mut self.unsafe_fns_seam_priv,
+            "raw_ptr_fn_seam_pub_safe" => &mut self.raw_ptr_fn_seam_pub_safe,
+            "raw_ptr_fn_seam_pub_unsafe" => &mut self.raw_ptr_fn_seam_pub_unsafe,
+            "raw_ptr_fn_seam_priv_safe" => &mut self.raw_ptr_fn_seam_priv_safe,
+            "raw_ptr_fn_seam_priv_unsafe" => &mut self.raw_ptr_fn_seam_priv_unsafe,
             _ => unreachable!("not a position partition: {name}"),
         }
     }
@@ -1573,10 +1651,21 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
     }
 
     fn body_ref(&mut self, e: &'tcx hir::Expr<'tcx>, kind: CRef) {
+        // No visibility split: the enclosing fn's visibility would say only
+        // where the operation sits, not that the interface exposes it.
         let (slot, k) = match kind {
-            CRef::Sized => (&mut self.c.c_type_borrow_non_sanctioned, "c_type_borrow_non_sanctioned"),
-            CRef::Opaque => (&mut self.c.c_type_borrow_opaque, "c_type_borrow_opaque"),
-            CRef::Generic => (&mut self.c.c_type_borrow_generic, "c_type_borrow_generic"),
+            CRef::Sized => (
+                &mut self.c.c_type_borrow_fn_body_non_sanctioned,
+                "c_type_borrow_fn_body_non_sanctioned",
+            ),
+            CRef::Opaque => (
+                &mut self.c.c_type_borrow_fn_body_opaque,
+                "c_type_borrow_fn_body_opaque",
+            ),
+            CRef::Generic => (
+                &mut self.c.c_type_borrow_fn_body_generic,
+                "c_type_borrow_fn_body_generic",
+            ),
         };
         *slot += 1;
         self.sites.add(k, counter_site(self.tcx, e.span));
@@ -1882,7 +1971,7 @@ fn holds_c_pointer(tcx: TyCtxt<'_>, did: DefId) -> bool {
         let target_is_c = |p: Ty<'tcx>| {
             is_c_void(tcx, p)
                 || matches!(p.kind(), ty::TyKind::Adt(d, _)
-                    if is_c_visible(tcx, d.did()) || is_type_wrapper(tcx, d.did()))
+                    if is_c_accessible(tcx, d.did()) || is_type_wrapper(tcx, d.did()))
         };
         match t.kind() {
             ty::TyKind::RawPtr(p, _) | ty::TyKind::Ref(_, p, _) => target_is_c(*p) || points_at_c(tcx, *p),
@@ -2249,8 +2338,8 @@ impl Callbacks for MetricsCallbacks {
                     // `c_type_borrow_*` exists to keep at 0.
                     let is_layout = is_layout_wrapper(tcx, did);
                     if is_layout {
-                        c.c_type_wrapper += 1;
-                        sites.add("c_type_wrapper", counter_site(tcx, tcx.def_span(did)));
+                        c.c_type_layout_wrapper += 1;
+                        sites.add("c_type_layout_wrapper", counter_site(tcx, tcx.def_span(did)));
                     }
                 }
                 DefKind::Impl { of_trait: true } => {
@@ -2354,22 +2443,34 @@ impl Callbacks for MetricsCallbacks {
                 {
                     let kind = c_ref_kind(tcx, t);
                     if kind == Some(CRef::Opaque) {
-                        c.c_type_borrow_opaque += 1;
-                        sites.add("c_type_borrow_opaque", counter_site(tcx, tcx.def_span(did)));
+                        let k = if exported {
+                            "c_type_borrow_fn_sig_opaque_pub"
+                        } else {
+                            "c_type_borrow_fn_sig_opaque_priv"
+                        };
+                        *c.slot(k) += 1;
+                        sites.add(k, counter_site(tcx, tcx.def_span(did)));
                     }
                     if kind == Some(CRef::Sized) {
                         let site = counter_site(tcx, tcx.def_span(did));
-                        if ref_to_wrapper_sanctioned(tcx, did) {
-                            c.c_type_borrow_sanctioned += 1;
-                            sites.add("c_type_borrow_sanctioned", site);
-                        } else {
-                            c.c_type_borrow_non_sanctioned += 1;
-                            sites.add("c_type_borrow_non_sanctioned", site);
-                        }
+                        let k = match (ref_to_wrapper_sanctioned(tcx, did), exported) {
+                            (true, true) => "c_type_borrow_fn_sig_sanctioned_pub",
+                            (true, false) => "c_type_borrow_fn_sig_sanctioned_priv",
+                            (false, true) => "c_type_borrow_fn_sig_non_sanctioned_pub",
+                            (false, false) => "c_type_borrow_fn_sig_non_sanctioned_priv",
+                        };
+                        *c.slot(k) += 1;
+                        sites.add(k, site);
                     }
                 }
+                let seam = is_seam_fn(tcx, did);
                 if safe && !foreign {
                     let site = counter_site(tcx, tcx.def_span(did));
+                    if seam {
+                        let k = if exported { "safe_fns_seam_pub" } else { "safe_fns_seam_priv" };
+                        *c.slot(k) += 1;
+                        sites.add(k, site.clone());
+                    }
                     if exported {
                         c.safe_fns_pub += 1;
                         sites.add("safe_fns_pub", site);
@@ -2382,6 +2483,11 @@ impl Callbacks for MetricsCallbacks {
                     let site = counter_site(tcx, tcx.def_span(did));
                     c.unsafe_fns += 1;
                     sites.add("unsafe_fns", site.clone());
+                    if seam {
+                        let k = if exported { "unsafe_fns_seam_pub" } else { "unsafe_fns_seam_priv" };
+                        *c.slot(k) += 1;
+                        sites.add(k, site.clone());
+                    }
                     if exported {
                         c.unsafe_fns_pub += 1;
                         sites.add("unsafe_fns_pub", site);
@@ -2433,7 +2539,7 @@ impl Callbacks for MetricsCallbacks {
                         raw_pointees(tcx, t, &mut pointees);
                     }
                     for p in pointees {
-                        count_ptr_position(tcx, p, PtrSite::Fn { exported, safe }, &wrapped_c, site.clone(), &mut c, &mut sites);
+                        count_ptr_position(tcx, p, PtrSite::Fn { exported, safe, seam }, &wrapped_c, site.clone(), &mut c, &mut sites);
                     }
                 }
             }
@@ -2525,11 +2631,10 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_wrapper\":{},\"c_type_borrow_sanctioned\":{},\"c_type_borrow_non_sanctioned\":{},\"c_type_borrow_opaque\":{},\"c_type_borrow_generic\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_wrapper, c.c_type_borrow_sanctioned, c.c_type_borrow_non_sanctioned, c.c_type_borrow_opaque, c.c_type_borrow_generic, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_layout_wrapper\":{},\"c_type_borrow_fn_sig_sanctioned_pub\":{},\"c_type_borrow_fn_sig_sanctioned_priv\":{},\"c_type_borrow_fn_sig_non_sanctioned_pub\":{},\"c_type_borrow_fn_sig_non_sanctioned_priv\":{},\"c_type_borrow_fn_sig_opaque_pub\":{},\"c_type_borrow_fn_sig_opaque_priv\":{},\"c_type_borrow_fn_body_non_sanctioned\":{},\"c_type_borrow_fn_body_opaque\":{},\"c_type_borrow_fn_body_generic\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_pub\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_priv\":{},\"c_type_borrow_ty_non_sanctioned_priv\":{},\"c_type_borrow_ty_opaque_pub_fields_pub\":{},\"c_type_borrow_ty_opaque_pub_fields_priv\":{},\"c_type_borrow_ty_opaque_priv\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"safe_fns_seam_pub\":{},\"safe_fns_seam_priv\":{},\"unsafe_fns_seam_pub\":{},\"unsafe_fns_seam_priv\":{},\"raw_ptr_fn_seam_pub_safe\":{},\"raw_ptr_fn_seam_pub_unsafe\":{},\"raw_ptr_fn_seam_priv_safe\":{},\"raw_ptr_fn_seam_priv_unsafe\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_layout_wrapper, c.c_type_borrow_fn_sig_sanctioned_pub, c.c_type_borrow_fn_sig_sanctioned_priv, c.c_type_borrow_fn_sig_non_sanctioned_pub, c.c_type_borrow_fn_sig_non_sanctioned_priv, c.c_type_borrow_fn_sig_opaque_pub, c.c_type_borrow_fn_sig_opaque_priv, c.c_type_borrow_fn_body_non_sanctioned, c.c_type_borrow_fn_body_opaque, c.c_type_borrow_fn_body_generic, c.c_type_borrow_ty_non_sanctioned_pub_fields_pub, c.c_type_borrow_ty_non_sanctioned_pub_fields_priv, c.c_type_borrow_ty_non_sanctioned_priv, c.c_type_borrow_ty_opaque_pub_fields_pub, c.c_type_borrow_ty_opaque_pub_fields_priv, c.c_type_borrow_ty_opaque_priv, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.safe_fns_seam_pub, c.safe_fns_seam_priv, c.unsafe_fns_seam_pub, c.unsafe_fns_seam_priv, c.raw_ptr_fn_seam_pub_safe, c.raw_ptr_fn_seam_pub_unsafe, c.raw_ptr_fn_seam_priv_safe, c.raw_ptr_fn_seam_priv_unsafe, c.ffi_calls,
             sites.json()
         );
-        emit_verdicts(tcx);
         Compilation::Continue
     }
 }

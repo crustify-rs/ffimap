@@ -45,9 +45,22 @@ _COUNTS = (
     "unsafe_blocks_ffi_export", "unsafe_fns", "unsafe_fns_pub",
     "unsafe_fns_priv", "unsafe_impls", "unsafe_traits",
     "unsafe_send_impl", "unsafe_sync_impl",
-    "c_type_wrapper",
-    "c_type_borrow_sanctioned", "c_type_borrow_non_sanctioned",
-    "c_type_borrow_opaque", "c_type_borrow_generic",
+    "c_type_layout_wrapper",
+    "c_type_borrow_fn_sig_sanctioned_pub",
+    "c_type_borrow_fn_sig_sanctioned_priv",
+    "c_type_borrow_fn_sig_non_sanctioned_pub",
+    "c_type_borrow_fn_sig_non_sanctioned_priv",
+    "c_type_borrow_fn_sig_opaque_pub",
+    "c_type_borrow_fn_sig_opaque_priv",
+    "c_type_borrow_fn_body_non_sanctioned",
+    "c_type_borrow_fn_body_opaque",
+    "c_type_borrow_fn_body_generic",
+    "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
+    "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
+    "c_type_borrow_ty_non_sanctioned_priv",
+    "c_type_borrow_ty_opaque_pub_fields_pub",
+    "c_type_borrow_ty_opaque_pub_fields_priv",
+    "c_type_borrow_ty_opaque_priv",
     "raw_ptr_as_slice_borrow",
     "c_type_by_val_fn_sig_pub", "c_type_by_val_fn_sig_priv",
     "c_type_by_val_ty_pub_fields_pub", "c_type_by_val_ty_pub_fields_priv",
@@ -59,6 +72,14 @@ _COUNTS = (
     "raw_ptr_ty_pub_fields_pub", "raw_ptr_ty_pub_fields_priv",
     "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe", "raw_ptr_fn_pub_unsafe",
     "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe", "raw_ptr_has_c_type_wrapper",
+    "safe_fns_seam_pub",
+    "safe_fns_seam_priv",
+    "unsafe_fns_seam_pub",
+    "unsafe_fns_seam_priv",
+    "raw_ptr_fn_seam_pub_safe",
+    "raw_ptr_fn_seam_pub_unsafe",
+    "raw_ptr_fn_seam_priv_safe",
+    "raw_ptr_fn_seam_priv_unsafe",
     "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "raw_ptr_derefs_outside_impl",
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
@@ -73,8 +94,22 @@ SITE_COUNTERS = (
     "unsafe_blocks_wrapper_impl", "unsafe_blocks_ffi_export", "unsafe_fns",
     "unsafe_fns_pub", "unsafe_fns_priv", "unsafe_impls", "unsafe_traits",
     "unsafe_send_impl", "unsafe_sync_impl",
-    "c_type_wrapper", "c_type_borrow_sanctioned",
-    "c_type_borrow_non_sanctioned", "c_type_borrow_opaque", "c_type_borrow_generic",
+    "c_type_layout_wrapper",
+    "c_type_borrow_fn_sig_sanctioned_pub",
+    "c_type_borrow_fn_sig_sanctioned_priv",
+    "c_type_borrow_fn_sig_non_sanctioned_pub",
+    "c_type_borrow_fn_sig_non_sanctioned_priv",
+    "c_type_borrow_fn_sig_opaque_pub",
+    "c_type_borrow_fn_sig_opaque_priv",
+    "c_type_borrow_fn_body_non_sanctioned",
+    "c_type_borrow_fn_body_opaque",
+    "c_type_borrow_fn_body_generic",
+    "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
+    "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
+    "c_type_borrow_ty_non_sanctioned_priv",
+    "c_type_borrow_ty_opaque_pub_fields_pub",
+    "c_type_borrow_ty_opaque_pub_fields_priv",
+    "c_type_borrow_ty_opaque_priv",
     "raw_ptr_as_slice_borrow",
     "c_type_by_val_fn_sig_pub", "c_type_by_val_fn_sig_priv",
     "c_type_by_val_ty_pub_fields_pub", "c_type_by_val_ty_pub_fields_priv",
@@ -87,6 +122,14 @@ SITE_COUNTERS = (
     "raw_ptr_ty_pub_fields_priv", "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe",
     "raw_ptr_fn_pub_unsafe", "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe",
     "raw_ptr_has_c_type_wrapper", "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "raw_ptr_derefs_outside_impl",
+    "safe_fns_seam_pub",
+    "safe_fns_seam_priv",
+    "unsafe_fns_seam_pub",
+    "unsafe_fns_seam_priv",
+    "raw_ptr_fn_seam_pub_safe",
+    "raw_ptr_fn_seam_pub_unsafe",
+    "raw_ptr_fn_seam_priv_safe",
+    "raw_ptr_fn_seam_priv_unsafe",
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
@@ -115,6 +158,254 @@ FFIBOX_COUNTERS = (
 class DriverUnavailable(Exception):
     """The driver could not measure this tree. Carries the reason to report."""
 
+
+# ---------------------------------------------------------------- nesting
+#
+# `counts` is emitted as a TREE. The driver counts flat, suffixed names
+# (`raw_ptr_fn_pub_safe`); this spec folds them into one record per family so
+# that the parent total is in the document rather than reconstructed by a
+# consumer who has to know which suffixes belong together.
+#
+# Two relationships, which the flat names could not tell apart:
+#
+#   * a PARTITION -- disjoint children that sum to the parent. `pub` + `priv`,
+#     `safe` + `unsafe`, a public type's `pub` + `priv` fields.
+#   * an `of_which` SUBSET -- a child that re-counts some of the parent's own
+#     occurrences from another angle, so it must NEVER be summed in.
+#     `unsafe_blocks_wrapper_impl` is a subset of `unsafe_blocks`;
+#     `unsafe_send_impl` is "of `unsafe_impls`";
+#     `raw_ptr_derefs_outside_impl` is "of both" rd and wr;
+#     `raw_ptr_has_c_type_wrapper` is "of those positions".
+#
+# `sites` and the `--ffibox` `by` breakdowns stay keyed by the flat LEAF name:
+# a site list and a breakdown belong to one leaf, not to a parent.
+
+#: flat leaf name -> path in the tree. Partition leaves only.
+_PARTITION: dict[str, tuple[str, ...]] = {}
+for _stem in ("raw_ptr", "void_ptr", "c_type_by_val", "c_type_std_owner"):
+    _ty = f"{_stem}_ty"
+    _PARTITION[f"{_ty}_pub_fields_pub"] = (_ty, "pub", "fields", "pub")
+    _PARTITION[f"{_ty}_pub_fields_priv"] = (_ty, "pub", "fields", "priv")
+    _PARTITION[f"{_ty}_priv"] = (_ty, "priv")
+for _stem in ("raw_ptr", "void_ptr"):
+    for _v in ("pub", "priv"):
+        for _s in ("safe", "unsafe"):
+            _PARTITION[f"{_stem}_fn_{_v}_{_s}"] = (f"{_stem}_fn", _v, _s)
+for _stem in ("c_type_by_val", "c_type_std_owner"):
+    for _v in ("pub", "priv"):
+        _PARTITION[f"{_stem}_fn_sig_{_v}"] = (f"{_stem}_fn_sig", _v)
+for _v in ("pub", "priv"):
+    for _s in ("safe", "unsafe"):
+        _PARTITION[f"non_c_type_borrow_{_v}_{_s}"] = ("non_c_type_borrow", _v, _s)
+    _PARTITION[f"safe_fns_{_v}"] = ("safe_fns", _v)
+    _PARTITION[f"unsafe_fns_{_v}"] = ("unsafe_fns", _v)
+_PARTITION["raw_ptr_derefs_rd"] = ("raw_ptr_derefs", "rd")
+_PARTITION["raw_ptr_derefs_wr"] = ("raw_ptr_derefs", "wr")
+# Borrows into C memory: POSITION first, then kind, then visibility. Only the
+# kinds that occur in a position exist (see the driver's `Counts`): no
+# `fn_sig.generic`, no `fn_body.sanctioned`, no `ty.sanctioned`.
+for _k in ("sanctioned", "non_sanctioned", "opaque"):
+    for _v in ("pub", "priv"):
+        _PARTITION[f"c_type_borrow_fn_sig_{_k}_{_v}"] = ("c_type_borrow", "fn_sig", _k, _v)
+for _k in ("non_sanctioned", "opaque", "generic"):
+    _PARTITION[f"c_type_borrow_fn_body_{_k}"] = ("c_type_borrow", "fn_body", _k)
+for _k in ("non_sanctioned", "opaque"):
+    _PARTITION[f"c_type_borrow_ty_{_k}_pub_fields_pub"] = ("c_type_borrow", "ty", _k, "pub", "fields", "pub")
+    _PARTITION[f"c_type_borrow_ty_{_k}_pub_fields_priv"] = ("c_type_borrow", "ty", _k, "pub", "fields", "priv")
+    _PARTITION[f"c_type_borrow_ty_{_k}_priv"] = ("c_type_borrow", "ty", _k, "priv")
+
+#: flat leaf name -> (parent path, name under `of_which`). Never summed.
+_OF_WHICH: dict[str, tuple[tuple[str, ...], str]] = {
+    "unsafe_blocks_wrapper_impl": (("unsafe_blocks",), "wrapper_impl"),
+    "unsafe_blocks_ffi_export": (("unsafe_blocks",), "ffi_export"),
+    "unsafe_send_impl": (("unsafe_impls",), "send"),
+    "unsafe_sync_impl": (("unsafe_impls",), "sync"),
+    "raw_ptr_derefs_outside_impl": (("raw_ptr_derefs",), "outside_impl"),
+    # `--seams` names: the share of each fn-signature leaf that is seam
+    # plumbing -- the conversion between a wrapper and its raw pointer -- which
+    # a consumer of the safe API never performs. A subset, never summed in.
+    "safe_fns_seam_pub": (("safe_fns", "pub"), "seam"),
+    "safe_fns_seam_priv": (("safe_fns", "priv"), "seam"),
+    "unsafe_fns_seam_pub": (("unsafe_fns", "pub"), "seam"),
+    "unsafe_fns_seam_priv": (("unsafe_fns", "priv"), "seam"),
+    "raw_ptr_fn_seam_pub_safe": (("raw_ptr_fn", "pub", "safe"), "seam"),
+    "raw_ptr_fn_seam_pub_unsafe": (("raw_ptr_fn", "pub", "unsafe"), "seam"),
+    "raw_ptr_fn_seam_priv_safe": (("raw_ptr_fn", "priv", "safe"), "seam"),
+    "raw_ptr_fn_seam_priv_unsafe": (("raw_ptr_fn", "priv", "unsafe"), "seam"),
+}
+
+#: the paths that carry an `of_which`, so a PARTITION leaf landing on one is
+#: stored as `{"total": n}` rather than a bare number and still has somewhere
+#: to hang its subset.
+_OF_WHICH_PARENTS: frozenset[tuple[str, ...]] = frozenset(
+    parent for parent, _ in _OF_WHICH.values())
+
+#: a flat counter that is already a family's total: cross-checked, not stored
+#: twice. `unsafe_fns` == `unsafe_fns_pub` + `unsafe_fns_priv`.
+_PARENT_TOTALS: dict[str, tuple[str, ...]] = {"unsafe_fns": ("unsafe_fns",)}
+
+#: a flat counter that is a family's total but has NO partition children, only
+#: `of_which` subsets -- so its total is the emitted number, never a sum.
+_EXPLICIT_TOTAL: frozenset[str] = frozenset({"unsafe_blocks", "unsafe_impls"})
+
+# `raw_ptr_has_c_type_wrapper` and `raw_ptr_as_slice_borrow` stay top-level
+# scalars. The first is a subset of the `raw_ptr_ty` AND `raw_ptr_fn` positions
+# together, the second counts borrows rather than positions, so neither has one
+# parent whose total would mean anything.
+
+
+def _set(tree: dict, path: tuple[str, ...], value) -> None:
+    node = tree
+    for k in path[:-1]:
+        node = node.setdefault(k, {})
+        if not isinstance(node, dict):
+            raise AssertionError(f"nesting conflict at {path}")
+    node[path[-1]] = value
+
+
+def _totals(node: dict) -> int:
+    """Depth-first: give every internal node a `total` that sums its PARTITION
+    children, ignoring `of_which`, and return it.
+
+    A node that already carries an explicit `total` keeps it: it came from a
+    flat counter the driver emits for the whole family (`unsafe_blocks`), whose
+    only children are `of_which` subsets that must not be summed.
+    """
+    if "of_which" in node and not isinstance(node["of_which"], dict):
+        raise AssertionError("of_which must be a record")
+    if isinstance(node.get("total"), int):
+        for k, v in node.items():
+            if k not in ("total", "of_which") and isinstance(v, dict):
+                _totals(v)
+        return node["total"]
+    total = 0
+    for k, v in node.items():
+        if k in ("total", "of_which"):
+            continue
+        total += _totals(v) if isinstance(v, dict) else int(v)
+    node["total"] = total
+    return total
+
+
+def nest_counts(flat: dict) -> dict:
+    """Fold the driver's flat counters into the tree described above.
+
+    Every name in ``flat`` must be placed, so a counter added to the driver
+    fails here rather than vanishing from the document.
+    """
+    tree: dict = {}
+    # Ordered passes: a family's node must exist as a record before an
+    # `of_which` subset is hung off it, and `unsafe_blocks` / `unsafe_impls`
+    # are flat counters that become their family's explicit total.
+    for name, value in flat.items():
+        if name in _PARTITION:
+            path = _PARTITION[name]
+            if path in _OF_WHICH_PARENTS:
+                _set(tree, path + ("total",), int(value))
+            else:
+                _set(tree, path, int(value))
+    for name in _EXPLICIT_TOTAL:
+        if name in flat:
+            _set(tree, (name, "total"), int(flat[name]))
+    for name, value in flat.items():
+        if name in _PARTITION or name in _OF_WHICH or name in _PARENT_TOTALS \
+                or name in _EXPLICIT_TOTAL:
+            continue
+        tree[name] = int(value)           # a scalar with no family
+    for name, value in flat.items():
+        if name in _OF_WHICH:
+            parent, leaf = _OF_WHICH[name]
+            _set(tree, parent + ("of_which", leaf), int(value))
+    for node in tree.values():
+        if isinstance(node, dict):
+            _totals(node)
+    for name, path in _PARENT_TOTALS.items():
+        if name in flat:
+            node = tree
+            for k in path:
+                node = node[k]
+            if node["total"] != int(flat[name]):
+                raise AssertionError(
+                    f"{name}={flat[name]} but its children sum to {node['total']}")
+    return tree
+
+
+#: the `--ffibox` leaves, folded the same way.
+_FFIBOX_PARTITION: dict[str, tuple[str, ...]] = {}
+for _box in ("ffibox", "non_ffibox"):
+    for _kind in ("owner", "handle"):
+        for _v in ("pub", "priv"):
+            _FFIBOX_PARTITION[f"fn_sig_{_box}_{_kind}_{_v}"] = ("fn_sig", _box, _kind, _v)
+        _FFIBOX_PARTITION[f"ty_pub_fields_pub_{_box}_{_kind}"] = ("ty", _box, _kind, "pub", "fields", "pub")
+        _FFIBOX_PARTITION[f"ty_pub_fields_priv_{_box}_{_kind}"] = ("ty", _box, _kind, "pub", "fields", "priv")
+        _FFIBOX_PARTITION[f"ty_priv_{_box}_{_kind}"] = ("ty", _box, _kind, "priv")
+
+
+def nest_ffibox(flat: dict) -> dict:
+    """Fold the `--ffibox` counter totals into the same tree shape. The
+    remaining counters (`ffibox_impl_*`, `ffibox_define_ctype_*`,
+    `ffibox_ccell_not_layout`, `ffibox_layout_not_ccell`) have no visibility
+    split and stay scalars."""
+    tree: dict = {}
+    for name, value in flat.items():
+        if name in _FFIBOX_PARTITION:
+            _set(tree, _FFIBOX_PARTITION[name], int(value))
+        else:
+            tree[name] = int(value)
+    for node in tree.values():
+        if isinstance(node, dict):
+            _totals(node)
+    return tree
+
+
+
+def _at(tree: dict, path: tuple[str, ...]):
+    node = tree
+    for k in path:
+        if not isinstance(node, dict) or k not in node:
+            return None
+        node = node[k]
+    return node
+
+
+def flatten_counts(tree: dict) -> dict:
+    """The inverse of :func:`nest_counts`, for consumers that want the flat
+    names (the human summary, and the round-trip test that keeps the two
+    specs honest)."""
+    flat: dict = {}
+    for name, path in _PARTITION.items():
+        v = _at(tree, path + ("total",)) if path in _OF_WHICH_PARENTS else _at(tree, path)
+        if v is not None:
+            flat[name] = v
+    for name, (parent, leaf) in _OF_WHICH.items():
+        v = _at(tree, parent + ("of_which", leaf))
+        if v is not None:
+            flat[name] = v
+    for name, path in _PARENT_TOTALS.items():
+        v = _at(tree, path + ("total",))
+        if v is not None:
+            flat[name] = v
+    for name in _EXPLICIT_TOTAL:
+        v = _at(tree, (name, "total"))
+        if v is not None:
+            flat[name] = v
+    for name, v in tree.items():
+        if not isinstance(v, dict):
+            flat[name] = v
+    return flat
+
+
+def flatten_ffibox(tree: dict) -> dict:
+    """The inverse of :func:`nest_ffibox`."""
+    flat: dict = {}
+    for name, path in _FFIBOX_PARTITION.items():
+        v = _at(tree, path)
+        if v is not None:
+            flat[name] = v
+    for name, v in tree.items():
+        if not isinstance(v, dict):
+            flat[name] = v
+    return flat
 
 def sys_crates(ws: Path, extra: list[str] | None = None) -> list[str]:
     """The crates whose `#[repr(C)]` types are C's, by crate (lib target)
@@ -238,8 +529,8 @@ def _bust_cache(ws: Path) -> None:
                 root.touch()
 
 
-def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None
-            ) -> tuple[dict, dict, dict | None]:
+def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
+            seams: list[str] | None = None) -> tuple[dict, dict, dict | None]:
     """Return ``(tree-wide counts, sites per counter, ffibox breakdowns)`` for
     ``ws``. The breakdowns are ``None`` unless ``ffibox`` asked for them.
     ``sys`` are the sys crates (``sys_crates``): their `#[repr(C)]` types are
@@ -261,6 +552,7 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None
     if ffibox:
         env["UM_FFIBOX"] = "1"
     env["UM_SYS_CRATES"] = ",".join(sys or ())
+    env["UM_SEAM_FNS"] = ",".join(seams or ())
 
     r = subprocess.run(["cargo", f"+{_TOOLCHAIN}", "build"], cwd=ws, env=env,
                        capture_output=True, text=True)

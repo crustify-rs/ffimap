@@ -1,6 +1,7 @@
 """cli.py — the `ffimap` command.
 
     ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE,...]
+                     [--seams NAMES]
                      [--sites COUNTER ... | all]
 
 Deterministic: a rustc HIR/typeck pass over the crate's FFI and unsafe
@@ -45,6 +46,16 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "automatically (every crate with a Cargo `links` key or named "
              "`*-sys`). Use it for bindings that are neither, such as `libc`.")
     p.add_argument(
+        "--seams", type=lambda v: [n for n in v.replace(",", "\n").split() if n],
+        default=None, metavar="NAMES",
+        help="Function names that are seams -- the conversion between a "
+             "wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`, "
+             "`from_ptr`). Newline- or comma-separated, so `--seams \"$(cat "
+             "seams.txt)\"` works. They are counted as usual and ALSO reported "
+             "as the `of_which.seam` share of each fn-signature counter, so a "
+             "reader can tell plumbing from the pointer management a consumer "
+             "of the safe API actually faces. ffimap never guesses the names.")
+    p.add_argument(
         "--ffibox", action="store_true",
         help="Also count the crate's ffibox surface: ffibox types and the "
              "crate's Ref/Mut/Locked handles in fn signatures (pub or private, "
@@ -58,7 +69,7 @@ def run(workspace: Path, args: argparse.Namespace) -> int:
     """Scan ``workspace`` and print the document or its summary."""
     from ffimap import scan
     doc = scan.compose(workspace, sites=args.sites, ffibox=args.ffibox,
-                       sys_crates=args.sys_crates)
+                       sys_crates=args.sys_crates, seams=args.seams)
     print(json.dumps(doc, indent=2) if args.json else scan.summarize(doc))
     return 0
 

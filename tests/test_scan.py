@@ -17,7 +17,8 @@ class ComposeTests(unittest.TestCase):
                             return_value=["foo_sys"]):
                 document = scan.compose(workspace)
 
-            measure.assert_called_once_with(workspace, ffibox=False, sys=["foo_sys"])
+            measure.assert_called_once_with(workspace, ffibox=False, sys=["foo_sys"],
+                                            seams=None)
             self.assertEqual(document["sys_crates"], ["foo_sys"])
             self.assertEqual(document["crate_path"], str(workspace))
 
