@@ -1,8 +1,17 @@
-# The ffibox surface
+# The owner and handle surface
 
-Present only with `--ffibox`. It measures how the crate uses
-[ffibox](https://github.com/crustify-rs/ffibox): its owners and handles in
-signatures and fields, and its trait impls.
+Always present. It measures the owners and handles the crate puts in
+signatures and fields, split by whether they come from
+[ffibox](https://github.com/crustify-rs/ffibox) or the crate wrote them
+itself, together with its ffibox trait impls.
+
+The `non_ffibox` half is a fact about any FFI crate -- how much pointer
+ownership it implements rather than inherits -- so it is measured whether or
+not ffibox is in the build, and for a crate with no ffibox the other half is
+simply zero. `--ffibox` asserts that the crate is built on ffibox; it decides
+whether the conventions' `as_ref` / `as_mut` accessors are sanctioned (see
+[`ctypes.md`](ctypes.md)'s Borrows into C memory), not whether this record is
+emitted.
 
 Visibility is read as [`output.md`](output.md)'s Conventions section
 describes; `_pub` / `_priv` is the effective visibility of the function for a

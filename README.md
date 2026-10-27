@@ -59,7 +59,7 @@ ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE[,CRATE...]]
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). `all` names every counter that counts locations. |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, beside those found automatically (crates with a Cargo `links` key or named `*-sys`). Use it for bindings such as `libc`. |
 | `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |
-| `--ffibox` | Also count the crate's use of [ffibox](https://github.com/crustify-rs/ffibox): owners and handles in signatures and fields, and ffibox trait impls. Adds an `ffibox` record whose counters also take `--sites`. |
+| `--ffibox` | The crate is built on [ffibox](https://github.com/crustify-rs/ffibox). Sanctions the conventions' `as_ref` / `as_mut` layout accessors, which are matched by name and so hold only where that convention does. The owner and handle record is emitted either way. |
 
 ## Output
 
@@ -73,7 +73,7 @@ The JSON document has these top-level fields:
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `derived` | Ratios computed from `counts`, such as the share of public functions that are `unsafe`. |
 | `sites` | With `--sites`: source locations per requested counter. |
-| `ffibox` | With `--ffibox`: the ffibox surface, per counter and breakdown key. |
+| `ffibox` | The owner and handle surface, per counter and breakdown key, split into ffibox's and the crate's own. Always present. |
 
 When the build fails, ffimap reports no counts rather than approximate ones.
 Generated `-sys` binding crates are never counted as the subject.
@@ -84,7 +84,7 @@ counters themselves are described per area, in
 [docs/unsafe.md](docs/unsafe.md) (the unsafe surface),
 [docs/raw.md](docs/raw.md) (raw and `void` pointers),
 [docs/ctypes.md](docs/ctypes.md) (C types, wrappers and borrows into C memory)
-and [docs/ffibox.md](docs/ffibox.md) (the `--ffibox` record).
+and [docs/ffibox.md](docs/ffibox.md) (the owner and handle record).
 
 [examples/](examples) has full documents from three real wrappers: two that
 crustify generated, over FFmpeg and libgit2, and the hand-written git2-rs.

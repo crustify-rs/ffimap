@@ -22,24 +22,22 @@ from pathlib import Path
 from ffimap import measure
 
 
-def site_counters(requested: list[str], ffibox: bool = False) -> list[str]:
+def site_counters(requested: list[str]) -> list[str]:
     """Validate `--sites` names; `all` expands to every site-bearing counter.
-    The `--ffibox` counters are valid only when that scan runs."""
-    valid = measure.SITE_COUNTERS + (measure.FFIBOX_COUNTERS if ffibox else ())
+    The owner / handle counters are always measured, so they need no flag."""
+    valid = measure.SITE_COUNTERS + measure.FFIBOX_COUNTERS
     if "all" in requested:
         return list(valid)
-    # An ffibox counter takes a key from its breakdown, `<counter>:<key>`
-    # (`fn_sig_ffibox_owner_pub:CVal`), for that key's positions alone.
-    keyed = lambda n: ffibox and n.partition(":")[0] in measure.FFIBOX_COUNTERS and ":" in n
+    # An owner / handle counter takes a key from its breakdown,
+    # `<counter>:<key>` (`fn_sig_ffibox_owner_pub:CVal`), for that key alone.
+    keyed = lambda n: n.partition(":")[0] in measure.FFIBOX_COUNTERS and ":" in n
     unknown = [n for n in requested if n not in valid and not keyed(n)]
     if unknown:
-        hint = (" (the --ffibox counters need --ffibox)"
-                if any(n.partition(":")[0] in measure.FFIBOX_COUNTERS for n in unknown) else "")
         raise SystemExit(
             "ffimap: --sites takes counters that count source locations; "
-            f"unknown or siteless: {' '.join(unknown)}{hint}. Valid: "
-            + " ".join(valid) + ", or all; an --ffibox counter also takes "
-            "<counter>:<key> for one key of its breakdown")
+            f"unknown or siteless: {' '.join(unknown)}. Valid: "
+            + " ".join(valid) + ", or all; an owner / handle counter also "
+            "takes <counter>:<key> for one key of its breakdown")
     return list(dict.fromkeys(requested))
 
 
@@ -56,7 +54,7 @@ def compose(workspace: Path, sites: list[str] | None = None,
     functions that only convert between a wrapper and its raw pointer; they
     are reported as the ``of_which.seam`` share of each fn-signature counter.
     """
-    wanted = site_counters(sites, ffibox) if sites else None
+    wanted = site_counters(sites) if sites else None
     sys = measure.sys_crates(workspace, sys_crates)
     doc: dict = {"crate_path": str(workspace), "sys_crates": sys}
     all_sites: dict = {}
@@ -74,8 +72,7 @@ def compose(workspace: Path, sites: list[str] | None = None,
         breakdowns = None
         # stderr: `--json` owns stdout, and the document records the failure.
         print(f"[ffimap] no counts: {e}".rstrip(), file=stderr)
-    if ffibox:
-        doc["ffibox"] = _ffibox_record(breakdowns)
+    doc["ffibox"] = _ffibox_record(breakdowns)
     if wanted is not None:
         doc["sites"] = {k: all_sites.get(k, []) for k in wanted}
     doc["derived"] = _derive(flat)

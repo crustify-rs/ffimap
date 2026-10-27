@@ -57,12 +57,12 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "of the safe API actually faces. ffimap never guesses the names.")
     p.add_argument(
         "--ffibox", action="store_true",
-        help="Also count the crate's ffibox surface: ffibox types and the "
-             "crate's Ref/Mut/Locked handles in fn signatures (pub or private, "
-             "by kind), and the crate's types implementing ffibox traits "
-             "and other traits (ffibox-macro, derived and hand-written). Adds an "
-             "`ffibox` record; its counters also take --sites, whole or "
-             "for one key of their breakdown (fn_sig_ffibox_owner_pub:CVal).")
+        help="The crate is built on ffibox. Sanctions the convention's "
+             "`as_ref(&self)` / `as_mut(&mut self)` layout accessors, which "
+             "are matched by name and so hold only where that convention "
+             "does. The owner / handle record is measured either way: its "
+             "`non_ffibox` half counts what the crate wrote itself, and for a "
+             "crate with no ffibox the other half is zero.")
 
 
 def run(workspace: Path, args: argparse.Namespace) -> int:

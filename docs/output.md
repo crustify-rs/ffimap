@@ -28,8 +28,8 @@ are not the wrapper being audited.
 - `counts_unavailable`: failure text when counts are unavailable.
 - `derived`: sums calculated from counts.
 - `sites`: present when `--sites` names counters; see Counter sites.
-- `ffibox`: present with `--ffibox`; see ffibox surface. `null` when there are
-  no counts.
+- `ffibox`: the owner and handle surface, always present; see that document.
+  `null` when there are no counts.
 
 ### Counter tree
 
@@ -85,7 +85,7 @@ Each counter is described, with the others of its area, in:
 | [`unsafe.md`](unsafe.md) | the unsafe surface: `unsafe` blocks, fns, impls and traits, and FFI calls |
 | [`raw.md`](raw.md) | raw and `void` pointers: positions, dereferences, slice borrows |
 | [`ctypes.md`](ctypes.md) | C types: which types are C's, wrappers, borrows into C memory, C values held by value, hand-written `Drop` / `Clone` |
-| [`ffibox.md`](ffibox.md) | the `--ffibox` record |
+| [`ffibox.md`](ffibox.md) | the owner and handle record |
 
 ### Derived
 

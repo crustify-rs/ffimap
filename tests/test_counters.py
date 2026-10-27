@@ -135,20 +135,23 @@ class FfiboxTests(unittest.TestCase):
         self.assertEqual(rec["by"]["fn_sig_ffibox_handle_pub"], {"Mut": 1, "Ref": 4})
         self.assertIsNone(scan._ffibox_record(None))
 
-    def test_ffibox_sites_need_the_flag(self) -> None:
-        with self.assertRaises(SystemExit) as e:
-            scan.site_counters(["fn_sig_ffibox_owner_pub"])
-        self.assertIn("--ffibox", str(e.exception))
-        self.assertEqual(scan.site_counters(["fn_sig_ffibox_owner_pub"], ffibox=True),
+    def test_owner_handle_sites_need_no_flag(self) -> None:
+        # The owner / handle record is always measured: its `non_ffibox` half
+        # counts what the crate wrote itself, which holds with or without
+        # ffibox, so its site counters take no flag.
+        self.assertEqual(scan.site_counters(["fn_sig_ffibox_owner_pub"]),
                          ["fn_sig_ffibox_owner_pub"])
-        self.assertNotIn("fn_sig_ffibox_owner_pub", scan.site_counters(["all"]))
-        self.assertEqual(scan.site_counters(["fn_sig_ffibox_owner_pub:CVal"], ffibox=True),
+        self.assertEqual(scan.site_counters(["fn_sig_non_ffibox_handle_pub"]),
+                         ["fn_sig_non_ffibox_handle_pub"])
+        self.assertIn("fn_sig_ffibox_owner_pub", scan.site_counters(["all"]))
+        # <counter>:<key> selects one key of a breakdown.
+        self.assertEqual(scan.site_counters(["fn_sig_ffibox_owner_pub:CVal"]),
                          ["fn_sig_ffibox_owner_pub:CVal"])
+        # A plain counter has no breakdown, so it takes no key.
         with self.assertRaises(SystemExit):
-            scan.site_counters(["fn_sig_ffibox_owner_pub:CVal"])
+            scan.site_counters(["raw_ptr_fn_pub_safe:x"])
         with self.assertRaises(SystemExit):
-            scan.site_counters(["raw_ptr_fn_pub_safe:x"], ffibox=True)
-        self.assertIn("fn_sig_ffibox_owner_pub", scan.site_counters(["all"], ffibox=True))
+            scan.site_counters(["no_such_counter"])
 
 
 class SysCrateTests(unittest.TestCase):
