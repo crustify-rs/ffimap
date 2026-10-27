@@ -217,6 +217,14 @@
       },
       "total": 23
     },
+    "c_type_std_value_impl": {
+      "pub": 23,
+      "priv": 0,
+      "of_which": {
+        "derived": 11
+      },
+      "total": 23
+    },
     "unsafe_blocks": {
       "total": 1894,
       "of_which": {

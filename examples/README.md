@@ -1,8 +1,8 @@
 # Examples
 
-`ffimap --json --ffibox` documents for three safe Rust wrappers over C
-libraries: two that [crustify](https://github.com/crustify-rs/crustify)
-generated, scanned at the tip of their campaigns, and the hand-written
+`ffimap --json` documents for three safe Rust wrappers over C libraries: two
+that [crustify](https://github.com/crustify-rs/crustify) generated, scanned at
+the tip of their campaigns, and the hand-written
 [git2-rs](https://github.com/rust-lang/git2-rs), scanned as its crustify audit
 campaign found it.
 
@@ -24,10 +24,14 @@ it exactly.
 
 The libgit2 and git2-rs documents are on the current schema -- `counts` as a
 tree, `c_type_borrow` split by position -- and were scanned with each crate's
-own seam names declared:
+own seam names declared, and `--ffibox` only where it is true:
 
-    libgit2-bindings  --seams "from_ptr as_ptr as_mut_ptr from_void_ptr as_void_ptr"
-    git2-rs           --seams "raw from_raw raw_mut from_raw_opt from_raw_const unwrap"
+    libgit2-bindings  --ffibox --seams "from_ptr as_ptr as_mut_ptr from_void_ptr as_void_ptr"
+    git2-rs                    --seams "raw from_raw raw_mut from_raw_opt from_raw_const unwrap"
+
+git2-rs is built on no ffibox, so it is scanned without the flag; it still
+carries the owner and handle record, whose `non_ffibox` half counts what it
+wrote itself.
 
 so the fn and raw-pointer counters carry an `of_which.seam` share. Without it
 the two crates are not comparable: git2-rs's entire public raw-pointer surface
