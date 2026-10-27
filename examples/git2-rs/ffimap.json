@@ -1,5 +1,5 @@
 {
-  "crate_path": "/target",
+  "crate_path": "/crustify-rs/git2-rs",
   "sys_crates": [
     "curl_sys",
     "dirs_sys",
@@ -11,88 +11,331 @@
     "windows_sys"
   ],
   "counts": {
-    "code_lines": 13950,
-    "total_stmts": 6883,
-    "safe_fns_pub": 1744,
-    "safe_fns_priv": 628,
-    "unsafe_blocks": 1022,
-    "unsafe_block_stmts": 889,
-    "unsafe_block_lines": 3233,
-    "unsafe_block_code_lines": 3150,
-    "unsafe_blocks_wrapper_impl": 9,
-    "unsafe_blocks_ffi_export": 104,
-    "unsafe_fns": 124,
-    "unsafe_fns_pub": 112,
-    "unsafe_fns_priv": 12,
-    "unsafe_impls": 8,
+    "safe_fns": {
+      "pub": {
+        "total": 1743,
+        "of_which": {
+          "seam": 94
+        }
+      },
+      "priv": {
+        "total": 628,
+        "of_which": {
+          "seam": 2
+        }
+      },
+      "total": 2371
+    },
+    "unsafe_fns": {
+      "pub": {
+        "total": 112,
+        "of_which": {
+          "seam": 89
+        }
+      },
+      "priv": {
+        "total": 12,
+        "of_which": {
+          "seam": 7
+        }
+      },
+      "total": 124
+    },
+    "c_type_borrow": {
+      "fn_sig": {
+        "sanctioned": {
+          "pub": 10,
+          "priv": 0,
+          "total": 10
+        },
+        "non_sanctioned": {
+          "pub": 14,
+          "priv": 0,
+          "total": 14
+        },
+        "opaque": {
+          "pub": 0,
+          "priv": 0,
+          "total": 0
+        },
+        "total": 24
+      },
+      "fn_body": {
+        "non_sanctioned": 23,
+        "opaque": 105,
+        "generic": 3,
+        "total": 131
+      },
+      "ty": {
+        "non_sanctioned": {
+          "pub": {
+            "fields": {
+              "pub": 0,
+              "priv": 0,
+              "total": 0
+            },
+            "total": 0
+          },
+          "priv": 0,
+          "total": 0
+        },
+        "opaque": {
+          "pub": {
+            "fields": {
+              "pub": 0,
+              "priv": 0,
+              "total": 0
+            },
+            "total": 0
+          },
+          "priv": 0,
+          "total": 0
+        },
+        "total": 0
+      },
+      "total": 155
+    },
+    "c_type_by_val_fn_sig": {
+      "pub": 128,
+      "priv": 5,
+      "total": 133
+    },
+    "c_type_by_val_ty": {
+      "pub": {
+        "fields": {
+          "pub": 1,
+          "priv": 25,
+          "total": 26
+        },
+        "total": 26
+      },
+      "priv": 3,
+      "total": 29
+    },
+    "c_type_std_owner_fn_sig": {
+      "pub": 0,
+      "priv": 0,
+      "total": 0
+    },
+    "c_type_std_owner_ty": {
+      "pub": {
+        "fields": {
+          "pub": 0,
+          "priv": 1,
+          "total": 1
+        },
+        "total": 1
+      },
+      "priv": 0,
+      "total": 1
+    },
+    "non_c_type_borrow": {
+      "pub": {
+        "safe": 2197,
+        "unsafe": 10,
+        "total": 2207
+      },
+      "priv": {
+        "safe": 386,
+        "unsafe": 9,
+        "total": 395
+      },
+      "total": 2602
+    },
+    "raw_ptr_ty": {
+      "pub": {
+        "fields": {
+          "pub": 0,
+          "priv": 73,
+          "total": 73
+        },
+        "total": 73
+      },
+      "priv": 1,
+      "total": 74
+    },
+    "raw_ptr_fn": {
+      "pub": {
+        "safe": {
+          "total": 66,
+          "of_which": {
+            "seam": 66
+          }
+        },
+        "unsafe": {
+          "total": 70,
+          "of_which": {
+            "seam": 70
+          }
+        },
+        "total": 136
+      },
+      "priv": {
+        "safe": {
+          "total": 120,
+          "of_which": {
+            "seam": 1
+          }
+        },
+        "unsafe": {
+          "total": 8,
+          "of_which": {
+            "seam": 6
+          }
+        },
+        "total": 128
+      },
+      "total": 264
+    },
+    "raw_ptr_derefs": {
+      "rd": 246,
+      "wr": 45,
+      "of_which": {
+        "outside_impl": 47
+      },
+      "total": 291
+    },
+    "void_ptr_ty": {
+      "pub": {
+        "fields": {
+          "pub": 0,
+          "priv": 0,
+          "total": 0
+        },
+        "total": 0
+      },
+      "priv": 0,
+      "total": 0
+    },
+    "void_ptr_fn": {
+      "pub": {
+        "safe": 0,
+        "unsafe": 0,
+        "total": 0
+      },
+      "priv": {
+        "safe": 36,
+        "unsafe": 0,
+        "total": 36
+      },
+      "total": 36
+    },
+    "unsafe_blocks": {
+      "total": 932,
+      "of_which": {
+        "wrapper_impl": 9,
+        "ffi_export": 49
+      }
+    },
+    "unsafe_impls": {
+      "total": 8,
+      "of_which": {
+        "send": 7,
+        "sync": 1
+      }
+    },
+    "code_lines": 13915,
+    "total_stmts": 6871,
+    "unsafe_block_stmts": 1080,
+    "unsafe_block_lines": 3624,
+    "unsafe_block_code_lines": 3497,
     "unsafe_traits": 0,
-    "unsafe_send_impl": 7,
-    "unsafe_sync_impl": 1,
-    "c_type_wrapper": 3,
-    "c_type_borrow_sanctioned": 10,
-    "c_type_borrow_non_sanctioned": 37,
-    "c_type_borrow_opaque": 105,
-    "c_type_borrow_generic": 3,
+    "c_type_layout_wrapper": 3,
     "raw_ptr_as_slice_borrow": 47,
-    "c_type_by_val_fn_sig_pub": 128,
-    "c_type_by_val_fn_sig_priv": 5,
-    "c_type_by_val_ty_pub_fields_pub": 1,
-    "c_type_by_val_ty_pub_fields_priv": 25,
-    "c_type_by_val_ty_priv": 3,
-    "c_type_std_owner_fn_sig_pub": 0,
-    "c_type_std_owner_fn_sig_priv": 0,
-    "c_type_std_owner_ty_pub_fields_pub": 0,
-    "c_type_std_owner_ty_pub_fields_priv": 1,
-    "c_type_std_owner_ty_priv": 0,
-    "non_c_type_borrow_pub_safe": 2198,
-    "non_c_type_borrow_pub_unsafe": 10,
-    "non_c_type_borrow_priv_safe": 386,
-    "non_c_type_borrow_priv_unsafe": 9,
-    "raw_ptr_ty_pub_fields_pub": 0,
-    "raw_ptr_ty_pub_fields_priv": 73,
-    "raw_ptr_ty_priv": 1,
-    "raw_ptr_fn_pub_safe": 66,
-    "raw_ptr_fn_pub_unsafe": 70,
-    "raw_ptr_fn_priv_safe": 120,
-    "raw_ptr_fn_priv_unsafe": 8,
     "raw_ptr_has_c_type_wrapper": 17,
-    "raw_ptr_derefs_rd": 246,
-    "raw_ptr_derefs_wr": 45,
-    "raw_ptr_derefs_outside_impl": 47,
-    "void_ptr_ty_pub_fields_pub": 0,
-    "void_ptr_ty_pub_fields_priv": 0,
-    "void_ptr_ty_priv": 0,
-    "void_ptr_fn_pub_safe": 0,
-    "void_ptr_fn_pub_unsafe": 0,
-    "void_ptr_fn_priv_safe": 36,
-    "void_ptr_fn_priv_unsafe": 0,
     "drop_impl": 54,
     "clone_impl": 9,
-    "ffi_calls": 674
+    "ffi_calls": 672
   },
   "counts_unavailable": null,
   "ffibox": {
     "counts": {
-      "fn_sig_ffibox_owner_pub": 0,
-      "fn_sig_ffibox_owner_priv": 0,
-      "fn_sig_ffibox_handle_pub": 0,
-      "fn_sig_ffibox_handle_priv": 0,
-      "fn_sig_non_ffibox_owner_pub": 344,
-      "fn_sig_non_ffibox_owner_priv": 12,
-      "fn_sig_non_ffibox_handle_pub": 114,
-      "fn_sig_non_ffibox_handle_priv": 2,
-      "ty_pub_fields_pub_ffibox_owner": 0,
-      "ty_pub_fields_priv_ffibox_owner": 0,
-      "ty_priv_ffibox_owner": 0,
-      "ty_pub_fields_pub_ffibox_handle": 0,
-      "ty_pub_fields_priv_ffibox_handle": 0,
-      "ty_priv_ffibox_handle": 0,
-      "ty_pub_fields_pub_non_ffibox_owner": 0,
-      "ty_pub_fields_priv_non_ffibox_owner": 56,
-      "ty_priv_non_ffibox_owner": 7,
-      "ty_pub_fields_pub_non_ffibox_handle": 0,
-      "ty_pub_fields_priv_non_ffibox_handle": 4,
-      "ty_priv_non_ffibox_handle": 0,
+      "fn_sig": {
+        "ffibox": {
+          "owner": {
+            "pub": 0,
+            "priv": 0,
+            "total": 0
+          },
+          "handle": {
+            "pub": 0,
+            "priv": 0,
+            "total": 0
+          },
+          "total": 0
+        },
+        "non_ffibox": {
+          "owner": {
+            "pub": 343,
+            "priv": 12,
+            "total": 355
+          },
+          "handle": {
+            "pub": 106,
+            "priv": 2,
+            "total": 108
+          },
+          "total": 463
+        },
+        "total": 463
+      },
+      "ty": {
+        "ffibox": {
+          "owner": {
+            "pub": {
+              "fields": {
+                "pub": 0,
+                "priv": 0,
+                "total": 0
+              },
+              "total": 0
+            },
+            "priv": 0,
+            "total": 0
+          },
+          "handle": {
+            "pub": {
+              "fields": {
+                "pub": 0,
+                "priv": 0,
+                "total": 0
+              },
+              "total": 0
+            },
+            "priv": 0,
+            "total": 0
+          },
+          "total": 0
+        },
+        "non_ffibox": {
+          "owner": {
+            "pub": {
+              "fields": {
+                "pub": 0,
+                "priv": 56,
+                "total": 56
+              },
+              "total": 56
+            },
+            "priv": 7,
+            "total": 63
+          },
+          "handle": {
+            "pub": {
+              "fields": {
+                "pub": 0,
+                "priv": 2,
+                "total": 2
+              },
+              "total": 2
+            },
+            "priv": 0,
+            "total": 2
+          },
+          "total": 65
+        },
+        "total": 65
+      },
       "ffibox_impl_macro": 0,
       "ffibox_impl_manual": 0,
       "ffibox_define_ctype_macro": 0,
@@ -112,7 +355,7 @@
         "branch::Branches": 2,
         "buf::Buf": 19,
         "commit::Commit": 20,
-        "config::Config": 9,
+        "config::Config": 8,
         "config::ConfigEntries": 2,
         "config::ConfigEntry": 2,
         "cred::Cred": 6,
@@ -171,8 +414,6 @@
       "fn_sig_non_ffibox_handle_pub": {
         "blame::BlameHunk": 15,
         "cert::Cert": 2,
-        "cert::CertHostkey": 6,
-        "cert::CertX509": 2,
         "diff::DiffBinary": 3,
         "diff::DiffBinaryFile": 5,
         "diff::DiffDelta": 11,
@@ -233,8 +474,7 @@
       "ty_pub_fields_pub_non_ffibox_handle": {},
       "ty_pub_fields_priv_non_ffibox_handle": {
         "diff::DiffDelta": 1,
-        "indexer::ProgressState": 1,
-        "reference::RefdbMarker": 2
+        "indexer::ProgressState": 1
       },
       "ty_priv_non_ffibox_handle": {},
       "ffibox_impl_macro": {},
@@ -250,13 +490,9 @@
     }
   },
   "derived": {
-    "fns_pub": 1856,
+    "fns_pub": 1855,
     "fns_priv": 640,
-    "unsafe_fn_pub_ratio": 0.9032,
-    "unsafe_fn_share_of_pub_fns": 0.0603,
     "raw_ptr_pub": 209,
-    "raw_ptr_pub_safe_interface": 66,
-    "unsafe_loc_ratio": 0.2258,
-    "loc_per_unsafe_block": 13.6
+    "raw_ptr_pub_safe_interface": 66
   }
 }
