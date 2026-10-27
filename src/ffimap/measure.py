@@ -84,7 +84,9 @@ _COUNTS = (
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
-    "drop_impl", "clone_impl", "ffi_calls",
+    "drop_impl", "clone_impl",
+    "c_type_std_value_impl_pub", "c_type_std_value_impl_priv",
+    "c_type_std_value_impl_derived", "ffi_calls",
 )
 #: The counters that count source locations, so `--sites` can list them. Line
 #: and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
@@ -133,7 +135,9 @@ SITE_COUNTERS = (
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
-    "drop_impl", "clone_impl", "ffi_calls",
+    "drop_impl", "clone_impl",
+    "c_type_std_value_impl_pub", "c_type_std_value_impl_priv",
+    "ffi_calls",
 )
 #: The `--ffibox` counters (`UM_FFIBOX` in the driver), in its order. Each is
 #: a breakdown `{type, handle kind or trait: N}` rather than a number, and each
@@ -215,12 +219,19 @@ for _k in ("non_sanctioned", "opaque"):
     _PARTITION[f"c_type_borrow_ty_{_k}_priv"] = ("c_type_borrow", "ty", _k, "priv")
 
 #: flat leaf name -> (parent path, name under `of_which`). Never summed.
+_PARTITION["c_type_std_value_impl_pub"] = ("c_type_std_value_impl", "pub")
+_PARTITION["c_type_std_value_impl_priv"] = ("c_type_std_value_impl", "priv")
+
 _OF_WHICH: dict[str, tuple[tuple[str, ...], str]] = {
     "unsafe_blocks_wrapper_impl": (("unsafe_blocks",), "wrapper_impl"),
     "unsafe_blocks_ffi_export": (("unsafe_blocks",), "ffi_export"),
     "unsafe_send_impl": (("unsafe_impls",), "send"),
     "unsafe_sync_impl": (("unsafe_impls",), "sync"),
     "raw_ptr_derefs_outside_impl": (("raw_ptr_derefs",), "outside_impl"),
+    # Of the C types implementing a forced-`&self` std trait, those where at
+    # least one such impl is derived: the borrow over C memory was never
+    # weighed. A subset of the total, so never summed in.
+    "c_type_std_value_impl_derived": (("c_type_std_value_impl",), "derived"),
     # `--seams` names: the share of each fn-signature leaf that is seam
     # plumbing -- the conversion between a wrapper and its raw pointer -- which
     # a consumer of the safe API never performs. A subset, never summed in.

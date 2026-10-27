@@ -9,8 +9,8 @@ section describes.
 ## Counters
 
 - `c_type_layout_wrapper` -- Layout newtypes: a `#[repr(C)]` / `#[repr(transparent)]` struct holding a C type's bytes inline.
-- `c_type_borrow_fn_sig_sanctioned_pub` -- Borrow into C memory in the signature of a public fn, through a sanctioned accessor (`as_ref` / `as_mut`, or a std value-trait method).
-- `c_type_borrow_fn_sig_sanctioned_priv` -- Borrow into C memory in the signature of a private fn, through a sanctioned accessor (`as_ref` / `as_mut`, or a std value-trait method).
+- `c_type_borrow_fn_sig_sanctioned_pub` -- Borrow of a C type in the signature of a public fn, in a position the language forces: a `&Self` of a std value-trait impl, or an `as_ref` / `as_mut` layout accessor under `--ffibox`.
+- `c_type_borrow_fn_sig_sanctioned_priv` -- Borrow of a C type in the signature of a private fn, in a position the language forces: a `&Self` of a std value-trait impl, or an `as_ref` / `as_mut` layout accessor under `--ffibox`.
 - `c_type_borrow_fn_sig_non_sanctioned_pub` -- Borrow into C memory in the signature of a public fn, anywhere else -- target 0.
 - `c_type_borrow_fn_sig_non_sanctioned_priv` -- Borrow into C memory in the signature of a private fn, anywhere else -- target 0.
 - `c_type_borrow_fn_sig_opaque_pub` -- Borrow into C memory in the signature of a public fn, of an opaque C type, which covers no bytes.
@@ -38,6 +38,9 @@ section describes.
 - `non_c_type_borrow_pub_unsafe` -- `&T` / `&mut T` in the signature of a public `unsafe` fn where `T` is NOT a C type: a borrow that stays on the Rust side.
 - `non_c_type_borrow_priv_safe` -- `&T` / `&mut T` in the signature of a private safe fn where `T` is NOT a C type: a borrow that stays on the Rust side.
 - `non_c_type_borrow_priv_unsafe` -- `&T` / `&mut T` in the signature of a private `unsafe` fn where `T` is NOT a C type: a borrow that stays on the Rust side.
+- `c_type_std_value_impl_pub` -- Public C types implementing a std trait whose receiver is forced (`Clone`, `Hash`, `Deref`, ...). Each puts a `&self` over memory C may write; the borrow is sanctioned, so the impl is what is worth counting. Distinct types, not impls.
+- `c_type_std_value_impl_priv` -- Private C types implementing such a trait.
+- `c_type_std_value_impl_derived` -- Of those, the ones where at least one such impl is derived: a `#[derive(Clone)]` on a `#[repr(C)]` C type forms the same borrow with nobody having weighed it. A subset, never summed in.
 - `drop_impl` -- Crate-defined types with an `impl Drop`: a teardown written by hand.
 - `clone_impl` -- Crate-defined types with a hand-written, not derived, `impl Clone`.
 
@@ -169,13 +172,23 @@ there is no `fn_sig.generic`, no `fn_body.sanctioned` and no `ty.sanctioned`.
   `fn_body.sanctioned` and no `ty.sanctioned`.
 
   The kinds, where `W` is a C type that is not opaque:
-  - in function signatures (the receiver included): sanctioned are the
-    accessors `as_ref` / `as_mut`, which hand out borrowed handles over a
-    Rust-owned value, and methods of impls of the standard value traits
-    `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash` and `Debug`,
-    derived or not; every other position is non-sanctioned, the `&self` /
-    `&mut self` of an `impl Deref` / `DerefMut` on a layout newtype included,
-    which turns every `*w` and auto-deref into a reference to the C object;
+  - in function signatures (the receiver included): a position is sanctioned
+    when two things hold. The method is one whose receiver the language
+    forces -- an impl of a standard trait that takes `&self` by definition
+    (`Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, `Debug`,
+    `AsRef`, `AsMut`, `Borrow`, `BorrowMut`, `Deref`, `DerefMut`), derived or
+    not, matched on the trait's identity in `core` / `alloc` / `std`; or,
+    under `--ffibox`, one of the conventions' `as_ref` / `as_mut` layout
+    accessors, matched by name. AND the borrow is of that impl's own self
+    type. Every other position is non-sanctioned.
+
+    The second condition is what keeps the rule honest. A trait forces its
+    RECEIVER, never the rest of its signature. `PartialEq::eq(&self, &Self)`
+    has no other shape, so both its positions are sanctioned; but
+    `Deref::deref(&self) -> &Self::Target` chooses its target, and git2-rs's
+    `impl Deref for OidArray { type Target = [Oid] }` hands out a `&[Oid]`
+    over a buffer libgit2 allocated and will free. Sanctioning the method
+    must not hide that borrow, which is the counter's whole subject;
   - in function bodies: an expression that forms such a reference from a raw
     pointer -- `&*p`, `&mut *p`, `&(*p).f` (casts included), an autoref through
     `*p` for a `&self` method, or a call to a function from another crate that

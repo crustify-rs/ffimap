@@ -82,21 +82,46 @@ fn is_type_wrapper(tcx: TyCtxt<'_>, did: DefId) -> bool {
 /// value and so cover Rust-owned storage. This metric should be 0.
 ///
 /// A reference to a POINTER wrapper is not counted: see `is_type_wrapper`.
-/// The accessors the conventions give a layout value: `as_ref(&self)` /
-/// `as_mut(&mut self)` hand out the borrowed handles over a `Foo` that Rust
+/// The accessors the crustify conventions give a layout value: `as_ref(&self)`
+/// / `as_mut(&mut self)` hand out the borrowed handles over a `Foo` that Rust
 /// owns. A `&Foo` / `&mut Foo` in their signature is the sanctioned use.
-const REF_ACCESSORS: &[&str] = &["as_ref", "as_mut"];
+///
+/// Matched by NAME, so it holds only where that convention does: a crate that
+/// does not follow it has inherent `as_ref` methods meaning something else.
+/// Read only under `--ffibox`, which asserts the crate is built on ffibox.
+/// `AsRef` / `AsMut` as std traits are sanctioned by `STD_VALUE_TRAITS`
+/// instead, on trait identity, which cannot misfire.
+const FFIBOX_REF_ACCESSORS: &[&str] = &["as_ref", "as_mut"];
 
-/// Standard value traits whose methods take `&self` (and `&Self`) by
-/// definition: implementing them on a layout value, derived or by hand, is
-/// sanctioned. Matched on the trait's own crate (`core` / `alloc` / `std`).
-const STD_VALUE_TRAITS: &[&str] =
-    &["Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash", "Debug"];
+/// Standard traits whose methods take `&self` (and `&Self`) by definition:
+/// the signature is forced, so implementing them on a layout value, derived or
+/// by hand, is sanctioned. Matched on the trait's own crate (`core` / `alloc`
+/// / `std`) and its identity, never on a method name.
+const STD_VALUE_TRAITS: &[&str] = &[
+    "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash", "Debug",
+    "AsRef", "AsMut", "Borrow", "BorrowMut", "Deref", "DerefMut",
+];
 
-/// True when a `&W` in `did`'s signature is sanctioned: `did` is one of the
-/// `REF_ACCESSORS`, or a method of an impl of one of the `STD_VALUE_TRAITS`.
-fn ref_to_wrapper_sanctioned(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    if tcx.opt_item_name(did).is_some_and(|n| REF_ACCESSORS.contains(&n.as_str())) {
+/// True when the borrow `t` in `did`'s signature is sanctioned.
+///
+/// Two conditions, and BOTH must hold. The method is one whose receiver the
+/// language forces -- an impl of a `STD_VALUE_TRAITS` trait, or under
+/// `--ffibox` a `FFIBOX_REF_ACCESSORS` accessor -- AND `t` borrows that impl's
+/// own self type.
+///
+/// The second condition is what keeps the rule honest. A trait forces its
+/// RECEIVER, never the rest of its signature: `PartialEq::eq(&self, &Self)`
+/// has no other shape, but `Deref::deref(&self) -> &Self::Target` chooses its
+/// target, and `impl Deref for OidArray { type Target = [Oid] }` hands out a
+/// `&[Oid]` over a buffer C allocated and will free. That borrow is the
+/// counter's whole subject, and sanctioning the method must not hide it.
+fn ref_to_wrapper_sanctioned<'tcx>(tcx: TyCtxt<'tcx>, did: DefId, t: Ty<'tcx>) -> bool {
+    if !borrows_self_ty(tcx, did, t) {
+        return false;
+    }
+    if std::env::var_os("UM_FFIBOX").is_some()
+        && tcx.opt_item_name(did).is_some_and(|n| FFIBOX_REF_ACCESSORS.contains(&n.as_str()))
+    {
         return true;
     }
     let Some(parent) = tcx.opt_parent(did) else {
@@ -135,6 +160,29 @@ fn is_c_type(tcx: TyCtxt<'_>, did: DefId) -> bool {
 }
 
 /// True when values of `t` take up no bytes or there are none: an opaque C type.
+/// True when `t` is `&T` / `&mut T` whose referent is the self type of the
+/// impl `did` belongs to (`[T]` and `[T; N]` peeled, as `c_ref_kind` peels
+/// them).
+fn borrows_self_ty<'tcx>(tcx: TyCtxt<'tcx>, did: DefId, t: Ty<'tcx>) -> bool {
+    let Some(parent) = tcx.opt_parent(did) else {
+        return false;
+    };
+    if !matches!(tcx.def_kind(parent), DefKind::Impl { .. }) {
+        return false;
+    }
+    let Some(self_did) = impl_self_def(tcx, parent) else {
+        return false;
+    };
+    let ty::TyKind::Ref(_, p, _) = t.kind() else {
+        return false;
+    };
+    let e = match p.kind() {
+        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => *e,
+        _ => *p,
+    };
+    matches!(e.kind(), ty::TyKind::Adt(d, _) if d.did() == self_did)
+}
+
 fn is_opaque<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> bool {
     match t.kind() {
         ty::TyKind::Adt(d, _) if d.is_enum() && d.variants().is_empty() => true,
@@ -1442,6 +1490,14 @@ struct Counts {
     // object it may hold. A type that owns through another crate's owner
     // (`Box`, ffibox's `CBox`) has neither: that owner's impls are its crate's.
     drop_impl: u64,
+    /// C types implementing a `STD_VALUE_TRAITS` trait: each forces a `&self`
+    /// over memory C may write, which `c_type_borrow_fn_sig_sanctioned_*`
+    /// counts but does not question. Distinct types, not impls.
+    c_type_std_value_impl_pub: u64,
+    c_type_std_value_impl_priv: u64,
+    /// Of those, the ones where at least one such impl is derived: nobody
+    /// weighed the borrow.
+    c_type_std_value_impl_derived: u64,
     clone_impl: u64,
     // Calls to a foreign item -- one declared in an `extern` block
     // (`is_foreign_item`), which is the FFI boundary itself and is
@@ -1483,6 +1539,9 @@ impl Counts {
             "void_ptr_fn_pub_unsafe" => &mut self.void_ptr_fn_pub_unsafe,
             "void_ptr_fn_priv_safe" => &mut self.void_ptr_fn_priv_safe,
             "void_ptr_fn_priv_unsafe" => &mut self.void_ptr_fn_priv_unsafe,
+            "c_type_std_value_impl_pub" => &mut self.c_type_std_value_impl_pub,
+            "c_type_std_value_impl_priv" => &mut self.c_type_std_value_impl_priv,
+            "c_type_std_value_impl_derived" => &mut self.c_type_std_value_impl_derived,
             "c_type_borrow_fn_sig_sanctioned_pub" => &mut self.c_type_borrow_fn_sig_sanctioned_pub,
             "c_type_borrow_fn_sig_sanctioned_priv" => &mut self.c_type_borrow_fn_sig_sanctioned_priv,
             "c_type_borrow_fn_sig_non_sanctioned_pub" => &mut self.c_type_borrow_fn_sig_non_sanctioned_pub,
@@ -2275,11 +2334,14 @@ impl Callbacks for MetricsCallbacks {
         if under_cargo && (!primary || krate.as_str() == "build_script_build") {
             return Compilation::Continue;
         }
-        // `--ffibox`: a second line from the same compilation, beside the
-        // metrics line below. The dispatcher tells them apart by key.
-        if std::env::var_os("UM_FFIBOX").is_some() {
-            println!("{}", ffibox_json(tcx, krate));
-        }
+        // The owner / handle surface: a second line from the same
+        // compilation, beside the metrics line below, which the dispatcher
+        // tells apart by key. Always emitted -- its `non_ffibox` half counts
+        // the owners and handles the crate wrote ITSELF, which is a fact about
+        // any FFI crate, and for a crate with no ffibox the other half is
+        // simply zero. `--ffibox` asserts the crate is built on ffibox; it
+        // does not decide whether this is measured.
+        println!("{}", ffibox_json(tcx, krate));
         // Named mode prints its site entries, then falls through to emit the
         // crate-wide metrics block from the same compilation. The dispatcher
         // merges both stdout lines per crate.
@@ -2313,6 +2375,12 @@ impl Callbacks for MetricsCallbacks {
         let mut sites = Sites::default();
         // (trait, type): `impl Clone for Foo<A>` and `for Foo<B>` are one type.
         let mut own_impls: HashSet<(DefId, DefId)> = HashSet::new();
+        // C types implementing a `STD_VALUE_TRAITS` trait, and those where at
+        // least one such impl is derived. Every one of them puts a `&self`
+        // over memory C may write; the borrow is sanctioned, because the
+        // signature is forced, so it is the IMPL that is worth counting.
+        let mut std_value_types: HashSet<DefId> = HashSet::new();
+        let mut std_value_derived: HashSet<DefId> = HashSet::new();
         // Every body owner (fn, closure, const/static initializer, ...). Each is
         // a separate typeck context; intravisit does not descend into nested
         // bodies, so visiting every owner covers the whole crate exactly once.
@@ -2383,6 +2451,25 @@ impl Callbacks for MetricsCallbacks {
                                 sites.add(k, counter_site(tcx, tcx.def_span(did)));
                             }
                         }
+                        if d.did().is_local()
+                            && is_std_crate(tcx, tr)
+                            && STD_VALUE_TRAITS.contains(&tcx.item_name(tr).as_str())
+                            && is_c_type(tcx, d.did())
+                        {
+                            if std_value_types.insert(d.did()) {
+                                let k = if d.did().as_local()
+                                    .is_some_and(|l| tcx.effective_visibilities(()).is_exported(l))
+                                {
+                                    "c_type_std_value_impl_pub"
+                                } else {
+                                    "c_type_std_value_impl_priv"
+                                };
+                                sites.add(k, counter_site(tcx, tcx.def_span(did)));
+                            }
+                            if tcx.is_automatically_derived(did) {
+                                std_value_derived.insert(d.did());
+                            }
+                        }
                     }
                 }
                 DefKind::Trait => {
@@ -2394,6 +2481,15 @@ impl Callbacks for MetricsCallbacks {
                 _ => {}
             }
         }
+
+        for did in &std_value_types {
+            if did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l)) {
+                c.c_type_std_value_impl_pub += 1;
+            } else {
+                c.c_type_std_value_impl_priv += 1;
+            }
+        }
+        c.c_type_std_value_impl_derived = std_value_derived.len() as u64;
 
         for owner in tcx.hir_body_owners() {
             let did = owner.to_def_id();
@@ -2453,7 +2549,7 @@ impl Callbacks for MetricsCallbacks {
                     }
                     if kind == Some(CRef::Sized) {
                         let site = counter_site(tcx, tcx.def_span(did));
-                        let k = match (ref_to_wrapper_sanctioned(tcx, did), exported) {
+                        let k = match (ref_to_wrapper_sanctioned(tcx, did, t), exported) {
                             (true, true) => "c_type_borrow_fn_sig_sanctioned_pub",
                             (true, false) => "c_type_borrow_fn_sig_sanctioned_priv",
                             (false, true) => "c_type_borrow_fn_sig_non_sanctioned_pub",
@@ -2631,8 +2727,8 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_layout_wrapper\":{},\"c_type_borrow_fn_sig_sanctioned_pub\":{},\"c_type_borrow_fn_sig_sanctioned_priv\":{},\"c_type_borrow_fn_sig_non_sanctioned_pub\":{},\"c_type_borrow_fn_sig_non_sanctioned_priv\":{},\"c_type_borrow_fn_sig_opaque_pub\":{},\"c_type_borrow_fn_sig_opaque_priv\":{},\"c_type_borrow_fn_body_non_sanctioned\":{},\"c_type_borrow_fn_body_opaque\":{},\"c_type_borrow_fn_body_generic\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_pub\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_priv\":{},\"c_type_borrow_ty_non_sanctioned_priv\":{},\"c_type_borrow_ty_opaque_pub_fields_pub\":{},\"c_type_borrow_ty_opaque_pub_fields_priv\":{},\"c_type_borrow_ty_opaque_priv\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"safe_fns_seam_pub\":{},\"safe_fns_seam_priv\":{},\"unsafe_fns_seam_pub\":{},\"unsafe_fns_seam_priv\":{},\"raw_ptr_fn_seam_pub_safe\":{},\"raw_ptr_fn_seam_pub_unsafe\":{},\"raw_ptr_fn_seam_priv_safe\":{},\"raw_ptr_fn_seam_priv_unsafe\":{},\"ffi_calls\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_layout_wrapper, c.c_type_borrow_fn_sig_sanctioned_pub, c.c_type_borrow_fn_sig_sanctioned_priv, c.c_type_borrow_fn_sig_non_sanctioned_pub, c.c_type_borrow_fn_sig_non_sanctioned_priv, c.c_type_borrow_fn_sig_opaque_pub, c.c_type_borrow_fn_sig_opaque_priv, c.c_type_borrow_fn_body_non_sanctioned, c.c_type_borrow_fn_body_opaque, c.c_type_borrow_fn_body_generic, c.c_type_borrow_ty_non_sanctioned_pub_fields_pub, c.c_type_borrow_ty_non_sanctioned_pub_fields_priv, c.c_type_borrow_ty_non_sanctioned_priv, c.c_type_borrow_ty_opaque_pub_fields_pub, c.c_type_borrow_ty_opaque_pub_fields_priv, c.c_type_borrow_ty_opaque_priv, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.safe_fns_seam_pub, c.safe_fns_seam_priv, c.unsafe_fns_seam_pub, c.unsafe_fns_seam_priv, c.raw_ptr_fn_seam_pub_safe, c.raw_ptr_fn_seam_pub_unsafe, c.raw_ptr_fn_seam_priv_safe, c.raw_ptr_fn_seam_priv_unsafe, c.ffi_calls,
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_layout_wrapper\":{},\"c_type_borrow_fn_sig_sanctioned_pub\":{},\"c_type_borrow_fn_sig_sanctioned_priv\":{},\"c_type_borrow_fn_sig_non_sanctioned_pub\":{},\"c_type_borrow_fn_sig_non_sanctioned_priv\":{},\"c_type_borrow_fn_sig_opaque_pub\":{},\"c_type_borrow_fn_sig_opaque_priv\":{},\"c_type_borrow_fn_body_non_sanctioned\":{},\"c_type_borrow_fn_body_opaque\":{},\"c_type_borrow_fn_body_generic\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_pub\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_priv\":{},\"c_type_borrow_ty_non_sanctioned_priv\":{},\"c_type_borrow_ty_opaque_pub_fields_pub\":{},\"c_type_borrow_ty_opaque_pub_fields_priv\":{},\"c_type_borrow_ty_opaque_priv\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"c_type_std_value_impl_pub\":{},\"c_type_std_value_impl_priv\":{},\"c_type_std_value_impl_derived\":{},\"safe_fns_seam_pub\":{},\"safe_fns_seam_priv\":{},\"unsafe_fns_seam_pub\":{},\"unsafe_fns_seam_priv\":{},\"raw_ptr_fn_seam_pub_safe\":{},\"raw_ptr_fn_seam_pub_unsafe\":{},\"raw_ptr_fn_seam_priv_safe\":{},\"raw_ptr_fn_seam_priv_unsafe\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_layout_wrapper, c.c_type_borrow_fn_sig_sanctioned_pub, c.c_type_borrow_fn_sig_sanctioned_priv, c.c_type_borrow_fn_sig_non_sanctioned_pub, c.c_type_borrow_fn_sig_non_sanctioned_priv, c.c_type_borrow_fn_sig_opaque_pub, c.c_type_borrow_fn_sig_opaque_priv, c.c_type_borrow_fn_body_non_sanctioned, c.c_type_borrow_fn_body_opaque, c.c_type_borrow_fn_body_generic, c.c_type_borrow_ty_non_sanctioned_pub_fields_pub, c.c_type_borrow_ty_non_sanctioned_pub_fields_priv, c.c_type_borrow_ty_non_sanctioned_priv, c.c_type_borrow_ty_opaque_pub_fields_pub, c.c_type_borrow_ty_opaque_pub_fields_priv, c.c_type_borrow_ty_opaque_priv, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.c_type_std_value_impl_pub, c.c_type_std_value_impl_priv, c.c_type_std_value_impl_derived, c.safe_fns_seam_pub, c.safe_fns_seam_priv, c.unsafe_fns_seam_pub, c.unsafe_fns_seam_priv, c.raw_ptr_fn_seam_pub_safe, c.raw_ptr_fn_seam_pub_unsafe, c.raw_ptr_fn_seam_priv_safe, c.raw_ptr_fn_seam_priv_unsafe, c.ffi_calls,
             sites.json()
         );
         Compilation::Continue
