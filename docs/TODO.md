@@ -13,27 +13,6 @@ Two ways to form a Rust reference into memory C may write go uncounted
   the field implicitly. Count `Adjust::Borrow` adjustments on raw-based places,
   as `c_type_borrow_non_sanctioned` already does for whole wrappers.
 
-## The C-type pass has two open admission questions
-
-The pass decides by provenance ([ctypes.md](ctypes.md)'s Which types are C's).
-Two of its rules are still inferences rather than recorded facts:
-
-- **Pointer fields are followed unconditionally.** A field held by value is
-  admitted only if its own type has a layout C can describe; a field holding
-  `*mut T` admits `T` regardless. C holding a pointer does not say it
-  dereferences it, and `T` may be a `repr(Rust)` type C could not read. There
-  were 21 such insertions on libgit2-bindings, unexamined; the same repr test
-  applies, with its own blast radius to measure.
-- **`is_c_type` is circular.** It is `is_type_wrapper || is_c_accessible`, and
-  `is_type_wrapper` resolves through `embedded_c` to `is_c_accessible` again.
-  For a local type the first term is wholly redundant, since the fixpoint's
-  layout rule already admits any local `repr(C)` / `transparent` struct holding
-  a reachable type by value. Its only real contribution is a *foreign* layout
-  newtype, which that rule skips because it is restricted to local types.
-  Making the layout rule crate-agnostic collapses `is_c_type` to
-  `is_c_accessible` and leaves `is_type_wrapper` a classification output rather
-  than an admission input.
-
 ## The erased class is computed and discarded
 
 `compute_c_visible` returns `(accessible, erased)`; the second is the types

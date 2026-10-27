@@ -149,16 +149,6 @@ enum CRef {
     Sized,
 }
 
-/// True if `did` is a C type: one C can reach the memory of (see
-/// `compute_c_visible`), or a layout newtype over one.
-///
-/// Decided by provenance, never by the crate a type is declared in: a sys
-/// crate's `#[repr(C)]` type that nothing in the build hands to C is not a C
-/// type, and a C type declared outside one still is.
-fn is_c_type(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    is_type_wrapper(tcx, did) || is_c_accessible(tcx, did)
-}
-
 /// True when values of `t` take up no bytes or there are none: an opaque C type.
 /// True when `t` is `&T` / `&mut T` whose referent is the self type of the
 /// impl `did` belongs to (`[T]` and `[T; N]` peeled, as `c_ref_kind` peels
@@ -213,7 +203,7 @@ fn c_ref_kind<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Option<CRef> {
     };
     match e.kind() {
         ty::TyKind::Param(_) | ty::TyKind::Alias(..) => Some(CRef::Generic),
-        ty::TyKind::Adt(d, _) if is_c_type(tcx, d.did()) => {
+        ty::TyKind::Adt(d, _) if is_c_accessible(tcx, d.did()) => {
             Some(if is_opaque(tcx, e) { CRef::Opaque } else { CRef::Sized })
         }
         _ => None,
@@ -359,7 +349,7 @@ fn non_wrapper_borrows<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> u64 {
             ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => *e,
             _ => u,
         };
-        matches!(peel_transparent(tcx, u).kind(), ty::TyKind::Adt(d, _) if is_c_type(tcx, d.did()))
+        matches!(peel_transparent(tcx, u).kind(), ty::TyKind::Adt(d, _) if is_c_accessible(tcx, d.did()))
     };
     match t.kind() {
         ty::TyKind::Ref(_, p, _) => u64::from(!is_c(*p)) + non_wrapper_borrows(tcx, *p),
@@ -400,7 +390,7 @@ fn wrapper_values<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, owned: bool) -> (u64, u6
     let one = if owned { (0, 1) } else { (1, 0) };
     let add = |a: (u64, u64), b: (u64, u64)| (a.0 + b.0, a.1 + b.1);
     match t.kind() {
-        ty::TyKind::Adt(d, _) if is_c_type(tcx, d.did()) && !is_opaque(tcx, t) => one,
+        ty::TyKind::Adt(d, _) if is_c_accessible(tcx, d.did()) && !is_opaque(tcx, t) => one,
         ty::TyKind::Adt(d, args) if matches!(tcx.crate_name(d.did().krate).as_str(), "core" | "alloc" | "std") => {
             let name = tcx.item_name(d.did());
             let owned = if STD_OWNERS.contains(&name.as_str()) {
@@ -431,7 +421,7 @@ fn count_n(slot: &mut u64, k: &'static str, n: u64, site: &(String, usize), site
 /// split as `raw_ptr_ty_*`.
 fn count_wrapper_value_fields(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites: &mut Sites) {
     // A C type's own fields are its C layout, a layout newtype's its storage.
-    if in_generated_file(tcx, tcx.def_span(did)) || is_c_type(tcx, did) {
+    if in_generated_file(tcx, tcx.def_span(did)) || is_c_accessible(tcx, did) {
         return;
     }
     let vis = tcx.effective_visibilities(());
@@ -896,9 +886,20 @@ fn compute_c_visible(tcx: TyCtxt<'_>) -> (HashSet<DefId>, HashSet<DefId>) {
                         vis.insert(a.did());
                     }
                 }
+                // A field POINTING at a type admits it on the same terms as
+                // one holding it by value: C must be able to describe the
+                // layout. Holding a pointer is not reading through it, and a
+                // `repr(Rust)` target it cannot read is the pointer-shaped
+                // form of the hybrid tail above -- `#[repr(C)] struct C { st:
+                // *mut RustState }` instead of embedding it.
+                //
+                // The SEEDS are not filtered this way: a foreign signature
+                // naming a type is C's own declaration of it, a fact rather
+                // than an inference, and a hand-written binding may name a
+                // type it never marked `#[repr(C)]`.
                 let mut ps = Vec::new();
                 c_pointee_adts(tcx, ft, false, &mut ps);
-                vis.extend(ps);
+                vis.extend(ps.into_iter().filter(|q| has_c_repr(tcx, *q)));
             }
         }
         // A local layout type holding a reachable type by value.
@@ -944,11 +945,24 @@ fn with_c_sets<R>(tcx: TyCtxt<'_>, f: impl FnOnce(&(HashSet<DefId>, HashSet<DefI
 }
 
 /// True when C READS the bytes of `did` as its own type: the type reached a
-/// foreign signature, a foreign static, a C-ABI fn pointer or a named pointer
-/// cast, or it is held by value or pointed at by one that did.
+/// foreign signature, a foreign static or a C-ABI fn pointer, or it is held by
+/// value or pointed at by one that did, its layout describable by C at each
+/// step.
 ///
-/// This is the classifier every C-type and wrapper decision uses. A Rust
-/// payload C only carries as a `void *` is excluded -- see `is_c_visible`.
+/// This is THE definition of "is a C type": every classification asks it, and
+/// it is decided by provenance, never by the crate a type is declared in. A
+/// sys crate's `#[repr(C)]` type that nothing in the build hands to C is not a
+/// C type, and a C type declared outside one still is. A Rust payload C only
+/// carries as a `void *` is excluded -- see `is_c_visible`.
+///
+/// `is_type_wrapper` is NOT consulted here, and must not be: it resolves
+/// through `embedded_c` to this function, so using it would define the set in
+/// terms of itself. It was measured to admit nothing this does not -- empty on
+/// libgit2-bindings and git2-rs alike -- and is now a classification output
+/// only. A FOREIGN layout newtype over C bytes is the case it could in
+/// principle have carried, since the fixpoint's layout rule is restricted to
+/// local types; such a type must now be reached by provenance like any other,
+/// and is listed under under-admission in `docs/ctypes.md`.
 fn is_c_accessible(tcx: TyCtxt<'_>, did: DefId) -> bool {
     with_c_sets(tcx, |(acc, _)| acc.contains(&did))
 }
@@ -2454,7 +2468,7 @@ impl Callbacks for MetricsCallbacks {
                         if d.did().is_local()
                             && is_std_crate(tcx, tr)
                             && STD_VALUE_TRAITS.contains(&tcx.item_name(tr).as_str())
-                            && is_c_type(tcx, d.did())
+                            && is_c_accessible(tcx, d.did())
                         {
                             if std_value_types.insert(d.did()) {
                                 let k = if d.did().as_local()

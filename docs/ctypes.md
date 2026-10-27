@@ -61,11 +61,12 @@ about what C might do with a value.
   crate declares none of its own, its foreign declarations living in its `-sys`
   crate, and `foreign_modules` is encoded into crate metadata so upstream
   blocks resolve from here.
-- **Closure.** A field a C-reachable type holds **by value**, when that field's
-  own type has a layout C can describe (`#[repr(C)]`, `#[repr(transparent)]`,
-  or a primitive-representation enum); a field it **points to**; and a
-  `#[repr(C)]` / `#[repr(transparent)]` type holding a C-reachable type by
-  value.
+- **Closure.** A field a C-reachable type holds **by value** or **points
+  to**, in either case only when that field's own type has a layout C can
+  describe (`#[repr(C)]`, `#[repr(transparent)]`, or a
+  primitive-representation enum); and a `#[repr(C)]` / `#[repr(transparent)]`
+  type holding a C-reachable type by value. The seeds are not held to the repr
+  condition: a foreign signature naming a type is C's own declaration of it.
 
 Passing a type by value is a copy and seeds nothing. A std type is never a
 seed: bindgen gives every C function pointer the type
@@ -302,6 +303,17 @@ returns by value still has an ABI layout contract the closure never registers.
 aggregate that forgets the attribute no longer enters through a by-value field.
 That binding is already unsound, so the outcome is arguably right, but it is a
 behaviour change from the crate-membership rule that preceded it.
+
+**A foreign layout newtype must be reached by provenance.** The fixpoint's
+layout rule -- a `#[repr(C)]` / `transparent` type holding a C-reachable type
+by value is itself C's -- is restricted to types the scanned crate declares,
+because there is no enumerating every such struct in every linked crate. So a
+dependency's newtype over C bytes, `glibc-bindings`' `Tm` over `libc::tm` used
+by value, is C's only if something else admits it. `is_c_type` used to carry
+that case by OR-ing `is_type_wrapper`, which resolves back into this same set
+and so defined it in terms of itself; the term was measured to admit nothing
+this pass does not -- empty on libgit2-bindings and git2-rs -- and was removed.
+The gap it leaves is this one.
 
 **Generics are not instantiated.** A field's type is resolved as declared, so a
 field of type `T` yields no type at all: `#[repr(C)] struct W<T> { inner: T }`
