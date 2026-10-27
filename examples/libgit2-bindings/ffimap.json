@@ -225,18 +225,18 @@
       },
       "total": 23
     },
-    "unsafe_blocks": {
-      "total": 1894,
-      "of_which": {
-        "wrapper_impl": 1476,
-        "ffi_export": 88
-      }
-    },
     "unsafe_impls": {
       "total": 271,
       "of_which": {
         "send": 73,
         "sync": 71
+      }
+    },
+    "unsafe_blocks": {
+      "total": 1894,
+      "of_which": {
+        "wrapper_impl": 1476,
+        "ffi_export": 88
       }
     },
     "code_lines": 15953,

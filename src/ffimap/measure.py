@@ -139,9 +139,11 @@ SITE_COUNTERS = (
     "c_type_std_value_impl_pub", "c_type_std_value_impl_priv",
     "ffi_calls",
 )
-#: The `--ffibox` counters (`UM_FFIBOX` in the driver), in its order. Each is
-#: a breakdown `{type, handle kind or trait: N}` rather than a number, and each
-#: counts source locations, so all of them take `--sites` under `--ffibox`.
+#: The owner and handle counters, in the driver's order. Each is a breakdown
+#: `{type, handle kind or trait: N}` rather than a number, and each counts
+#: source locations, so all of them take `--sites`. Always measured: the
+#: `non_ffibox` half counts what the crate wrote itself, which holds with or
+#: without ffibox.
 FFIBOX_COUNTERS = (
     "fn_sig_ffibox_owner_pub", "fn_sig_ffibox_owner_priv",
     "fn_sig_ffibox_handle_pub", "fn_sig_ffibox_handle_priv",
@@ -579,4 +581,4 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
         raise DriverUnavailable(
             "no crate emitted metrics — the build was served from cache, so "
             "nothing was measured")
-    return out, sites, (ffibox_counts if ffibox else None)
+    return out, sites, ffibox_counts

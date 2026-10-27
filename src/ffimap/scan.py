@@ -47,8 +47,10 @@ def compose(workspace: Path, sites: list[str] | None = None,
     """Scan the workspace and return the metrics document.
 
     ``sites`` names counters whose source locations to report, as a ``sites``
-    record beside ``counts`` with one list per counter. ``ffibox`` adds the
-    ``ffibox`` record: the crate's ffibox surface. ``sys_crates`` add to the
+    record beside ``counts`` with one list per counter. ``ffibox`` asserts the
+    crate is built on ffibox, which sanctions the conventions' ``as_ref`` /
+    ``as_mut`` layout accessors; the owner and handle record is composed
+    either way. ``sys_crates`` add to the
     sys crates found by Cargo's `links` keys; the set is recorded in
     ``sys_crates``, since which types are C's rests on it. ``seams`` names the
     functions that only convert between a wrapper and its raw pointer; they

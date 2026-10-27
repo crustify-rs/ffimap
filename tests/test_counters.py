@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 import re
 import unittest
+from tempfile import TemporaryDirectory
+from unittest import mock
 
 from ffimap import measure, scan
 
@@ -134,6 +136,37 @@ class FfiboxTests(unittest.TestCase):
         # `by` stays keyed by the flat leaf name: a breakdown belongs to a leaf.
         self.assertEqual(rec["by"]["fn_sig_ffibox_handle_pub"], {"Mut": 1, "Ref": 4})
         self.assertIsNone(scan._ffibox_record(None))
+
+    def test_owner_handle_record_survives_without_the_flag(self) -> None:
+        # The driver emits the record unconditionally, so `measure` must hand
+        # it back whether or not --ffibox was given: its `non_ffibox` half
+        # counts what the crate wrote itself. Patched below `measure` itself,
+        # because that is where the breakdowns used to be dropped -- mocking
+        # `measure` wholesale would not exercise the line at all.
+        breakdowns = {"fn_sig_non_ffibox_handle_pub": {"Buf": 3}}
+        done = type("R", (), {"returncode": 0, "stdout": "/sysroot", "stderr": ""})()
+        with TemporaryDirectory() as temporary, \
+             mock.patch.object(measure, "_driver_bin", return_value=Path("/d")), \
+             mock.patch.object(measure, "_bust_cache"), \
+             mock.patch.object(measure.subprocess, "run", return_value=done), \
+             mock.patch.object(measure, "_collect_emissions",
+                               return_value=({k: 0 for k in measure._COUNTS}, {}, 1,
+                                             breakdowns)):
+            for flag in (False, True):
+                _, _, got = measure.measure(Path(temporary), ffibox=flag)
+                self.assertEqual(got, breakdowns, f"dropped with ffibox={flag}")
+
+    def test_compose_nests_the_owner_handle_record(self) -> None:
+        with TemporaryDirectory() as temporary, \
+             mock.patch("ffimap.scan.measure.measure",
+                        return_value=({k: 0 for k in measure._COUNTS}, {},
+                                      {"fn_sig_non_ffibox_handle_pub": {"Buf": 3}})), \
+             mock.patch("ffimap.scan.measure.sys_crates", return_value=[]):
+            doc = scan.compose(Path(temporary), ffibox=False)
+        self.assertIsNotNone(doc["ffibox"])
+        self.assertEqual(doc["ffibox"]["by"]["fn_sig_non_ffibox_handle_pub"], {"Buf": 3})
+        self.assertEqual(
+            doc["ffibox"]["counts"]["fn_sig"]["non_ffibox"]["handle"]["pub"], 3)
 
     def test_owner_handle_sites_need_no_flag(self) -> None:
         # The owner / handle record is always measured: its `non_ffibox` half
