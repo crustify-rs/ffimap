@@ -12,7 +12,7 @@ class ComposeTests(unittest.TestCase):
             workspace = Path(temporary)
             (workspace / "Cargo.toml").write_text("[workspace]\n")
             with mock.patch("ffimap.scan.measure.measure",
-                            return_value=({"code_lines": 1}, {}, None)) as measure, \
+                            return_value=({"code_lines": 1}, {}, None, {})) as measure, \
                  mock.patch("ffimap.scan.measure.sys_crates",
                             return_value=["foo_sys"]):
                 document = scan.compose(workspace)

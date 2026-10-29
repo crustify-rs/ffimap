@@ -62,8 +62,9 @@ def compose(workspace: Path, sites: list[str] | None = None,
     all_sites: dict = {}
     flat: dict = {}
     try:
-        flat, all_sites, breakdowns = measure.measure(
+        flat, all_sites, breakdowns, ptr = measure.measure(
             workspace, ffibox=ffibox, sys=sys, seams=seams)
+        doc["ptr"] = ptr
         # `derived` reads the flat counters; the document carries the tree.
         doc["counts"] = measure.nest_counts(flat)
         doc["counts_unavailable"] = None

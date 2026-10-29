@@ -10,11 +10,16 @@ from ffimap import measure, scan
 MAIN_RS = Path(measure.__file__).parent / "driver" / "src" / "main.rs"
 
 
+#: Keys of the emission line that are not `Counts` fields: the `ptr` axis is a
+#: keyed tally the Python side assembles, not 96 struct fields.
+_NON_COUNT_KEYS = {"ptr"}
+
+
 def _emission() -> tuple[list[str], list[str]]:
     """The driver's per-crate JSON line: its keys, and the value arguments, in order."""
     src = MAIN_RS.read_text()
     fmt = re.search(r'"\{\{\\"crate\\":\\"\{\}\\",(.*?)\\"sites\\":\{\}\}\}"', src).group(1)
-    keys = re.findall(r'\\"(\w+)\\":\{\}', fmt)
+    keys = [k for k in re.findall(r'\\"(\w+)\\":\{\}', fmt) if k not in _NON_COUNT_KEYS]
     args = src[src.index(fmt):].split("\n", 2)[1]
     values = re.findall(r"\bc\.(\w+)", args)
     return keys, values
@@ -99,7 +104,7 @@ class EmissionTests(unittest.TestCase):
     def test_new_counts_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(
             {"crate": crate, "unsafe_blocks": 0, "safe_fns_pub": n, "raw_ptr_fn_pub_safe": n, "sites": {}})
-        counts, _, seen, _ = measure._collect_emissions(
+        counts, _, seen, _, _ = measure._collect_emissions(
             "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
         self.assertEqual(seen, 2)
         self.assertEqual(counts["safe_fns_pub"], 5)
@@ -117,7 +122,7 @@ class FfiboxTests(unittest.TestCase):
             "crate": crate,
             "ffibox": {"fn_sig_ffibox_owner_pub": {"CBox": n}, "ffibox_impl_manual": {"CDrop": 1}},
             "sites": {"fn_sig_ffibox_owner_pub": [{"file": "a.rs", "count": n, "lines": [1]}]}})
-        _, sites, seen, ffibox = measure._collect_emissions(
+        _, sites, seen, ffibox, _ = measure._collect_emissions(
             "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
         # an ffibox line is not a metrics line
         self.assertEqual(seen, 0)
@@ -151,16 +156,16 @@ class FfiboxTests(unittest.TestCase):
              mock.patch.object(measure.subprocess, "run", return_value=done), \
              mock.patch.object(measure, "_collect_emissions",
                                return_value=({k: 0 for k in measure._COUNTS}, {}, 1,
-                                             breakdowns)):
+                                             breakdowns, {})):
             for flag in (False, True):
-                _, _, got = measure.measure(Path(temporary), ffibox=flag)
+                _, _, got, _ = measure.measure(Path(temporary), ffibox=flag)
                 self.assertEqual(got, breakdowns, f"dropped with ffibox={flag}")
 
     def test_compose_nests_the_owner_handle_record(self) -> None:
         with TemporaryDirectory() as temporary, \
              mock.patch("ffimap.scan.measure.measure",
                         return_value=({k: 0 for k in measure._COUNTS}, {},
-                                      {"fn_sig_non_ffibox_handle_pub": {"Buf": 3}})), \
+                                      {"fn_sig_non_ffibox_handle_pub": {"Buf": 3}}, {})), \
              mock.patch("ffimap.scan.measure.sys_crates", return_value=[]):
             doc = scan.compose(Path(temporary), ffibox=False)
         self.assertIsNotNone(doc["ffibox"])
@@ -190,7 +195,7 @@ class FfiboxTests(unittest.TestCase):
 class SysCrateTests(unittest.TestCase):
     def test_emissions_of_sys_crates_are_skipped_by_name_or_links(self) -> None:
         line = lambda crate: json.dumps({"crate": crate, "unsafe_blocks": 1, "sites": {}})
-        counts, _, seen, _ = measure._collect_emissions(
+        counts, _, seen, _, _ = measure._collect_emissions(
             "\n".join([line("safe"), line("ffmpeg_sys_the_third"), line("x_sys")]),
             {"ffmpeg_sys_the_third"})
         self.assertEqual(seen, 1)
@@ -211,16 +216,50 @@ class SysCrateTests(unittest.TestCase):
 
 class PartitionTests(unittest.TestCase):
     def test_driver_hardcodes_no_seam_names(self) -> None:
-        """Seam names come from `--seams`, never from the driver.
+        """The `local_seam` arm comes from `--seams`, never from the driver.
 
-        The driver reads them out of `UM_SEAM_FNS`; it must not carry a list
-        of its own, or the classification stops being the user's to declare
-        and starts being a guess that differs per codebase.
+        The driver reads the names out of `UM_SEAM_FNS`. If it carried a list
+        of its own, a crate's own conversions would stop being the user's to
+        declare and start being a guess that differs per codebase.
+
+        ffibox's vocabulary is the one exception, and it is not one of these:
+        `FFIBOX_ADOPTERS` and `FFIBOX_PRIMITIVES` name a specific crate's
+        published API, they are gated on `--ffibox`, and they feed the
+        `casted_to.ffibox` arm, which is a different arm precisely so that
+        ffibox's conversions are never counted as the crate's own.
         """
         src = MAIN_RS.read_text()
         self.assertIn("UM_SEAM_FNS", src)
-        for guess in ('"from_raw"', '"as_ptr"', '"from_ptr"', '"as_mut_ptr"', '"raw"'):
-            self.assertNotIn(guess, src, f"driver hardcodes the seam name {guess}")
+        # Scan the `const ... : &[&str]` name lists, not the whole file: the
+        # driver legitimately contains strings like "raw" as counter keys, and
+        # grepping the source for them tests spelling rather than behaviour.
+        # The ffibox vocabulary lists are excluded, per the docstring.
+        lists = re.findall(
+            r"const\s+(\w+)\s*:\s*&\[(?:&str|\(&str, &str\))\]\s*=\s*&\[(.*?)\];",
+            src, re.S)
+        declared = {
+            n
+            for name, body in lists
+            if not name.startswith("FFIBOX_")
+            for n in re.findall(r'"([^"]+)"', body)
+        }
+        self.assertLessEqual(
+            declared & {"from_raw", "as_ptr", "from_ptr", "as_mut_ptr", "raw"},
+            set(), f"driver hardcodes seam names: {declared}")
+
+    def test_local_seam_arm_is_reached_only_through_is_seam_fn(self) -> None:
+        """The guard above is about lists; this one is about the code path.
+
+        A driver could stop hardcoding names and still bump `local_seam` from
+        some other predicate. The arm must be reached from `is_seam_fn` and
+        nothing else, so that an empty `--seams` yields an empty arm.
+        """
+        src = MAIN_RS.read_text()
+        for m in re.finditer(r'bump_casted_to\("local_seam"', src):
+            window = src[max(0, m.start() - 400):m.start()]
+            self.assertIn(
+                "is_seam_fn", window,
+                "a local_seam bump is not guarded by is_seam_fn")
 
     def test_seam_counters_are_subsets_not_partitions(self) -> None:
         """A seam is counted in its own counter AND in the base one, so the

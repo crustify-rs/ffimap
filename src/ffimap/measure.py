@@ -441,14 +441,40 @@ def sys_crates(ws: Path, extra: list[str] | None = None) -> list[str]:
     return sorted(names)
 
 
+#: The `ptr` axis. The driver emits dotted leaves (`ptr_borrowed_c_layout.pub`,
+#: `ptr_borrowed.from.ffibox`, `ptr_raw_c_layout.of_which.seam.pub`); this
+#: assembles one record per counter and derives every `total`, so a sum is
+#: never written by the driver and never disagrees with its parts.
+#:
+#: A counter's record is `{pub, priv, total}` plus the share groups it has:
+#: `in` where the slot was (a signature or a field), `from` what the carrier
+#: is, `as` its hazard shape, and `of_which` the named subsets, each of those
+#: carrying `{pub, priv, total}` of its own because the public share is
+#: usually the finding.
+def _ptr_totals(node: dict) -> int:
+    """Give every interior node of a `ptr` group its own `total`."""
+    n = 0
+    for k, v in list(node.items()):
+        if k in ("total", "of_which"):
+            continue
+        n += _ptr_totals(v) if isinstance(v, dict) else v
+    if any(isinstance(v, dict) for v in node.values()) or len(node) > 1:
+        node["total"] = n
+    for share in node.get("of_which", {}).values():
+        if isinstance(share, dict):
+            share["total"] = share.get("pub", 0) + share.get("priv", 0)
+    return n
+
+
 def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
-                       ) -> tuple[dict, dict, int, dict]:
+                       ) -> tuple[dict, dict, int, dict, dict]:
     """Merge driver JSON lines; return counts, sites, crate count, and the
     `--ffibox` breakdowns (empty unless the driver emitted them). Sys crates
     -- named `*_sys`, or in ``sys`` -- are bindings, never the subject."""
     out = {k: 0 for k in _COUNTS}
     sites: dict[str, list] = {k: [] for k in SITE_COUNTERS}
     ffibox: dict[str, dict[str, int]] = {}
+    ptr: dict[str, int] = {}
     seen = 0
     for line in stdout.splitlines():
         line = line.strip()
@@ -472,11 +498,58 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
         if "unsafe_blocks" not in d:
             continue
         seen += 1
+        for k, n in d.get("ptr", {}).items():
+            ptr[k] = ptr.get(k, 0) + int(n)
         for k in _COUNTS:
             out[k] += int(d.get(k, 0))
         for k, rows in d.get("sites", {}).items():
             sites.setdefault(k, []).extend(rows)
-    return out, sites, seen, ffibox
+    return out, sites, seen, ffibox, ptr
+
+
+def nest_ptr(flat: dict[str, int]) -> dict:
+    """Nest the driver's dotted counter keys into the schema's tree.
+
+    Derived ``total`` keys are added bottom-up, summing every child except
+    ``of_which``, whose children are overlapping shares and are never summed.
+
+    Two nodes are left without one. A top-level prefix, because summing across
+    families there would mix grains -- ``raw_ptr.taken`` counts signature
+    positions and ``raw_ptr.deref`` counts body sites, and their sum means
+    nothing. And any node that already carries a ``total``, which is how the
+    explicit denominators ``ty.total`` and ``code.loc.total`` survive.
+    """
+    tree: dict = {}
+    for key, n in flat.items():
+        node = tree
+        parts = key.split(".")
+        for part in parts[:-1]:
+            nxt = node.setdefault(part, {})
+            if not isinstance(nxt, dict):          # a leaf and a node collided
+                raise ValueError(f"counter {key!r} nests under a leaf")
+            node = nxt
+        prev = node.get(parts[-1], 0)
+        if isinstance(prev, dict):
+            raise ValueError(f"counter {key!r} is both a leaf and a prefix")
+        node[parts[-1]] = prev + int(n)
+
+    def totals(node: dict, depth: int) -> int:
+        subtotal = 0
+        for name, child in list(node.items()):
+            if isinstance(child, dict):
+                got = totals(child, depth + 1)
+                if name != "of_which":
+                    subtotal += got
+            elif name != "of_which":
+                subtotal += child
+        if depth > 1 and "total" not in node:
+            node["total"] = subtotal
+            return subtotal
+        got = node.get("total")
+        return got if isinstance(got, int) else subtotal
+
+    totals(tree, 0)
+    return tree
 
 
 def _driver_bin() -> Path:
@@ -576,9 +649,9 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
             f"{r.stderr[-1200:]}")
 
     # `-sys` crates are generated bindings, never the audit subject.
-    out, sites, seen, ffibox_counts = _collect_emissions(r.stdout, set(sys or ()))
+    out, sites, seen, ffibox_counts, ptr = _collect_emissions(r.stdout, set(sys or ()))
     if not seen:
         raise DriverUnavailable(
             "no crate emitted metrics — the build was served from cache, so "
             "nothing was measured")
-    return out, sites, ffibox_counts
+    return out, sites, ffibox_counts, nest_ptr(ptr)

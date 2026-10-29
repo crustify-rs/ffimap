@@ -2610,6 +2610,50 @@ fn is_ffibox() -> bool {
     std::env::var_os("UM_FFIBOX").is_some()
 }
 
+/// True when `did` holds an `UnsafeCell` in its fields, directly or through
+/// the peel set. The same walk as `holds_raw_ptr`, with a different sink.
+fn holds_unsafe_cell(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    holds_unsafe_cell_at(tcx, did, 0, &mut HashSet::new())
+}
+
+fn holds_unsafe_cell_at(
+    tcx: TyCtxt<'_>,
+    did: DefId,
+    depth: u32,
+    seen: &mut HashSet<DefId>,
+) -> bool {
+    if depth > 8 || !seen.insert(did) {
+        return false;
+    }
+    tcx.adt_def(did).all_fields().any(|f| {
+        let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+        // The field type is read BEFORE `field_adt`, which peels
+        // `repr(transparent)` -- and `UnsafeCell` is transparent, so peeling
+        // leaves `u32` and the cell is gone. A canary caught exactly that.
+        is_unsafe_cell_ty(tcx, ft, 0)
+            || field_adt(tcx, ft).is_some_and(|d| {
+                in_peel_set(tcx, d.did())
+                    && holds_unsafe_cell_at(tcx, d.did(), depth + 1, seen)
+            })
+    })
+}
+
+/// `UnsafeCell` in `t` itself, under arrays and generic arguments.
+fn is_unsafe_cell_ty<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, depth: u32) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    match t.kind() {
+        ty::TyKind::Adt(d, args) => {
+            (is_std_crate(tcx, d.did()) && tcx.item_name(d.did()).as_str() == "UnsafeCell")
+                || args.types().any(|a| is_unsafe_cell_ty(tcx, a, depth + 1))
+        }
+        ty::TyKind::Array(e, _) | ty::TyKind::Slice(e) => is_unsafe_cell_ty(tcx, *e, depth + 1),
+        ty::TyKind::Tuple(ts) => ts.iter().any(|a| is_unsafe_cell_ty(tcx, a, depth + 1)),
+        _ => false,
+    }
+}
+
 /// Bump a tree counter and record the site of `did`'s definition.
 fn tree_bump(
     ptr: &mut PtrTally,
@@ -3236,6 +3280,35 @@ impl Callbacks for MetricsCallbacks {
             let did = ld.to_def_id();
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
                 && !in_generated_file(tcx, tcx.def_span(did))
+            {
+                let vis = if did.as_local()
+                    .is_some_and(|l| tcx.effective_visibilities(()).is_exported(l))
+                { "pub" } else { "priv" };
+                tree_bump(&mut ptr, &mut sites, tcx, did, &format!("ty.total.{vis}"));
+                // `UnsafeCell` is the one way to hold a value C may write
+                // while Rust holds a shared reference to it.
+                if holds_unsafe_cell(tcx, did) {
+                    tree_bump(&mut ptr, &mut sites, tcx, did,
+                              &format!("ty.wrapping_unsafe_cell.{vis}"));
+                }
+                // The ffibox primitives the type's fields hold: the
+                // population `ty.storing_raw_ptr` gives up by not peeling
+                // into ffibox. A type can be in both, which is partial
+                // delegation.
+                if is_ffibox() {
+                    for f in tcx.adt_def(did).all_fields() {
+                        let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+                        if let Some(d) = field_adt(tcx, ft) {
+                            if let Some((name, _)) = ffibox_primitive(tcx, d.did()) {
+                                tree_bump(&mut ptr, &mut sites, tcx, did,
+                                          &format!("ty.field.ffibox.{name}.{vis}"));
+                            }
+                        }
+                    }
+                }
+            }
+            if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
+                && !in_generated_file(tcx, tcx.def_span(did))
                 && holds_raw_ptr(tcx, did)
             {
                 let vis = if did.as_local()
@@ -3472,6 +3545,7 @@ impl Callbacks for MetricsCallbacks {
             let in_ffi = in_ffi_export(tcx, did);
             let exported = did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
             let in_impl = in_any_impl(tcx, did);
+            let blocks_before = c.unsafe_blocks;
             {
                 let typeck = tcx.typeck(owner);
                 let body = tcx.hir_body_owned_by(owner);
@@ -3488,6 +3562,7 @@ impl Callbacks for MetricsCallbacks {
                 };
                 v.visit_body(body);
             }
+            let body_had_unsafe = c.unsafe_blocks > blocks_before;
             // Signature analysis (fns only).
             if matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn) {
                 let sig = tcx.fn_sig(did).skip_binder().skip_binder();
@@ -3522,63 +3597,73 @@ impl Callbacks for MetricsCallbacks {
                         sites.add(k, site);
                     }
                 }
-                // PILOT: a constructor that adopts a raw pointer must be
-                // `unsafe`. A SAFE fn taking a raw pointer and returning a
-                // type that stores one lets a caller hand over anything, to
-                // be dereferenced later -- or freed in `Drop` -- with no
-                // `unsafe` at the call site. Target zero.
-                //
-                // No dataflow, so this is a shape not a proof: a fn that
-                // takes a pointer it never stores and happens to return a
-                // pointer-holding type counts too. The sites say which.
-                if !foreign && safe {
-                    let takes_raw = sig.inputs().iter().any(|t| {
-                        let mut ps = Vec::new();
-                        raw_pointees(tcx, *t, &mut ps);
-                        !ps.is_empty()
-                    });
-                    let yields_holder = matches!(
-                        sig.output().kind(),
-                        ty::TyKind::Adt(d, _) if d.did().is_local() && holds_raw_ptr(tcx, d.did()));
-                    if takes_raw && yields_holder {
-                        let vis = if exported { "pub" } else { "priv" };
-                        let k = format!("pilot_safe_raw_adopter.in.fn.{vis}");
-                        *ptr.entry(k.clone()).or_default() += 1;
-                        sites.add(k, counter_site(tcx, tcx.def_span(did)));
-                    }
-                }
-                // PILOT: raw pointers a public fn TAKES or RETURNS, by
-                // safety, with the seam share beside them.
-                //
-                // Only bare and std pointers: a struct that happens to embed
-                // one is not pointer work for the caller, who never touches
-                // it. Where that embedding does matter it shows up here
-                // anyway, in whatever constructs the struct.
-                //
-                // Taking is the hazard. A safe fn that TAKES a raw pointer
-                // lets a caller pass anything with no `unsafe` at the call
-                // site; one that RETURNS a raw pointer still forces the
-                // caller to write `unsafe` before it means anything.
+                // `fn.*` and the pointer positions. A foreign declaration
+                // is C's own surface, not the crate's, so it is left out of
+                // both.
                 if !foreign {
                     let vis = if exported { "pub" } else { "priv" };
                     let safety = if safe { "safe" } else { "unsafe" };
-                    let seam = is_seam_fn(tcx, did);
                     let site = counter_site(tcx, tcx.def_span(did));
-                    let mut count_in = Vec::new();
-                    for t in sig.inputs() {
-                        raw_pointees(tcx, *t, &mut count_in);
+                    let bump = |ptr: &mut PtrTally, sites: &mut Sites, k: String| {
+                        *ptr.entry(k.clone()).or_default() += 1;
+                        sites.add(k, site.clone());
+                    };
+                    bump(&mut ptr, &mut sites, format!("fn.{safety}.{vis}"));
+                    // Counted on the safe arm only. With
+                    // `unsafe_op_in_unsafe_fn` denied every `unsafe fn` doing
+                    // anything raw has a block by construction, so counting
+                    // it there would measure the lint, not the code.
+                    if safe && body_had_unsafe {
+                        bump(&mut ptr, &mut sites,
+                             format!("fn.safe.of_which.with_unsafe.{vis}"));
                     }
-                    let mut count_out = Vec::new();
-                    raw_pointees(tcx, sig.output(), &mut count_out);
-                    let (takes, returns) = (count_in.len() as u64, count_out.len() as u64);
-                    for (count, pos) in [(takes, "takes"), (returns, "returns")] {
-                        for _ in 0..count {
-                            let k = format!("pilot_raw_ptr_fn.{pos}.{safety}.{vis}");
-                            *ptr.entry(k.clone()).or_default() += 1;
-                            sites.add(k, site.clone());
+
+                    // Raw pointers the signature takes and returns, split
+                    // from the `*c_void` ones, with the seam share carrying
+                    // the same safety and visibility so it can be subtracted.
+                    //
+                    // Only bare and std pointers: a struct that happens to
+                    // embed one is not pointer work for the caller, who never
+                    // touches it.
+                    //
+                    // Taking is the hazard. A safe fn that TAKES a raw
+                    // pointer lets a caller pass anything with no `unsafe` at
+                    // the call site; one that RETURNS a raw pointer still
+                    // forces the caller to write `unsafe` before it means
+                    // anything.
+                    let seam = is_seam_fn(tcx, did);
+                    let mut ins = Vec::new();
+                    for t in sig.inputs() {
+                        raw_pointees(tcx, *t, &mut ins);
+                    }
+                    let mut outs = Vec::new();
+                    raw_pointees(tcx, sig.output(), &mut outs);
+                    for (found, pos) in [(ins, "taken"), (outs, "returned")] {
+                        for pointee in found {
+                            let axis = if is_c_void(tcx, pointee) { "void_ptr" } else { "raw_ptr" };
+                            bump(&mut ptr, &mut sites,
+                                 format!("{axis}.{pos}.{safety}.{vis}"));
                             if seam {
-                                let k = format!("pilot_raw_ptr_fn.of_which.seam_{pos}.{vis}");
-                                *ptr.entry(k.clone()).or_default() += 1;
+                                bump(&mut ptr, &mut sites,
+                                     format!("{axis}.{pos}.of_which.seam.{safety}.{vis}"));
+                            }
+                        }
+                    }
+
+                    // The ffibox primitives the signature carries: whether
+                    // the vocabulary actually crosses the interface.
+                    if is_ffibox() {
+                        for (ts, pos) in [
+                            (sig.inputs().to_vec(), "taken"),
+                            (vec![sig.output()], "returned"),
+                        ] {
+                            for t in ts {
+                                if let ty::TyKind::Adt(d, _) = t.kind() {
+                                    if let Some((name, _)) = ffibox_primitive(tcx, d.did()) {
+                                        bump(&mut ptr, &mut sites,
+                                             format!("fn.ffibox.{pos}.{name}.{vis}"));
+                                    }
+                                }
                             }
                         }
                     }
