@@ -116,14 +116,46 @@ const STD_VALUE_TRAITS: &[&str] = &[
 /// `&[Oid]` over a buffer C allocated and will free. That borrow is the
 /// counter's whole subject, and sanctioning the method must not hide it.
 fn ref_to_wrapper_sanctioned<'tcx>(tcx: TyCtxt<'tcx>, did: DefId, t: Ty<'tcx>) -> bool {
+    matches!(sanction_reason(tcx, did, t), Some("self_on_impl" | "self_on_accessor"))
+}
+
+/// Why a borrow of C memory in `did`'s signature exists, as the `of_which`
+/// cells of `ptr_borrowed_c_layout`:
+///
+///  * `opaque` -- the referent has no bytes, so the reference covers none of
+///    C's; a property of the referent, settled before the site is looked at.
+///  * `self_on_accessor` -- a `&self` in an `as_ref` / `as_mut` layout
+///    accessor, under `--ffibox` only, since the rule matches by name.
+///  * `self_on_impl` -- a `&Self` in an impl of a std trait whose receiver the
+///    language forces.
+///  * `smells` -- no recognised reason. NOT a verdict: the forced-receiver
+///    list is closed, so `Display`, `Iterator`, `Default` and derive
+///    expansions land here while being just as unavoidable.
+fn sanction_reason<'tcx>(tcx: TyCtxt<'tcx>, did: DefId, t: Ty<'tcx>) -> Option<&'static str> {
+    if c_ref_kind(tcx, t) == Some(CRef::Opaque) {
+        return Some("opaque");
+    }
     if !borrows_self_ty(tcx, did, t) {
-        return false;
+        return Some("smells");
     }
-    if std::env::var_os("UM_FFIBOX").is_some()
+    if sanction_reason_inner(tcx, did) {
+        return Some("self_on_accessor");
+    }
+    if std_value_trait_impl(tcx, did) {
+        return Some("self_on_impl");
+    }
+    Some("smells")
+}
+
+/// The `--ffibox` accessor half of the rule.
+fn sanction_reason_inner(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    std::env::var_os("UM_FFIBOX").is_some()
         && tcx.opt_item_name(did).is_some_and(|n| FFIBOX_REF_ACCESSORS.contains(&n.as_str()))
-    {
-        return true;
-    }
+}
+
+/// The std-trait half: `did` is a method of an impl of a `STD_VALUE_TRAITS`
+/// trait, matched on the trait's identity in `core` / `alloc` / `std`.
+fn std_value_trait_impl(tcx: TyCtxt<'_>, did: DefId) -> bool {
     let Some(parent) = tcx.opt_parent(did) else {
         return false;
     };
@@ -133,6 +165,15 @@ fn ref_to_wrapper_sanctioned<'tcx>(tcx: TyCtxt<'tcx>, did: DefId, t: Ty<'tcx>) -
     let tr = tcx.impl_trait_ref(parent).skip_binder().def_id;
     matches!(tcx.crate_name(tr.krate).as_str(), "core" | "alloc" | "std")
         && STD_VALUE_TRAITS.contains(&tcx.item_name(tr).as_str())
+}
+
+/// True when the pointee of a raw pointer in `t` has a safe wrapper, so the
+/// position could have used it. The set is `wrapped_c`, either representation.
+fn raw_has_wrapper<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, wrapped_c: &HashSet<DefId>) -> bool {
+    let mut ps = Vec::new();
+    raw_pointees(tcx, t, &mut ps);
+    ps.iter()
+        .any(|p| matches!(p.kind(), ty::TyKind::Adt(d, _) if wrapped_c.contains(&d.did())))
 }
 
 /// What a borrow points at, when that is C memory (`c_type_borrow_*`), weakest
@@ -618,6 +659,23 @@ fn is_std_crate(tcx: TyCtxt<'_>, did: DefId) -> bool {
     matches!(tcx.crate_name(did.krate).as_str(), "core" | "alloc" | "std")
 }
 
+/// The crates the field walk descends through: the scanned crate and the
+/// `-sys` crates named on the command line (`UM_SYS_CRATES`).
+///
+/// The rule decides what `ty.storing_raw_ptr` means. A pointer inside `Vec` is
+/// the standard library's to manage, and one inside an ffibox owner is
+/// ffibox's, so neither makes its holder a pointer manager. What is left is the
+/// types that manage a pointer themselves; delegation is counted by
+/// `ty.field.ffibox` instead.
+///
+/// A `-sys` crate left unnamed drops out of the walk and the counter reads low
+/// for a reason that is not in the code. That is not diagnosed: most crates
+/// that stop the walk do so legitimately, so a warning would be noise. See
+/// docs/schema.md, The peel set.
+fn in_peel_set(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    did.is_local() || sys_crates().contains(tcx.crate_name(did.krate).as_str())
+}
+
 /// The ADTs behind a pointer in `t` (`behind` once a pointer was crossed):
 /// raw pointers, references, `NonNull`, nested in generics, tuples and arrays,
 /// pointers to pointers included, and the parameters and return of a C-ABI
@@ -967,15 +1025,451 @@ fn is_c_accessible(tcx: TyCtxt<'_>, did: DefId) -> bool {
     with_c_sets(tcx, |(acc, _)| acc.contains(&did))
 }
 
-/// True when C can reach memory of type `did` AT ALL: `is_c_accessible`, plus
-/// the types whose only evidence is a `*c_void` round trip, which cannot say
-/// who owns the bytes.
+/// True when `did` crosses into C ONLY as a `*c_void` round trip: C holds the
+/// pointer and nothing says it reads the bytes.
 ///
-/// Not an input to any classification: a payload handed to C is an observable
-/// of its own, not a C type.
-#[allow(dead_code, reason = "the erased class is reported, not classified on")]
-fn is_c_visible(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    with_c_sets(tcx, |(acc, era)| acc.contains(&did) || era.contains(&did))
+/// Disjoint from `is_c_accessible` by construction, so the two are a partition
+/// of "crosses the FFI boundary" and carry different obligations: a layout
+/// contract on one side, aliasing and lifetime on the other. Reported as
+/// `c_opaque`, never used to classify a type as C's.
+///
+/// It UNDERCOUNTS: the erased set sees only the `*c_void` casts the scanned
+/// crate makes, so a payload crossing as `*mut T`, with the cast living in the
+/// `-sys` crate or nowhere, is not in it.
+fn is_c_erased(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    with_c_sets(tcx, |(_, era)| era.contains(&did))
+}
+
+// ---------------------------------------------------------------- slot classifier
+//
+// One walk over a type, yielding one `Slot` per carrier it finds, as
+// `docs/schema-draft.md` describes. It replaces what `count_ptr_position`,
+// `non_wrapper_borrows`, `wrapper_values`, `c_ref_kind` and `ffibox_positions`
+// each did over the same types, so a position is classified once on three
+// axes instead of five times on one each.
+
+/// How a slot carries what it carries.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Mode {
+    /// The bytes inline.
+    ByVal,
+    /// A reference, or a wrapper holding one.
+    Borrowed,
+    /// Anything that releases what it holds: `Box`, `CBox`, a local `Drop`.
+    Owned,
+    /// `*const` / `*mut` / `NonNull` / `AtomicPtr`.
+    Raw,
+    /// The erased pointer.
+    Void,
+}
+
+/// How many, and of what shape. Carried on `Borrowed` and `Owned` only, where
+/// the ffibox forms differ by it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Card {
+    Scalar,
+    Array,
+    Str,
+}
+
+/// What the carried type is to C.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Part {
+    /// C reads the bytes as its own type: a layout contract.
+    CLayout,
+    /// Crosses only as a `*c_void` round trip: aliasing and lifetime, no
+    /// layout contract.
+    COpaque,
+    /// Never crosses.
+    Rust,
+    /// A type parameter: C memory for some instantiations, which a pass
+    /// reading generic bodies does not see.
+    Generic,
+}
+
+/// Where the carrier itself comes from -- what it IS, as against `Part`,
+/// which is what lies at the far end of it. Named `Src` because `From` is the
+/// prelude trait; the document key is `from`.
+///
+/// `Bare` is a language reference or pointer with no carrier type at all, so
+/// "goes through a wrapper" is `total - bare` and needs no separate flag.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Src {
+    Std,
+    Ffibox,
+    Local,
+    Bare,
+}
+
+impl Src {
+    fn key(self) -> &'static str {
+        match self {
+            Src::Std => "std",
+            Src::Ffibox => "ffibox",
+            Src::Local => "local",
+            Src::Bare => "bare",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Slot {
+    mode: Mode,
+    card: Card,
+    part: Part,
+    from: Src,
+}
+
+/// `Str` when `t` is a C string or a Rust string view, `Array` for a slice or
+/// array, `Scalar` otherwise. `&[u8]` is an array: the element type decides,
+/// so a byte slice holding text reads as one.
+fn card_of<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Card {
+    match t.kind() {
+        ty::TyKind::Str => Card::Str,
+        ty::TyKind::Slice(_) | ty::TyKind::Array(..) => Card::Array,
+        ty::TyKind::Adt(d, _) if is_std_crate(tcx, d.did()) => {
+            match tcx.item_name(d.did()).as_str() {
+                "CStr" | "CString" | "OsStr" | "OsString" | "Path" | "PathBuf" | "String" => Card::Str,
+                "Vec" | "VecDeque" => Card::Array,
+                _ => Card::Scalar,
+            }
+        }
+        ty::TyKind::Adt(d, _) if is_ffibox_crate(tcx, d.did()) => {
+            match tcx.item_name(d.did()).as_str() {
+                "CStrBox" => Card::Str,
+                "CVec" | "CSlice" | "CSliceMut" => Card::Array,
+                _ => Card::Scalar,
+            }
+        }
+        _ => Card::Scalar,
+    }
+}
+
+/// What `t` is to C, for a type reached in a slot. `Generic` wins over the
+/// rest: a type parameter's answer depends on the instantiation.
+fn part_of<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Part {
+    let e = match t.kind() {
+        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => *e,
+        _ => t,
+    };
+    match e.kind() {
+        ty::TyKind::Param(_) | ty::TyKind::Alias(..) => Part::Generic,
+        _ if is_c_void(tcx, e) => Part::COpaque,
+        ty::TyKind::Adt(d, _) if is_c_accessible(tcx, d.did()) => Part::CLayout,
+        ty::TyKind::Adt(d, _) if is_c_erased(tcx, d.did()) => Part::COpaque,
+        _ => Part::Rust,
+    }
+}
+
+/// Every carrier in `t`, one `Slot` each.
+///
+/// Recurses into nested carriers, so `Vec<CBox<Oid>>` yields an owned array
+/// AND an owned scalar: the conformance question is asked of every slot, not
+/// only the outermost. Totals therefore exceed the number of positions, and
+/// `Borrowed` and `Owned` are not disjoint over one of them. Depth guarded as
+/// the rest of the pass is.
+fn slots<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, depth: u32, out: &mut Vec<Slot>) {
+    if depth > 8 {
+        return;
+    }
+    let push = |out: &mut Vec<Slot>, mode, card, part, from| {
+        out.push(Slot { mode, card, part, from });
+    };
+    match t.kind() {
+        ty::TyKind::Ref(_, p, _) => {
+            if !is_phantom(tcx, *p) {
+                push(out, Mode::Borrowed, card_of(tcx, *p), part_of(tcx, *p), Src::Bare);
+            }
+            slots(tcx, *p, depth + 1, out);
+        }
+        ty::TyKind::RawPtr(p, _) => {
+            let mode = if is_c_void(tcx, *p) { Mode::Void } else { Mode::Raw };
+            push(out, mode, Card::Scalar, part_of(tcx, *p), Src::Bare);
+            slots(tcx, *p, depth + 1, out);
+        }
+        ty::TyKind::Adt(d, args) => {
+            let did = d.did();
+            let name = tcx.item_name(did);
+            if name.as_str() == "PhantomData" {
+                return;
+            }
+            let inner = args.types().next();
+            if is_ffibox_crate(tcx, did) {
+                let mode = if FFIBOX_OWNERS.contains(&name.as_str()) { Mode::Owned } else { Mode::Borrowed };
+                let part = inner.map_or(Part::Rust, |a| part_of(tcx, a));
+                push(out, mode, card_of(tcx, t), part, Src::Ffibox);
+            } else if is_std_crate(tcx, did) {
+                if STD_OWNERS.contains(&name.as_str()) {
+                    let part = inner.map_or(Part::Rust, |a| part_of(tcx, a));
+                    push(out, Mode::Owned, card_of(tcx, t), part, Src::Std);
+                } else if matches!(name.as_str(), "NonNull" | "AtomicPtr") {
+                    let part = inner.map_or(Part::Rust, |a| part_of(tcx, a));
+                    push(out, Mode::Raw, Card::Scalar, part, Src::Std);
+                } else if matches!(name.as_str(), "CString" | "OsString" | "PathBuf" | "String") {
+                    push(out, Mode::Owned, Card::Str, Part::Rust, Src::Std);
+                }
+            } else if own_owner(tcx, did) {
+                push(out, Mode::Owned, card_of(tcx, t), own_part(tcx, did), Src::Local);
+            } else if did.is_local() && !is_type_wrapper(tcx, did) && holds_c_pointer(tcx, did) {
+                push(out, Mode::Borrowed, card_of(tcx, t), own_part(tcx, did), Src::Local);
+            } else if is_c_accessible(tcx, did) {
+                push(out, Mode::ByVal, card_of(tcx, t), Part::CLayout, Src::Local);
+            }
+            for a in args.types() {
+                slots(tcx, a, depth + 1, out);
+            }
+        }
+        ty::TyKind::Tuple(tys) => {
+            for a in tys.iter() {
+                slots(tcx, a, depth + 1, out);
+            }
+        }
+        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => slots(tcx, *e, depth + 1, out),
+        _ => {}
+    }
+}
+
+/// The `ptr` axis: one count per cell, keyed by the flat name
+/// `docs/schema-draft.md` gives. A keyed tally rather than 96 struct fields,
+/// as the owner / handle record already is.
+type PtrTally = std::collections::BTreeMap<String, u64>;
+
+impl Mode {
+    fn key(self) -> &'static str {
+        match self {
+            Mode::ByVal => "by_val",
+            Mode::Borrowed => "borrowed",
+            Mode::Owned => "owned",
+            Mode::Raw => "raw",
+            Mode::Void => "void",
+        }
+    }
+}
+
+impl Part {
+    fn key(self) -> &'static str {
+        match self {
+            Part::CLayout => "c_layout",
+            Part::COpaque => "c_opaque",
+            Part::Rust => "rust",
+            Part::Generic => "generic",
+        }
+    }
+}
+
+/// The `ptr` tally as a JSON object of dotted paths. The Python side splits
+/// on `.` to assemble one record per counter and derives each `total`, so the
+/// driver emits only leaves and never has to know the record's shape.
+fn ptr_json(t: &PtrTally) -> String {
+    let body = t
+        .iter()
+        .map(|(k, v)| format!("\"{k}\":{v}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{{body}}}")
+}
+
+/// Record one slot, as the dotted paths `docs/schema-draft.md` gives:
+/// `<counter>.<vis>`, `<counter>.in.<ty|fn>`, `<counter>.from.<src>`,
+/// `<counter>.as.<string|slice>` and `<counter>.of_which.<share>.<vis>`.
+/// The Python side assembles them into one record per counter and derives
+/// each `total`, so the driver emits only leaves.
+///
+/// Each slot bumps its partition counter AND its mode's parent, so
+/// `ptr_borrowed` is in the document rather than reconstructed from a prefix.
+#[allow(clippy::too_many_arguments, reason = "one call site, all of it per-slot context")]
+fn record_slot(
+    t: &mut PtrTally,
+    sites: &mut Sites,
+    slot: Slot,
+    vis: &str,
+    in_pos: &str,
+    reason: Option<&'static str>,
+    seam: bool,
+    unsafe_fn: bool,
+    has_wrapper: bool,
+    site: &(String, usize),
+) {
+    let mode = slot.mode.key();
+    // `by_val` is emitted only for a C type and `void` IS the erased case, so
+    // neither carries a partition cell.
+    let leaf = match slot.mode {
+        Mode::ByVal => "ptr_by_val".to_string(),
+        Mode::Void => "ptr_void".to_string(),
+        _ => format!("ptr_{mode}_{}", slot.part.key()),
+    };
+    let parent = matches!(slot.mode, Mode::Borrowed | Mode::Owned | Mode::Raw)
+        .then(|| format!("ptr_{mode}"));
+
+    let mut bump = |k: String| {
+        *t.entry(k.clone()).or_default() += 1;
+        sites.add(k, site.clone());
+    };
+    for c in std::iter::once(&leaf).chain(parent.iter()) {
+        // WHERE the slot is, with everything that is a property of the place
+        // rather than of the type: the position, the safety of the function
+        // holding it, and whether a consumer can reach it. A partition, so
+        // the group sums to the counter's total and `pub` is read off it.
+        //
+        // `ty` takes no safety: a field has none, and leaving the cell out
+        // says so, where a zero would look like a safe-fn count of nothing.
+        if in_pos == "fn" {
+            let safety = if unsafe_fn { "unsafe" } else { "safe" };
+            bump(format!("{c}.in.fn.{safety}.{vis}"));
+            // Being a seam is a property of the FUNCTION, like its safety, so
+            // it is a share of the `fn` branch rather than of the counter.
+            // `has_wrapper` stays at counter level: that is a property of the
+            // pointee, and holds wherever the slot sits.
+            if seam {
+                bump(format!("{c}.in.fn.of_which.seam.{vis}"));
+            }
+        } else {
+            bump(format!("{c}.in.ty.{vis}"));
+        }
+        // A bare reference or pointer has no carrier, which is what makes
+        // "goes through a wrapper" `total - bare`.
+        if !matches!(slot.mode, Mode::ByVal | Mode::Void) {
+            bump(format!("{c}.from.{}", slot.from.key()));
+        }
+        // Shape, where it is a hazard class of its own: a NUL-terminated
+        // string, or a view with a length to keep in step.
+        match slot.card {
+            Card::Str if !matches!(slot.mode, Mode::ByVal | Mode::Void) => {
+                bump(format!("{c}.as.string"));
+            }
+            Card::Array if slot.mode == Mode::Borrowed => bump(format!("{c}.as.slice")),
+            _ => {}
+        }
+        if slot.mode == Mode::Raw {
+            if has_wrapper {
+                bump(format!("{c}.of_which.has_wrapper.{vis}"));
+            }
+        }
+        // Why a borrow of C memory exists. Signatures only: nothing forces a
+        // borrow held in a field.
+        if slot.mode == Mode::Borrowed && slot.part == Part::CLayout && in_pos == "fn" {
+            if let Some(r) = reason {
+                bump(format!("{c}.of_which.{r}.{vis}"));
+            }
+        }
+    }
+}
+
+/// True when `did` stores a raw pointer anywhere in its fields: `*const T`,
+/// `*mut T`, `NonNull`, `AtomicPtr`, nested through `Option`, tuples, arrays
+/// and generic arguments. Purely structural -- no provenance, no closure.
+fn holds_raw_ptr(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    holds_raw_ptr_at(tcx, did, 0, &mut HashSet::new())
+}
+
+/// Transitively: a field whose own type holds one counts too.
+///
+/// One level is not enough. git2-rs's `struct OidArray { raw: git_oidarray }`
+/// stores the pointer inside the C struct, so a shallow test misses it -- and
+/// `OidArray` is the motivating case, since its `Deref` hands out `&[Oid]`
+/// over a buffer libgit2 allocated. Descends through the peel set only,
+/// depth- and cycle-guarded.
+fn holds_raw_ptr_at(tcx: TyCtxt<'_>, did: DefId, depth: u32, seen: &mut HashSet<DefId>) -> bool {
+    if depth > 8 || !seen.insert(did) {
+        return false;
+    }
+    tcx.adt_def(did).all_fields().any(|f| {
+        let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+        let mut ps = Vec::new();
+        raw_pointees(tcx, ft, &mut ps);
+        if !ps.is_empty() {
+            return true;
+        }
+        field_adt(tcx, ft).is_some_and(|d| {
+            in_peel_set(tcx, d.did()) && holds_raw_ptr_at(tcx, d.did(), depth + 1, seen)
+        })
+    })
+}
+
+/// What a raw-pointer-holding type declares about the pointer it holds.
+#[derive(Clone, Copy, Default)]
+struct HolderTraits {
+    drop_: bool,
+    deref: bool,
+    deref_mut: bool,
+    clone: bool,
+    derived_clone: bool,
+    send_sync: bool,
+}
+
+/// The traits a raw-pointer-holding type implements, which is what
+/// makes holding one hazardous:
+///
+///  * `Drop`   -- it frees memory Rust did not allocate.
+///  * `Deref` / `DerefMut` -- every `*x` and auto-deref hands out a reference
+///    derived from that pointer, implicitly, at every call site. git2-rs's
+///    `impl Deref for OidArray` yields `&[Oid]` over a libgit2 buffer.
+///  * `Clone`  -- a shallow clone duplicates the pointer; with `Drop` that is
+///    a double free, and `#[derive(Clone)]` is how it happens unnoticed.
+///  * `Send` / `Sync` -- an unsafe assertion that memory reached through that
+///    pointer is thread-safe, which no type system checked.
+fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
+    let mut out: HashMap<DefId, HolderTraits> = HashMap::new();
+    for ld in tcx.hir_crate_items(()).definitions() {
+        let did = ld.to_def_id();
+        if !matches!(tcx.def_kind(did), DefKind::Impl { of_trait: true }) {
+            continue;
+        }
+        let tr = tcx.impl_trait_ref(did).skip_binder().def_id;
+        if !is_std_crate(tcx, tr) {
+            continue;
+        }
+        let ty::TyKind::Adt(d, _) = tcx.type_of(did).instantiate_identity().skip_norm_wip().kind()
+        else {
+            continue;
+        };
+        if !d.did().is_local() {
+            continue;
+        }
+        let e = out.entry(d.did()).or_default();
+        match tcx.item_name(tr).as_str() {
+            "Drop" => e.drop_ = true,
+            "Deref" => e.deref = true,
+            "DerefMut" => e.deref_mut = true,
+            "Send" | "Sync" => e.send_sync = true,
+            "Clone" => {
+                e.clone = true;
+                e.derived_clone |= tcx.is_automatically_derived(did);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// True when `did` is an owner the crate wrote itself: a local type with a
+/// hand-written `Drop`. Cached, since the slot walk asks per type.
+fn own_owner(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    thread_local! {
+        static OWNERS: std::cell::RefCell<Option<HashSet<DefId>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    OWNERS.with(|c| {
+        let mut b = c.borrow_mut();
+        if b.is_none() {
+            *b = Some(own_owners(tcx));
+        }
+        b.as_ref().unwrap().contains(&did)
+    })
+}
+
+/// What a crate-written owner or handle carries: the C type it holds by value
+/// if it is one, otherwise whatever its pointer reaches.
+fn own_part(tcx: TyCtxt<'_>, did: DefId) -> Part {
+    if is_c_accessible(tcx, did) {
+        Part::CLayout
+    } else if holds_c_pointer(tcx, did) {
+        Part::CLayout
+    } else if is_c_erased(tcx, did) {
+        Part::COpaque
+    } else {
+        Part::Rust
+    }
 }
 
 /// True when `t` holds an `UnsafeCell` (directly, or in a field, transitively):
@@ -1657,10 +2151,150 @@ struct BodyVisitor<'a, 'tcx> {
     in_ffi: bool,     // this body IS / is inside the C-ABI boundary
     in_impl: bool,    // this body is inside any impl/trait
     c: &'a mut Counts,
+    ptr: &'a mut PtrTally,
     sites: &'a mut Sites,
 }
 
 impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
+    /// `raw_ptr.casted_to`: a Rust value constructed from a raw pointer, by
+    /// whose vocabulary did it and what shape the pointer took.
+    ///
+    /// Conversions are recognised by name, never inferred from types. A type
+    /// rule cannot show the output derives from the pointer input -- `f(p, s)
+    /// -> &str` may take its result from `s` -- and only the callee's identity
+    /// settles it. A declared seam needs no such proof: the declaration states
+    /// the function converts, so only its shape is read from the return type.
+    ///
+    /// `owner` is the sharp arm: `Box::from_raw`, `Vec::from_raw_parts` hand
+    /// an allocation to Rust's allocator, which will free it. Over a buffer C
+    /// allocated that is an allocator mismatch, and nothing in the type system
+    /// objects.
+    fn count_casted_to(&mut self, e: &'tcx hir::Expr<'tcx>) {
+        // `&*p` / `&mut *p`: a borrow out of a raw pointer with no call to
+        // name. Core language, so it is std's vocabulary.
+        if let hir::ExprKind::AddrOf(hir::BorrowKind::Ref, _, inner) = e.kind {
+            if let hir::ExprKind::Unary(hir::UnOp::Deref, base) = inner.kind {
+                if self.typeck.expr_ty(base).is_raw_ptr() {
+                    self.bump_casted_to("std", "borrow", e.span);
+                    return;
+                }
+            }
+        }
+
+        let (did, args) = match e.kind {
+            hir::ExprKind::Call(f, args) => {
+                let hir::ExprKind::Path(ref qp) = f.kind else { return };
+                let hir::def::Res::Def(_, did) = self.typeck.qpath_res(qp, f.hir_id) else {
+                    return;
+                };
+                (did, args)
+            }
+            hir::ExprKind::MethodCall(_, recv, args, _) => {
+                let Some(did) = self.typeck.type_dependent_def_id(e.hir_id) else { return };
+                // The receiver is the pointer for `p.as_ref()`.
+                if self.typeck.expr_ty_adjusted(recv).is_raw_ptr() {
+                    (did, args)
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+        let from_raw = args
+            .iter()
+            .any(|a| self.typeck.expr_ty_adjusted(a).is_raw_ptr())
+            || matches!(e.kind, hir::ExprKind::MethodCall(..));
+        if !from_raw {
+            return;
+        }
+
+        let name = self.tcx.item_name(did);
+        let name = name.as_str();
+        let owner = callee_owner(self.tcx, did);
+        let owner = owner.as_deref();
+
+        let std_shape = if is_std_crate(self.tcx, did) {
+            owner.and_then(|o| std_conversion(o, name))
+        } else {
+            None
+        };
+        let ffibox_shape = if is_ffibox()
+            && is_ffibox_crate(self.tcx, did)
+            && FFIBOX_ADOPTERS.contains(&name)
+        {
+            owner
+                .and_then(|o| FFIBOX_PRIMITIVES.iter().find(|(p, _)| *p == o))
+                .map(|(_, shape)| *shape)
+        } else {
+            None
+        };
+        if let Some(shape) = std_shape {
+            self.bump_casted_to("std", shape, e.span);
+        } else if let Some(shape) = ffibox_shape {
+            self.bump_casted_to("ffibox", shape, e.span);
+        } else if is_seam_fn(self.tcx, did) {
+            let shape = out_shape(self.tcx, self.typeck.expr_ty(e));
+            self.bump_casted_to("local_seam", shape, e.span);
+        }
+    }
+
+    fn bump_casted_to(&mut self, arm: &str, shape: &str, span: Span) {
+        let k = format!("raw_ptr.casted_to.{arm}.{shape}");
+        *self.ptr.entry(k.clone()).or_default() += 1;
+        self.sites.add(k, counter_site(self.tcx, span));
+    }
+
+    /// `code.unsafe_call`: safety decides whether a call counts, ABI decides
+    /// which arm it lands in.
+    ///
+    /// The signature is read from the TYPE of the callee, so a call through a
+    /// function pointer -- a stored `extern "C"` callback, which has no item
+    /// to ask -- is classified like any other. `is_foreign_item` is a property
+    /// of the declaration site and misses every one of those.
+    fn count_unsafe_call(&mut self, e: &'tcx hir::Expr<'tcx>) {
+        let callee = match e.kind {
+            hir::ExprKind::Call(f, _) => Some(f),
+            hir::ExprKind::MethodCall(..) => None,
+            _ => return,
+        };
+        let (did, abi, safety) = match callee {
+            Some(f) => match self.typeck.expr_ty_adjusted(f).kind() {
+                // ABI and safety do not depend on the generic arguments, so
+                // the identity signature answers both.
+                ty::TyKind::FnDef(did, _) => {
+                    let sig = self.tcx.fn_sig(*did).skip_binder().skip_binder();
+                    (Some(*did), sig.abi(), sig.safety())
+                }
+                ty::TyKind::FnPtr(_, hdr) => (None, hdr.abi(), hdr.safety()),
+                _ => return,
+            },
+            None => {
+                let Some(did) = self.typeck.type_dependent_def_id(e.hir_id) else { return };
+                let sig = self.tcx.fn_sig(did).skip_binder().skip_binder();
+                (Some(did), sig.abi(), sig.safety())
+            }
+        };
+        // An `extern "C" fn` DEFINED in Rust is safe to call: a port
+        // campaign's `ffi_export` gateway has a C ABI but crosses no boundary
+        // and discharges no obligation. Foreign declarations keep `Unsafe`.
+        if safety.is_safe() {
+            return;
+        }
+        // Intrinsics are tested by `tcx.intrinsic`, not by ABI: rustc marks
+        // them `#[rustc_intrinsic]` with the Rust ABI, so an ABI test would
+        // file `transmute` under `rust`.
+        let arm = if did.is_some_and(|d| self.tcx.intrinsic(d).is_some()) {
+            "intrinsic"
+        } else if abi != ExternAbi::Rust {
+            "ffi"
+        } else {
+            "rust"
+        };
+        let k = format!("code.unsafe_call.{arm}");
+        *self.ptr.entry(k.clone()).or_default() += 1;
+        self.sites.add(k, counter_site(self.tcx, e.span));
+    }
+
     /// Is `e` a place reached through a raw-pointer dereference (`*p`,
     /// `(*p).f`, `(*p)[i]`)?
     fn raw_based_place(&self, mut e: &'tcx hir::Expr<'tcx>) -> bool {
@@ -1805,6 +2439,8 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
 
     fn visit_expr(&mut self, e: &'tcx hir::Expr<'tcx>) {
         self.count_body_refs(e);
+        self.count_casted_to(e);
+        self.count_unsafe_call(e);
         match e.kind {
             // `unsafe { ... }`
             hir::ExprKind::Block(b, _)
@@ -1966,6 +2602,198 @@ const INTERNAL_MARKER_TRAITS: &[&str] = &["TrivialClone", "StructuralPartialEq"]
 
 fn is_ffibox_crate(tcx: TyCtxt<'_>, did: DefId) -> bool {
     tcx.crate_name(did.krate).as_str() == "ffibox"
+}
+
+/// `--ffibox`: the counters that read ffibox's vocabulary are emitted only
+/// when the scanned crate is meant to use it.
+fn is_ffibox() -> bool {
+    std::env::var_os("UM_FFIBOX").is_some()
+}
+
+/// Bump a tree counter and record the site of `did`'s definition.
+fn tree_bump(
+    ptr: &mut PtrTally,
+    sites: &mut Sites,
+    tcx: TyCtxt<'_>,
+    did: DefId,
+    key: &str,
+) {
+    *ptr.entry(key.to_string()).or_default() += 1;
+    sites.add(key, counter_site(tcx, tcx.def_span(did)));
+}
+
+/// Whether the type an impl is written for is exported. An impl of a foreign
+/// or non-ADT self type counts as private: no consumer of this crate reaches
+/// a claim it cannot name.
+fn impl_self_vis(tcx: TyCtxt<'_>, imp: DefId) -> &'static str {
+    let exported = match tcx.type_of(imp).instantiate_identity().skip_norm_wip().kind() {
+        ty::TyKind::Adt(d, _) => d
+            .did()
+            .as_local()
+            .is_some_and(|l| tcx.effective_visibilities(()).is_exported(l)),
+        _ => false,
+    };
+    if exported { "pub" } else { "priv" }
+}
+
+/// The std conversions out of a raw pointer, by (owner, method), with the
+/// shape the pointer takes. Matching is gated on the callee's crate being
+/// `core`, `alloc` or `std`, so a custom `Box::from_raw` cannot collide.
+///
+/// `CString` and `String` are `string`, not `owner`: the bucket records what
+/// shape the pointer became, and the C-string boundary is the distinction
+/// worth keeping.
+fn std_conversion(owner: &str, method: &str) -> Option<&'static str> {
+    Some(match (owner, method) {
+        ("ptr" | "NonNull", "as_ref" | "as_mut") => "borrow",
+        ("slice", "from_raw_parts" | "from_raw_parts_mut") => "slice",
+        ("slice", "from_ptr_range" | "from_mut_ptr_range") => "slice",
+        ("CStr", "from_ptr") => "string",
+        ("CString", "from_raw") => "string",
+        ("String", "from_raw_parts") => "string",
+        ("Box", "from_raw") => "owner",
+        ("Vec", "from_raw_parts") => "owner",
+        ("Rc" | "Arc", "from_raw") => "owner",
+        _ => return None,
+    })
+}
+
+/// What a callee is defined on, for the conversion tables: the self type of
+/// an inherent or trait impl, `ptr` for an impl on a raw pointer, or the
+/// module of a free function such as `core::slice::from_raw_parts`.
+fn callee_owner(tcx: TyCtxt<'_>, did: DefId) -> Option<String> {
+    let parent = tcx.parent(did);
+    match tcx.def_kind(parent) {
+        DefKind::Impl { .. } => {
+            match tcx.type_of(parent).instantiate_identity().skip_norm_wip().kind() {
+                ty::TyKind::Adt(d, _) => Some(tcx.item_name(d.did()).to_string()),
+                ty::TyKind::RawPtr(..) => Some("ptr".to_string()),
+                _ => None,
+            }
+        }
+        DefKind::Mod => tcx.opt_item_name(parent).map(|n| n.to_string()),
+        _ => None,
+    }
+}
+
+/// The shape of a declared seam's result. Used for `local_seam` only, where
+/// the declaration already states the function converts, so reading the
+/// return type infers nothing.
+fn out_shape<'tcx>(tcx: TyCtxt<'tcx>, out: Ty<'tcx>) -> &'static str {
+    let out = peel_option(tcx, out);
+    match out.kind() {
+        ty::TyKind::Ref(_, p, _) => match p.kind() {
+            ty::TyKind::Slice(_) | ty::TyKind::Array(..) => "slice",
+            ty::TyKind::Str => "string",
+            ty::TyKind::Adt(d, _)
+                if matches!(tcx.item_name(d.did()).as_str(), "CStr" | "OsStr" | "Path") =>
+            {
+                "string"
+            }
+            _ => "borrow",
+        },
+        ty::TyKind::Adt(d, _) if is_std_crate(tcx, d.did()) => {
+            match tcx.item_name(d.did()).as_str() {
+                "CString" | "String" | "OsString" | "PathBuf" => "string",
+                "Box" | "Vec" | "VecDeque" | "Rc" | "Arc" => "owner",
+                _ => "other",
+            }
+        }
+        ty::TyKind::Adt(d, _) => match ffibox_primitive(tcx, d.did()) {
+            Some((_, shape)) => shape,
+            None => "other",
+        },
+        _ => "other",
+    }
+}
+
+/// `Option<T>` to `T`: `<*const T>::as_ref` returns one.
+fn peel_option<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>) -> Ty<'tcx> {
+    if let ty::TyKind::Adt(d, args) = t.kind() {
+        if is_std_crate(tcx, d.did()) && tcx.item_name(d.did()).as_str() == "Option" {
+            if let Some(inner) = args.types().next() {
+                return inner;
+            }
+        }
+    }
+    t
+}
+
+/// ffibox's traits, by group. The groups are the schema's `<trait>`
+/// vocabulary (docs/schema.md); `Sealed` and `__UnitStatus` are internal and
+/// carry no claim, so they are not listed.
+const FFIBOX_TRAITS: &[(&str, &str)] = &[
+    ("CCell", "layout"), ("CPlainElem", "layout"), ("CZeroable", "layout"),
+    ("CAlloc", "allocate"), ("CAllocZeroed", "allocate"), ("CNew", "allocate"),
+    ("CDrop", "release"), ("CDispose", "release"), ("CLenDrop", "release"),
+    ("CDupClone", "clone"), ("CRefClone", "clone"), ("CLenClone", "clone"),
+    ("CRefSeam", "seam"), ("CMutSeam", "seam"), ("CLockedSeam", "seam"),
+    ("CGuarded", "guard"), ("CGuardedAll", "guard"), ("LockScope", "guard"),
+];
+
+/// ffibox's types, by the shape a raw pointer takes once it is adopted into
+/// one. The shape names are `raw_ptr.casted_to`'s, so one list serves the
+/// conversion table, `ty.field.ffibox` and `fn.ffibox`.
+const FFIBOX_PRIMITIVES: &[(&str, &str)] = &[
+    ("CBox", "owner"), ("CArc", "owner"), ("CVec", "owner"), ("CVal", "owner"),
+    ("CStrBox", "string"),
+    ("CBorrowedPtr", "borrow"), ("CSlice", "slice"), ("CSliceMut", "slice"),
+    ("CGuardedRef", "borrow"), ("CGuard", "borrow"),
+];
+
+/// The methods that adopt a raw pointer into an ffibox primitive.
+///
+/// `as_ref`, `as_slice`, `as_c_str` and `as_bytes` are excluded: they take
+/// `&self` on an owner, so they are owner-to-borrow, not raw-to-borrow.
+/// `as_ptr` and its siblings run the other direction.
+const FFIBOX_ADOPTERS: &[&str] = &[
+    "from_raw", "from_raw_with", "from_ptr", "from_c", "from_c_with",
+    "from_raw_parts", "from_raw_parts_with",
+    "from_raw_parts_or_empty", "from_raw_parts_or_empty_with",
+];
+
+/// The ffibox primitive `did` names, with the shape it gives a pointer.
+fn ffibox_primitive(tcx: TyCtxt<'_>, did: DefId) -> Option<(&'static str, &'static str)> {
+    if !is_ffibox_crate(tcx, did) {
+        return None;
+    }
+    let n = tcx.opt_item_name(did)?;
+    FFIBOX_PRIMITIVES.iter().find(|(p, _)| *p == n.as_str()).copied()
+}
+
+/// True when the local type `did` implements any ffibox trait. Its negation is
+/// `ty.storing_raw_ptr.of_which.no_ffibox_trait`: the type manages a pointer
+/// itself and takes none of the vocabulary that would say how.
+///
+/// Cached: the holder loop asks once per type, and the answer is a scan of
+/// every impl in the crate.
+fn implements_ffibox_trait(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    thread_local! {
+        static IMPLS: std::cell::RefCell<Option<HashSet<DefId>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    IMPLS.with(|c| {
+        let mut b = c.borrow_mut();
+        if b.is_none() {
+            let mut set = HashSet::new();
+            for ld in tcx.hir_crate_items(()).definitions() {
+                let imp = ld.to_def_id();
+                if !matches!(tcx.def_kind(imp), DefKind::Impl { of_trait: true }) {
+                    continue;
+                }
+                if !is_ffibox_crate(tcx, tcx.impl_trait_ref(imp).skip_binder().def_id) {
+                    continue;
+                }
+                if let ty::TyKind::Adt(d, _) =
+                    tcx.type_of(imp).instantiate_identity().skip_norm_wip().kind()
+                {
+                    set.insert(d.did());
+                }
+            }
+            *b = Some(set);
+        }
+        b.as_ref().unwrap().contains(&did)
+    })
 }
 
 /// True when `span` is output of an ffibox macro (`define_ctype!`,
@@ -2386,6 +3214,7 @@ impl Callbacks for MetricsCallbacks {
             with_wrappers(tcx, |w| w.values().flatten().copied().collect());
 
         let mut c = Counts::default();
+        let mut ptr: PtrTally = PtrTally::new();
         let mut sites = Sites::default();
         // (trait, type): `impl Clone for Foo<A>` and `for Foo<B>` are one type.
         let mut own_impls: HashSet<(DefId, DefId)> = HashSet::new();
@@ -2401,15 +3230,101 @@ impl Callbacks for MetricsCallbacks {
         // Declaration-shaped metrics need their own pass: `hir_body_owners()`
         // yields only fns, closures and initializers, so a struct / impl /
         // trait never reaches it.
+        // The types that store a raw pointer, by what they declare about it.
+        let holder_traits = ptr_holder_traits(tcx);
         for ld in tcx.hir_crate_items(()).definitions() {
             let did = ld.to_def_id();
+            if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
+                && !in_generated_file(tcx, tcx.def_span(did))
+                && holds_raw_ptr(tcx, did)
+            {
+                let vis = if did.as_local()
+                    .is_some_and(|l| tcx.effective_visibilities(()).is_exported(l))
+                { "pub" } else { "priv" };
+                let site = counter_site(tcx, tcx.def_span(did));
+                let mut bump = |k: String| {
+                    *ptr.entry(k.clone()).or_default() += 1;
+                    sites.add(k, site.clone());
+                };
+                bump(format!("ty.storing_raw_ptr.{vis}"));
+
+                let t = holder_traits.get(&did).copied().unwrap_or_default();
+                // A declared lifetime parameter is how a borrow is tied to its
+                // parent -- git2-rs's `Commit<'repo>` with
+                // `PhantomData<Object<'repo>>`.
+                let has_lifetime = tcx.generics_of(did).own_params.iter()
+                    .any(|g| matches!(g.kind, ty::GenericParamDefKind::Lifetime));
+                // A public field that reaches the pointer: a consumer can take
+                // it without going through any of the crate's own code, so the
+                // type's declarations do not govern the access.
+                let pub_field = tcx.adt_def(did).all_fields().any(|f| {
+                    f.vis.is_public() && {
+                        let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+                        let mut ps = Vec::new();
+                        raw_pointees(tcx, ft, &mut ps);
+                        !ps.is_empty()
+                            || field_adt(tcx, ft).is_some_and(|d| {
+                                in_peel_set(tcx, d.did()) && holds_raw_ptr(tcx, d.did())
+                            })
+                    }
+                });
+
+                let shares = [
+                    (t.drop_, "impl_drop"),
+                    (t.clone, "impl_clone"),
+                    (has_lifetime, "has_lifetime"),
+                    (t.deref, "impl_deref"),
+                    (t.deref_mut, "impl_deref_mut"),
+                    (t.send_sync, "impl_send_sync"),
+                    (pub_field, "pub_field"),
+                ];
+                for (yes, name) in shares {
+                    if yes {
+                        bump(format!("ty.storing_raw_ptr.of_which.{name}.{vis}"));
+                    }
+                }
+                // `none` is the residual: the type stores a pointer and
+                // declares nothing about it. `pub_field` is not a declaration,
+                // so it does not rescue a type from the residual -- it is the
+                // opposite, an access the type does not govern.
+                if !shares[..6].iter().any(|(yes, _)| *yes) {
+                    bump(format!("ty.storing_raw_ptr.of_which.none.{vis}"));
+                }
+                if is_ffibox() && !implements_ffibox_trait(tcx, did) {
+                    bump(format!("ty.storing_raw_ptr.of_which.no_ffibox_trait.{vis}"));
+                }
+            }
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union) {
                 count_raw_ptr_fields(tcx, did, &wrapped_c, &mut c, &mut sites);
             }
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum) {
                 count_wrapper_value_fields(tcx, did, &mut c, &mut sites);
+                // The `ptr` axis over fields. Visibility here is one
+                // reachability question -- can a consumer touch this field --
+                // which is the type being exported AND the field being
+                // exported, rather than the two levels a reader has to combine
+                // today.
+                let vis = tcx.effective_visibilities(());
+                let ty_pub = did.as_local().is_some_and(|l| vis.is_exported(l));
+                for f in tcx.adt_def(did).all_fields() {
+                    let reachable = ty_pub
+                        && f.did.as_local().is_some_and(|l| vis.is_exported(l));
+                    let site = counter_site(tcx, tcx.def_span(f.did));
+                    let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+                    let mut found = Vec::new();
+                    slots(tcx, ft, 0, &mut found);
+                    for slot in found {
+                        let hw = slot.mode == Mode::Raw && raw_has_wrapper(tcx, ft, &wrapped_c);
+                        record_slot(&mut ptr, &mut sites, slot,
+                                    if reachable { "pub" } else { "priv" },
+                                    "ty", None, false, false, hw, &site);
+                    }
+                }
             }
             match tcx.def_kind(did) {
+                DefKind::Impl { of_trait: false } => {
+                    tree_bump(&mut ptr, &mut sites, tcx, did, "ty.impl.total");
+                }
                 DefKind::Struct => {
                     // LAYOUT newtypes only, and only those wrapping a C type: a
                     // local C type C reaches itself is in the reference check
@@ -2425,6 +3340,39 @@ impl Callbacks for MetricsCallbacks {
                     }
                 }
                 DefKind::Impl { of_trait: true } => {
+                    tree_bump(&mut ptr, &mut sites, tcx, did, "ty.impl.total");
+                    if tcx.impl_trait_header(did).safety.is_unsafe() {
+                        tree_bump(&mut ptr, &mut sites, tcx, did, "ty.impl.of_which.unsafe");
+                    }
+                    let tr_did = tcx.impl_trait_ref(did).skip_binder().def_id;
+                    let self_vis = impl_self_vis(tcx, did);
+                    // `unsafe impl Send` / `Sync` on any type, the crate-wide
+                    // claim that memory it reaches is thread-safe.
+                    if tcx.crate_name(tr_did.krate).as_str() == "core"
+                        && tcx.impl_trait_header(did).safety.is_unsafe()
+                    {
+                        if let n @ ("Send" | "Sync") = tcx.item_name(tr_did).as_str() {
+                            let n = n.to_lowercase();
+                            tree_bump(&mut ptr, &mut sites, tcx, did,
+                                      &format!("ty.impl.send_sync.{n}.{self_vis}"));
+                        }
+                    }
+                    // ffibox's vocabulary, split by whether the impl was
+                    // generated. ffibox ships `define_ctype!` and the
+                    // `impl_c*!` family, so an impl either carries expansion
+                    // context or was typed out.
+                    if is_ffibox() && is_ffibox_crate(tcx, tr_did) {
+                        let n = tcx.item_name(tr_did);
+                        if FFIBOX_TRAITS.iter().any(|(t, _)| *t == n.as_str()) {
+                            let how = if from_ffibox_macro(tcx, tcx.def_span(did)) {
+                                "macro"
+                            } else {
+                                "handwritten"
+                            };
+                            tree_bump(&mut ptr, &mut sites, tcx, did,
+                                      &format!("ty.impl.ffibox.{n}.{how}"));
+                        }
+                    }
                     // `TrivialClone` is a compiler-internal marker `#[derive(Clone)]`
                     // emits as an `unsafe impl`; it asserts nothing the author
                     // wrote and would swamp the real lifecycle contracts.
@@ -2528,6 +3476,7 @@ impl Callbacks for MetricsCallbacks {
                 let typeck = tcx.typeck(owner);
                 let body = tcx.hir_body_owned_by(owner);
                 let mut v = BodyVisitor {
+                    ptr: &mut ptr,
                     tcx,
                     typeck,
                     depth: 0,
@@ -2573,7 +3522,85 @@ impl Callbacks for MetricsCallbacks {
                         sites.add(k, site);
                     }
                 }
+                // PILOT: a constructor that adopts a raw pointer must be
+                // `unsafe`. A SAFE fn taking a raw pointer and returning a
+                // type that stores one lets a caller hand over anything, to
+                // be dereferenced later -- or freed in `Drop` -- with no
+                // `unsafe` at the call site. Target zero.
+                //
+                // No dataflow, so this is a shape not a proof: a fn that
+                // takes a pointer it never stores and happens to return a
+                // pointer-holding type counts too. The sites say which.
+                if !foreign && safe {
+                    let takes_raw = sig.inputs().iter().any(|t| {
+                        let mut ps = Vec::new();
+                        raw_pointees(tcx, *t, &mut ps);
+                        !ps.is_empty()
+                    });
+                    let yields_holder = matches!(
+                        sig.output().kind(),
+                        ty::TyKind::Adt(d, _) if d.did().is_local() && holds_raw_ptr(tcx, d.did()));
+                    if takes_raw && yields_holder {
+                        let vis = if exported { "pub" } else { "priv" };
+                        let k = format!("pilot_safe_raw_adopter.in.fn.{vis}");
+                        *ptr.entry(k.clone()).or_default() += 1;
+                        sites.add(k, counter_site(tcx, tcx.def_span(did)));
+                    }
+                }
+                // PILOT: raw pointers a public fn TAKES or RETURNS, by
+                // safety, with the seam share beside them.
+                //
+                // Only bare and std pointers: a struct that happens to embed
+                // one is not pointer work for the caller, who never touches
+                // it. Where that embedding does matter it shows up here
+                // anyway, in whatever constructs the struct.
+                //
+                // Taking is the hazard. A safe fn that TAKES a raw pointer
+                // lets a caller pass anything with no `unsafe` at the call
+                // site; one that RETURNS a raw pointer still forces the
+                // caller to write `unsafe` before it means anything.
+                if !foreign {
+                    let vis = if exported { "pub" } else { "priv" };
+                    let safety = if safe { "safe" } else { "unsafe" };
+                    let seam = is_seam_fn(tcx, did);
+                    let site = counter_site(tcx, tcx.def_span(did));
+                    let mut count_in = Vec::new();
+                    for t in sig.inputs() {
+                        raw_pointees(tcx, *t, &mut count_in);
+                    }
+                    let mut count_out = Vec::new();
+                    raw_pointees(tcx, sig.output(), &mut count_out);
+                    let (takes, returns) = (count_in.len() as u64, count_out.len() as u64);
+                    for (count, pos) in [(takes, "takes"), (returns, "returns")] {
+                        for _ in 0..count {
+                            let k = format!("pilot_raw_ptr_fn.{pos}.{safety}.{vis}");
+                            *ptr.entry(k.clone()).or_default() += 1;
+                            sites.add(k, site.clone());
+                            if seam {
+                                let k = format!("pilot_raw_ptr_fn.of_which.seam_{pos}.{vis}");
+                                *ptr.entry(k.clone()).or_default() += 1;
+                            }
+                        }
+                    }
+                }
                 let seam = is_seam_fn(tcx, did);
+                // The `ptr` axis: every carrier in the signature, classified
+                // once on mode / what-it-points-at / where-it-came-from.
+                if !foreign {
+                    let site = counter_site(tcx, tcx.def_span(did));
+                    let vis = if exported { "pub" } else { "priv" };
+                    for t in sig.inputs().iter().copied().chain(std::iter::once(sig.output())) {
+                        let mut found = Vec::new();
+                        slots(tcx, t, 0, &mut found);
+                        let reason = sanction_reason(tcx, did, t);
+                        for slot in found {
+                            let hw = matches!(slot.mode, Mode::Raw)
+                                && raw_has_wrapper(tcx, t, &wrapped_c);
+                            record_slot(&mut ptr, &mut sites, slot, vis, "fn",
+                                        reason, seam, !safe, hw, &site);
+                        }
+                    }
+                }
                 if safe && !foreign {
                     let site = counter_site(tcx, tcx.def_span(did));
                     if seam {
@@ -2741,8 +3768,9 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_layout_wrapper\":{},\"c_type_borrow_fn_sig_sanctioned_pub\":{},\"c_type_borrow_fn_sig_sanctioned_priv\":{},\"c_type_borrow_fn_sig_non_sanctioned_pub\":{},\"c_type_borrow_fn_sig_non_sanctioned_priv\":{},\"c_type_borrow_fn_sig_opaque_pub\":{},\"c_type_borrow_fn_sig_opaque_priv\":{},\"c_type_borrow_fn_body_non_sanctioned\":{},\"c_type_borrow_fn_body_opaque\":{},\"c_type_borrow_fn_body_generic\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_pub\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_priv\":{},\"c_type_borrow_ty_non_sanctioned_priv\":{},\"c_type_borrow_ty_opaque_pub_fields_pub\":{},\"c_type_borrow_ty_opaque_pub_fields_priv\":{},\"c_type_borrow_ty_opaque_priv\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"c_type_std_value_impl_pub\":{},\"c_type_std_value_impl_priv\":{},\"c_type_std_value_impl_derived\":{},\"safe_fns_seam_pub\":{},\"safe_fns_seam_priv\":{},\"unsafe_fns_seam_pub\":{},\"unsafe_fns_seam_priv\":{},\"raw_ptr_fn_seam_pub_safe\":{},\"raw_ptr_fn_seam_pub_unsafe\":{},\"raw_ptr_fn_seam_priv_safe\":{},\"raw_ptr_fn_seam_priv_unsafe\":{},\"ffi_calls\":{},\"sites\":{}}}",
+            "{{\"crate\":\"{}\",\"code_lines\":{},\"total_stmts\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_stmts\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_wrapper_impl\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_traits\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"c_type_layout_wrapper\":{},\"c_type_borrow_fn_sig_sanctioned_pub\":{},\"c_type_borrow_fn_sig_sanctioned_priv\":{},\"c_type_borrow_fn_sig_non_sanctioned_pub\":{},\"c_type_borrow_fn_sig_non_sanctioned_priv\":{},\"c_type_borrow_fn_sig_opaque_pub\":{},\"c_type_borrow_fn_sig_opaque_priv\":{},\"c_type_borrow_fn_body_non_sanctioned\":{},\"c_type_borrow_fn_body_opaque\":{},\"c_type_borrow_fn_body_generic\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_pub\":{},\"c_type_borrow_ty_non_sanctioned_pub_fields_priv\":{},\"c_type_borrow_ty_non_sanctioned_priv\":{},\"c_type_borrow_ty_opaque_pub_fields_pub\":{},\"c_type_borrow_ty_opaque_pub_fields_priv\":{},\"c_type_borrow_ty_opaque_priv\":{},\"raw_ptr_as_slice_borrow\":{},\"c_type_by_val_fn_sig_pub\":{},\"c_type_by_val_fn_sig_priv\":{},\"c_type_by_val_ty_pub_fields_pub\":{},\"c_type_by_val_ty_pub_fields_priv\":{},\"c_type_by_val_ty_priv\":{},\"c_type_std_owner_fn_sig_pub\":{},\"c_type_std_owner_fn_sig_priv\":{},\"c_type_std_owner_ty_pub_fields_pub\":{},\"c_type_std_owner_ty_pub_fields_priv\":{},\"c_type_std_owner_ty_priv\":{},\"non_c_type_borrow_pub_safe\":{},\"non_c_type_borrow_pub_unsafe\":{},\"non_c_type_borrow_priv_safe\":{},\"non_c_type_borrow_priv_unsafe\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_has_c_type_wrapper\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"raw_ptr_derefs_outside_impl\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"drop_impl\":{},\"clone_impl\":{},\"c_type_std_value_impl_pub\":{},\"c_type_std_value_impl_priv\":{},\"c_type_std_value_impl_derived\":{},\"safe_fns_seam_pub\":{},\"safe_fns_seam_priv\":{},\"unsafe_fns_seam_pub\":{},\"unsafe_fns_seam_priv\":{},\"raw_ptr_fn_seam_pub_safe\":{},\"raw_ptr_fn_seam_pub_unsafe\":{},\"raw_ptr_fn_seam_priv_safe\":{},\"raw_ptr_fn_seam_priv_unsafe\":{},\"ffi_calls\":{},\"ptr\":{},\"sites\":{}}}",
             krate, c.code_lines, c.total_stmts, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_stmts, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_wrapper_impl, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_traits, c.unsafe_send_impl, c.unsafe_sync_impl, c.c_type_layout_wrapper, c.c_type_borrow_fn_sig_sanctioned_pub, c.c_type_borrow_fn_sig_sanctioned_priv, c.c_type_borrow_fn_sig_non_sanctioned_pub, c.c_type_borrow_fn_sig_non_sanctioned_priv, c.c_type_borrow_fn_sig_opaque_pub, c.c_type_borrow_fn_sig_opaque_priv, c.c_type_borrow_fn_body_non_sanctioned, c.c_type_borrow_fn_body_opaque, c.c_type_borrow_fn_body_generic, c.c_type_borrow_ty_non_sanctioned_pub_fields_pub, c.c_type_borrow_ty_non_sanctioned_pub_fields_priv, c.c_type_borrow_ty_non_sanctioned_priv, c.c_type_borrow_ty_opaque_pub_fields_pub, c.c_type_borrow_ty_opaque_pub_fields_priv, c.c_type_borrow_ty_opaque_priv, c.raw_ptr_as_slice_borrow, c.c_type_by_val_fn_sig_pub, c.c_type_by_val_fn_sig_priv, c.c_type_by_val_ty_pub_fields_pub, c.c_type_by_val_ty_pub_fields_priv, c.c_type_by_val_ty_priv, c.c_type_std_owner_fn_sig_pub, c.c_type_std_owner_fn_sig_priv, c.c_type_std_owner_ty_pub_fields_pub, c.c_type_std_owner_ty_pub_fields_priv, c.c_type_std_owner_ty_priv, c.non_c_type_borrow_pub_safe, c.non_c_type_borrow_pub_unsafe, c.non_c_type_borrow_priv_safe, c.non_c_type_borrow_priv_unsafe, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_has_c_type_wrapper, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.raw_ptr_derefs_outside_impl, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.drop_impl, c.clone_impl, c.c_type_std_value_impl_pub, c.c_type_std_value_impl_priv, c.c_type_std_value_impl_derived, c.safe_fns_seam_pub, c.safe_fns_seam_priv, c.unsafe_fns_seam_pub, c.unsafe_fns_seam_priv, c.raw_ptr_fn_seam_pub_safe, c.raw_ptr_fn_seam_pub_unsafe, c.raw_ptr_fn_seam_priv_safe, c.raw_ptr_fn_seam_priv_unsafe, c.ffi_calls,
+            ptr_json(&ptr),
             sites.json()
         );
         Compilation::Continue
