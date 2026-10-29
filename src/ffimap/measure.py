@@ -19,6 +19,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import sys
 import tomllib
 from pathlib import Path
@@ -631,11 +632,17 @@ def _bust_cache(ws: Path) -> None:
     if meta.returncode != 0:
         raise DriverUnavailable(
             f"`cargo metadata` failed:\n{meta.stderr[-1200:]}")
+    # A strictly future mtime, not `touch()`. Cargo compares the recorded
+    # fingerprint against the file's mtime, and two scans less than a
+    # filesystem tick apart leave that mtime unchanged -- so the second is
+    # served from cache and measures nothing. A canary that scanned the same
+    # fixture twice in one process hit exactly that.
+    stamp = time.time() + 1
     for pkg in json.loads(meta.stdout)["packages"]:
         for tgt in pkg["targets"]:
             root = Path(tgt["src_path"])
             if root.is_file():
-                root.touch()
+                os.utime(root, (stamp, stamp))
 
 
 def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,

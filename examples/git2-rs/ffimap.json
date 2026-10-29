@@ -38,6 +38,11 @@
         "pub": 1743,
         "total": 2371
       },
+      "total": {
+        "priv": 640,
+        "pub": 1855,
+        "total": 2495
+      },
       "unsafe": {
         "priv": 12,
         "pub": 112,
@@ -49,10 +54,11 @@
         "std": {
           "borrow": 146,
           "owner": 2,
+          "slice": 18,
           "string": 26,
-          "total": 174
+          "total": 192
         },
-        "total": 174
+        "total": 192
       },
       "deref": {
         "rd": 246,
@@ -377,18 +383,18 @@
       },
       "total": 1
     },
-    "unsafe_impls": {
-      "total": 8,
-      "of_which": {
-        "send": 7,
-        "sync": 1
-      }
-    },
     "unsafe_blocks": {
       "total": 932,
       "of_which": {
         "wrapper_impl": 9,
         "ffi_export": 49
+      }
+    },
+    "unsafe_impls": {
+      "total": 8,
+      "of_which": {
+        "send": 7,
+        "sync": 1
       }
     },
     "code_lines": 13915,

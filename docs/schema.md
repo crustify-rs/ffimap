@@ -259,6 +259,19 @@ batch's scan reads the same one -- a list inferred per batch would make
 with the `-sys` crates named. Figures from different invocations are comparable
 only with the same list.
 
+`code.unsafe_call.rust` is dominated by the standard library. On the canary
+fixture it reads 13, of which 1 is a call to the crate's own `unsafe fn` and
+12 are std's unsafe constructors -- `Box::from_raw` and its siblings, the same
+calls `casted_to` already classifies. Splitting the arm into own-crate and
+dependency would separate "wrote unsafe helpers" from "used std's unsafe API";
+until it is split, the arm is not a measure of the crate's own unsafety.
+
+A trait impl's methods are outside `fn.*`, so a safe `Deref::deref` with an
+unsafe block in it does not reach `fn.safe.of_which.with_unsafe`. That is the
+`OidArray` shape -- the one `ty.storing_raw_ptr.of_which.impl_deref` exists to
+flag -- so the two counters disagree about it by construction, and the type
+counter is the one to read.
+
 `code.unsafe_call.ffi` counts calls through function pointers, which earlier
 versions keyed on `is_foreign_item` and missed. Figures measured before this
 change undercount and are not comparable.

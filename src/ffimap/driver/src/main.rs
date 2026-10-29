@@ -1881,12 +1881,16 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
             }
             hir::ExprKind::MethodCall(_, recv, args, _) => {
                 let Some(did) = self.typeck.type_dependent_def_id(e.hir_id) else { return };
-                // The receiver is the pointer for `p.as_ref()`.
-                if self.typeck.expr_ty_adjusted(recv).is_raw_ptr() {
-                    (did, args)
-                } else {
+                // The receiver is the pointer for `p.as_ref()`, and CARRIES
+                // one for `NonNull::as_ref` -- which is in the table, so a
+                // bare `is_raw_ptr` left that entry unreachable.
+                let rt = self.typeck.expr_ty_adjusted(recv);
+                let mut ps = Vec::new();
+                raw_pointees(self.tcx, rt, &mut ps);
+                if ps.is_empty() {
                     return;
                 }
+                (did, args)
             }
             _ => return,
         };
@@ -1900,11 +1904,10 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
 
         let name = self.tcx.item_name(did);
         let name = name.as_str();
-        let owner = callee_owner(self.tcx, did);
-        let owner = owner.as_deref();
+        let owners = callee_owners(self.tcx, did);
 
         let std_shape = if is_std_crate(self.tcx, did) {
-            owner.and_then(|o| std_conversion(o, name))
+            owners.iter().find_map(|o| std_conversion(o, name))
         } else {
             None
         };
@@ -1912,8 +1915,9 @@ impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
             && is_ffibox_crate(self.tcx, did)
             && FFIBOX_ADOPTERS.contains(&name)
         {
-            owner
-                .and_then(|o| FFIBOX_PRIMITIVES.iter().find(|(p, _)| *p == o))
+            owners
+                .iter()
+                .find_map(|o| FFIBOX_PRIMITIVES.iter().find(|(p, _)| p == o))
                 .map(|(_, shape)| *shape)
         } else {
             None
@@ -2392,22 +2396,36 @@ fn std_conversion(owner: &str, method: &str) -> Option<&'static str> {
     })
 }
 
-/// What a callee is defined on, for the conversion tables: the self type of
-/// an inherent or trait impl, `ptr` for an impl on a raw pointer, or the
-/// module of a free function such as `core::slice::from_raw_parts`.
-fn callee_owner(tcx: TyCtxt<'_>, did: DefId) -> Option<String> {
-    let parent = tcx.parent(did);
-    match tcx.def_kind(parent) {
-        DefKind::Impl { .. } => {
-            match tcx.type_of(parent).instantiate_identity().skip_norm_wip().kind() {
-                ty::TyKind::Adt(d, _) => Some(tcx.item_name(d.did()).to_string()),
-                ty::TyKind::RawPtr(..) => Some("ptr".to_string()),
-                _ => None,
+/// The names a callee could be matched under: the self type of an inherent or
+/// trait impl, `ptr` for an impl on a raw pointer, and every ancestor module.
+///
+/// Ancestors, not just the parent: `slice::from_raw_parts` is DEFINED in
+/// `core::slice::raw` and re-exported, so the defining module is `raw` and a
+/// parent-only lookup finds nothing. A canary caught that as a silent zero on
+/// `casted_to.std.slice`.
+fn callee_owners(tcx: TyCtxt<'_>, did: DefId) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = did;
+    for _ in 0..8 {
+        let Some(parent) = tcx.opt_parent(cur) else { break };
+        match tcx.def_kind(parent) {
+            DefKind::Impl { .. } => {
+                match tcx.type_of(parent).instantiate_identity().skip_norm_wip().kind() {
+                    ty::TyKind::Adt(d, _) => out.push(tcx.item_name(d.did()).to_string()),
+                    ty::TyKind::RawPtr(..) => out.push("ptr".to_string()),
+                    _ => {}
+                }
             }
+            DefKind::Mod => {
+                if let Some(n) = tcx.opt_item_name(parent) {
+                    out.push(n.to_string());
+                }
+            }
+            _ => {}
         }
-        DefKind::Mod => tcx.opt_item_name(parent).map(|n| n.to_string()),
-        _ => None,
+        cur = parent;
     }
+    out
 }
 
 /// The shape of a declared seam's result. Used for `local_seam` only, where
@@ -3284,6 +3302,11 @@ impl Callbacks for MetricsCallbacks {
                         sites.add(k, site.clone());
                     };
                     bump(&mut ptr, &mut sites, format!("fn.{safety}.{vis}"));
+                    // The denominator, emitted rather than derived: the tree's
+                    // derived totals are scalars, and this one has to carry
+                    // the same {pub,priv} split as its numerators for
+                    // `fn.safe.pub / fn.total.pub` to be a ratio at all.
+                    bump(&mut ptr, &mut sites, format!("fn.total.{vis}"));
                     // Counted on the safe arm only. With
                     // `unsafe_op_in_unsafe_fn` denied every `unsafe fn` doing
                     // anything raw has a block by construction, so counting

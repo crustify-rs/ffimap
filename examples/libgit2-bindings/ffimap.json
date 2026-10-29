@@ -93,6 +93,11 @@
         "pub": 1276,
         "total": 1518
       },
+      "total": {
+        "priv": 332,
+        "pub": 1324,
+        "total": 1656
+      },
       "unsafe": {
         "priv": 90,
         "pub": 48,
@@ -109,10 +114,11 @@
         "std": {
           "borrow": 13,
           "owner": 9,
+          "slice": 8,
           "string": 84,
-          "total": 106
+          "total": 114
         },
-        "total": 252
+        "total": 260
       },
       "deref": {
         "rd": 195,

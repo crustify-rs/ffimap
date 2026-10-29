@@ -1,0 +1,3 @@
+[workspace]
+members = ["canary", "canary-sys", "canary-vendor"]
+resolver = "2"

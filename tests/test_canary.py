@@ -1,0 +1,231 @@
+"""End-to-end counts over a fixture whose expected values are hand-derived.
+
+Every assertion below is read off `tests/fixtures/canary/`, where each item is
+annotated with the counters it should move. The point is the NEGATIVES as much
+as the positives: an item that moves a counter it should not is as much a
+defect as one that fails to move the counter it should, and a unit test over
+the classifier functions would catch neither.
+
+Needs the driver, so it needs cargo and the dated nightly. It skips rather
+than fails where those are missing; `measure.DriverUnavailable` is how that is
+reported.
+"""
+
+import shutil
+import unittest
+from pathlib import Path
+
+from ffimap import measure, scan
+
+FIXTURE = Path(__file__).parent / "fixtures" / "canary"
+
+
+def _driver_available() -> bool:
+    """cargo on the PATH and the driver buildable.
+
+    `_driver_bin` alone is not the precondition: it can hand back a path
+    while `cargo metadata`, which the scan runs next, still fails with
+    FileNotFoundError. Checking the executable first makes the skip fire on a
+    host without a Rust toolchain instead of erroring in setUpClass.
+    """
+    if shutil.which("cargo") is None:
+        return False
+    try:
+        measure._driver_bin()
+    except Exception:
+        return False
+    return True
+
+
+@unittest.skipUnless(_driver_available(), "needs cargo and the dated nightly")
+class CanaryTests(unittest.TestCase):
+    """The fixture is scanned once; every test reads the same tree."""
+
+    tree: dict
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        doc = scan.compose(FIXTURE, seams=["from_raw"])
+        cls.tree = doc["ptr"]
+
+    def at(self, path: str) -> int:
+        """A leaf by its dotted path, 0 where the counter did not fire.
+
+        Absent and zero are the same reading: the driver emits no key for a
+        counter that never incremented.
+        """
+        node = self.tree
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return 0
+            node = node[part]
+        return node if isinstance(node, int) else node.get("total", 0)
+
+    # ------------------------------------------------------------ signatures
+
+    def test_raw_pointer_positions(self) -> None:
+        # 7 safe public: taken_safe_pub, taken_nonnull, taken_twice (x2),
+        # gateway, safe_with_unsafe, deref_write. NonNull is a carrier, and
+        # both arguments of taken_twice count independently.
+        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 7)
+        self.assertEqual(self.at("raw_ptr.taken.safe.priv"), 1)
+        # 11 unsafe public: taken_unsafe_pub, the four conversion helpers
+        # (std_strings takes two), Undeclared::from_raw, calls, calls_seam,
+        # unsafe_with_unsafe.
+        self.assertEqual(self.at("raw_ptr.taken.unsafe.pub"), 11)
+        self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.returned.unsafe.priv"), 1)
+
+    def test_void_pointers_leave_the_raw_axis(self) -> None:
+        self.assertEqual(self.at("void_ptr.taken.safe.pub"), 1)
+        self.assertEqual(self.at("void_ptr.returned.unsafe.pub"), 1)
+
+    def test_references_and_embedded_pointers_are_not_positions(self) -> None:
+        """`taken_ref` and `taken_holder` must move nothing.
+
+        A reference is not a raw pointer, and a type that happens to embed one
+        is not pointer work for the caller, who never touches it. Both are in
+        the fixture only to be absent from these totals, which the exact
+        counts above already pin.
+        """
+        self.assertEqual(
+            self.at("raw_ptr.taken.safe.pub") + self.at("raw_ptr.taken.safe.priv"), 8)
+
+    def test_seam_share_carries_safety_and_visibility(self) -> None:
+        # Undeclared::from_raw is the only declared seam, and it is unsafe and
+        # public. The share living under the direction is what lets it be
+        # subtracted from the total it is a share of.
+        self.assertEqual(self.at("raw_ptr.taken.of_which.seam.unsafe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.taken.of_which.seam.safe.pub"), 0)
+
+    # ----------------------------------------------------------- conversions
+
+    def test_std_conversions_by_shape(self) -> None:
+        # Box, Vec, Rc, Arc.
+        self.assertEqual(self.at("raw_ptr.casted_to.std.owner"), 4)
+        # CStr::from_ptr, CString::from_raw, String::from_raw_parts: the
+        # C-string boundary, not `owner`.
+        self.assertEqual(self.at("raw_ptr.casted_to.std.string"), 3)
+        # slice::from_raw_parts{,_mut}. These are DEFINED in core::slice::raw
+        # and re-exported, so a parent-only owner lookup reads 0 here.
+        self.assertEqual(self.at("raw_ptr.casted_to.std.slice"), 2)
+        # p.as_ref(), NonNull::as_ref(), &*p, &mut *p, and the two in
+        # Viewing's Deref/DerefMut. NonNull is a carrier, not a raw pointer,
+        # so a receiver test that only accepted raw pointers missed it.
+        self.assertEqual(self.at("raw_ptr.casted_to.std.borrow"), 6)
+
+    def test_declared_seam_lands_in_its_own_arm(self) -> None:
+        # Undeclared is neither a std nor an ffibox shape, so a declared seam
+        # returning one is the residual -- which is what `other` is for.
+        self.assertEqual(self.at("raw_ptr.casted_to.local_seam.other"), 1)
+
+    def test_std_and_ffibox_arms_have_no_residual(self) -> None:
+        """`other` is structurally zero on the name-table arms.
+
+        Every name in those tables maps to a known shape, so a nonzero reading
+        means the table and the shape classifier have drifted apart.
+        """
+        self.assertEqual(self.at("raw_ptr.casted_to.std.other"), 0)
+        self.assertEqual(self.at("raw_ptr.casted_to.ffibox.other"), 0)
+
+    def test_undeclared_conversion_is_silent_not_misfiled(self) -> None:
+        """The documented blind spot must stay blind rather than guess.
+
+        Scanned without `--seams`, the crate's own `from_raw` is invisible: it
+        must not reappear under `std` or `ffibox`, which would attribute the
+        crate's own conversion to someone else's vocabulary.
+        """
+        tree = scan.compose(FIXTURE)["ptr"]
+        casted = tree["raw_ptr"]["casted_to"]
+        self.assertNotIn("local_seam", casted)
+        self.assertEqual(casted["std"]["total"], 15)
+
+    # ----------------------------------------------------------------- calls
+
+    def test_call_arms(self) -> None:
+        # c_fn, canary_sys::sys_c_fn, and the call through the stored
+        # `unsafe extern "C" fn` field -- which has no callee item at all, so
+        # an is_foreign_item test misses it.
+        self.assertEqual(self.at("code.unsafe_call.ffi"), 3)
+        # transmute. Marked #[rustc_intrinsic] with the Rust ABI, so an ABI
+        # test alone would file it under `rust`.
+        self.assertEqual(self.at("code.unsafe_call.intrinsic"), 1)
+        # local_unsafe_fn plus the 12 std unsafe constructors the conversion
+        # helpers call.
+        self.assertEqual(self.at("code.unsafe_call.rust"), 13)
+
+    def test_rust_defined_extern_fn_is_not_an_ffi_call(self) -> None:
+        """`gateway` has a C ABI but is safe to call and crosses no boundary.
+
+        It is the shape of a port campaign's ffi_export gateway. Were safety
+        not gating membership, every call to one would be booked as FFI.
+        """
+        self.assertEqual(self.at("code.unsafe_call.ffi"), 3)
+
+    # ----------------------------------------------------------------- types
+
+    def test_holders(self) -> None:
+        # Owned, Borrowed, Viewing, Asserted, Exposed, Silent, ThroughSys,
+        # Undeclared, and canary-vendor's own VendorHolder.
+        self.assertEqual(self.at("ty.storing_raw_ptr.pub"), 9)
+        for share in ("impl_drop", "impl_clone", "has_lifetime",
+                      "impl_deref", "impl_deref_mut", "impl_send_sync",
+                      "pub_field"):
+            with self.subTest(share=share):
+                self.assertEqual(
+                    self.at(f"ty.storing_raw_ptr.of_which.{share}.pub"), 1)
+        # Exposed, Silent, ThroughSys, Undeclared, VendorHolder. Exposed is in
+        # `none` AND in `pub_field`: a public field is an access the type does
+        # not govern, not a declaration about the pointer.
+        self.assertEqual(self.at("ty.storing_raw_ptr.of_which.none.pub"), 5)
+
+    def test_peel_set_decides_the_population(self) -> None:
+        """ThroughSys counts, ThroughVendor and ThroughStd do not.
+
+        The walk descends through the scanned crate and the named `-sys`
+        crates and stops everywhere else. ThroughSys is git2-rs's
+        `OidArray { raw: git_oidarray }` shape, which a walk stopping at the
+        crate boundary would miss; ThroughVendor holds the same pointer behind
+        a crate that is neither, and ThroughStd behind a Vec.
+
+        Pinned through the total: 9 admits ThroughSys and excludes the other
+        two, and no other combination of the fixture's types gives 9.
+        """
+        self.assertEqual(self.at("ty.storing_raw_ptr.pub"), 9)
+        self.assertEqual(self.at("ty.total.pub"), 14)
+
+    def test_unsafe_cell(self) -> None:
+        # Cellular and CellularNested. UnsafeCell is repr(transparent), so a
+        # walk that peels transparent wrappers before looking loses it.
+        self.assertEqual(self.at("ty.wrapping_unsafe_cell.pub"), 2)
+
+    def test_unsafe_impls(self) -> None:
+        self.assertEqual(self.at("ty.impl.of_which.unsafe"), 2)
+        self.assertEqual(self.at("ty.impl.send_sync.send.pub"), 1)
+        self.assertEqual(self.at("ty.impl.send_sync.sync.pub"), 1)
+
+    # ------------------------------------------------------------- fn bodies
+
+    def test_with_unsafe_is_counted_on_the_safe_arm_only(self) -> None:
+        """safe_with_unsafe and deref_write, not unsafe_with_unsafe.
+
+        With `unsafe_op_in_unsafe_fn` denied, every `unsafe fn` doing anything
+        raw has a block by construction, so counting it there would measure
+        the lint rather than the code.
+        """
+        self.assertEqual(self.at("fn.safe.of_which.with_unsafe.pub"), 2)
+
+    def test_deref_split(self) -> None:
+        self.assertEqual(self.at("raw_ptr.deref.rd"), 4)
+        self.assertEqual(self.at("raw_ptr.deref.wr"), 3)
+
+    def test_fn_partition_sums_to_total(self) -> None:
+        for vis in ("pub", "priv"):
+            with self.subTest(vis=vis):
+                self.assertEqual(
+                    self.at(f"fn.safe.{vis}") + self.at(f"fn.unsafe.{vis}"),
+                    self.tree["fn"]["total"][vis])
+
+
+if __name__ == "__main__":
+    unittest.main()
