@@ -234,6 +234,17 @@ Also retired: `raw_ptr_as_slice_borrow` into `casted_to`, `drop_impl` and
 `clone_impl` into `ty.storing_raw_ptr.of_which`, `raw_ptr_derefs_outside_impl`,
 `unsafe_traits`, `total_stmts`, `unsafe_block_stmts`.
 
+## 8. Sites
+
+`--sites` takes a tree counter as its dotted path, validated against the
+prefix and the family under it rather than against a list of every leaf. The
+leaves are open on purpose: the ffibox arms are generated from a vocabulary of
+17 traits and 10 primitives, so an exhaustive list would be a second copy of
+this document and would drift from the driver's.
+
+`all` stays the flat counters. Enumerating every leaf of the tree is a
+different request, and nothing needs it yet.
+
 ## 8. Limitations
 
 `raw_ptr.casted_to` is a filter, not a partition. A crate that hand-rolls a

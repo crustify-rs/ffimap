@@ -27,16 +27,24 @@ def site_counters(requested: list[str]) -> list[str]:
     The owner / handle counters are always measured, so they need no flag."""
     valid = measure.SITE_COUNTERS + measure.FFIBOX_COUNTERS
     if "all" in requested:
+        # `all` stays the flat counters: the tree's leaves are not enumerable
+        # here, and asking for every one of them would be a different request.
         return list(valid)
     # An owner / handle counter takes a key from its breakdown,
     # `<counter>:<key>` (`fn_sig_ffibox_owner_pub:CVal`), for that key alone.
     keyed = lambda n: n.partition(":")[0] in measure.FFIBOX_COUNTERS and ":" in n
-    unknown = [n for n in requested if n not in valid and not keyed(n)]
+    unknown = [n for n in requested
+               if n not in valid and not keyed(n)
+               and not measure.is_tree_counter(n)]
     if unknown:
+        families = " ".join(
+            f"{head}.{{{','.join(fams)}}}"
+            for head, fams in measure.TREE_SITE_FAMILIES.items())
         raise SystemExit(
             "ffimap: --sites takes counters that count source locations; "
             f"unknown or siteless: {' '.join(unknown)}. Valid: "
-            + " ".join(valid) + ", or all; an owner / handle counter also "
+            + " ".join(valid) + ", or all; a tree counter is a dotted path "
+            "under " + families + "; an owner / handle counter also "
             "takes <counter>:<key> for one key of its breakdown")
     return list(dict.fromkeys(requested))
 

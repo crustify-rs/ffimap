@@ -91,6 +91,29 @@ _COUNTS = (
 #: The counters that count source locations, so `--sites` can list them. Line
 #: and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
 #: `unsafe_block_stmts`) have no sites.
+# The tree counters of docs/schema.md, by prefix and the family under it.
+#
+# `--sites` validates a dotted name against this rather than against a list of
+# every leaf. The leaves below a family are open on purpose: the ffibox arms
+# are generated from a vocabulary of 17 traits and 10 primitives, so an
+# exhaustive list would be a second copy of the schema that drifts from the
+# driver's. The two segments checked are the ones a typo lands in.
+TREE_SITE_FAMILIES = {
+    "raw_ptr": ("taken", "returned", "deref", "casted_to"),
+    "void_ptr": ("taken", "returned"),
+    "ty": ("storing_raw_ptr", "field", "impl", "wrapping_unsafe_cell", "total"),
+    "fn": ("safe", "unsafe", "ffibox", "total"),
+    "code": ("loc", "unsafe_block", "unsafe_call"),
+}
+
+
+def is_tree_counter(name: str) -> bool:
+    """True when `name` is a dotted path into a known schema family."""
+    head, _, rest = name.partition(".")
+    family = rest.partition(".")[0]
+    return bool(rest) and family in TREE_SITE_FAMILIES.get(head, ())
+
+
 SITE_COUNTERS = (
     "safe_fns_pub", "safe_fns_priv", "unsafe_blocks",
     "unsafe_blocks_wrapper_impl", "unsafe_blocks_ffi_export", "unsafe_fns",
