@@ -12,6 +12,11 @@
   ],
   "ptr": {
     "code": {
+      "loc": {
+        "total": 13915,
+        "unsafe": 3497
+      },
+      "unsafe_block": 932,
       "unsafe_call": {
         "ffi": 674,
         "intrinsic": 12,
@@ -39,425 +44,6 @@
         "total": 124
       }
     },
-    "ptr_borrowed": {
-      "as": {
-        "slice": 99,
-        "string": 350,
-        "total": 449
-      },
-      "from": {
-        "bare": 2646,
-        "local": 137,
-        "total": 2783
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 387,
-            "pub": 2328,
-            "total": 2715
-          },
-          "unsafe": {
-            "priv": 10,
-            "pub": 25,
-            "total": 35
-          },
-          "total": 2750
-        },
-        "ty": {
-          "priv": 31,
-          "pub": 2,
-          "total": 33
-        },
-        "total": 2783
-      },
-      "of_which": {
-        "smells": {
-          "priv": 2,
-          "pub": 146,
-          "total": 148
-        },
-        "total": 148
-      }
-    },
-    "ptr_borrowed_c_layout": {
-      "as": {
-        "slice": 3,
-        "total": 3
-      },
-      "from": {
-        "bare": 12,
-        "local": 137,
-        "total": 149
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 1,
-            "pub": 131,
-            "total": 132
-          },
-          "unsafe": {
-            "priv": 1,
-            "pub": 15,
-            "total": 16
-          },
-          "total": 148
-        },
-        "ty": {
-          "priv": 1,
-          "total": 1
-        },
-        "total": 149
-      },
-      "of_which": {
-        "smells": {
-          "priv": 2,
-          "pub": 146,
-          "total": 148
-        },
-        "total": 148
-      }
-    },
-    "ptr_borrowed_c_opaque": {
-      "from": {
-        "bare": 104,
-        "total": 104
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 4,
-            "pub": 98,
-            "total": 102
-          },
-          "unsafe": {
-            "pub": 2,
-            "total": 2
-          },
-          "total": 104
-        },
-        "total": 104
-      }
-    },
-    "ptr_borrowed_generic": {
-      "as": {
-        "slice": 4,
-        "total": 4
-      },
-      "from": {
-        "bare": 14,
-        "total": 14
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 6,
-            "pub": 5,
-            "total": 11
-          },
-          "unsafe": {
-            "priv": 2,
-            "pub": 1,
-            "total": 3
-          },
-          "total": 14
-        },
-        "total": 14
-      }
-    },
-    "ptr_borrowed_rust": {
-      "as": {
-        "slice": 92,
-        "string": 350,
-        "total": 442
-      },
-      "from": {
-        "bare": 2516,
-        "total": 2516
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 376,
-            "pub": 2094,
-            "total": 2470
-          },
-          "unsafe": {
-            "priv": 7,
-            "pub": 7,
-            "total": 14
-          },
-          "total": 2484
-        },
-        "ty": {
-          "priv": 30,
-          "pub": 2,
-          "total": 32
-        },
-        "total": 2516
-      }
-    },
-    "ptr_by_val": {
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 50,
-            "pub": 193,
-            "total": 243
-          },
-          "unsafe": {
-            "priv": 9,
-            "pub": 83,
-            "total": 92
-          },
-          "total": 335
-        },
-        "ty": {
-          "priv": 96,
-          "pub": 1,
-          "total": 97
-        },
-        "total": 432
-      }
-    },
-    "ptr_owned": {
-      "as": {
-        "string": 71,
-        "total": 71
-      },
-      "from": {
-        "local": 1045,
-        "std": 121,
-        "total": 1166
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 38,
-            "pub": 970,
-            "total": 1008
-          },
-          "unsafe": {
-            "priv": 4,
-            "pub": 51,
-            "total": 55
-          },
-          "total": 1063
-        },
-        "ty": {
-          "priv": 101,
-          "pub": 2,
-          "total": 103
-        },
-        "total": 1166
-      }
-    },
-    "ptr_owned_c_layout": {
-      "from": {
-        "local": 974,
-        "std": 1,
-        "total": 975
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 11,
-            "pub": 892,
-            "total": 903
-          },
-          "unsafe": {
-            "priv": 2,
-            "pub": 45,
-            "total": 47
-          },
-          "total": 950
-        },
-        "ty": {
-          "priv": 25,
-          "total": 25
-        },
-        "total": 975
-      }
-    },
-    "ptr_owned_c_opaque": {
-      "from": {
-        "std": 1,
-        "total": 1
-      },
-      "in": {
-        "ty": {
-          "priv": 1,
-          "total": 1
-        },
-        "total": 1
-      }
-    },
-    "ptr_owned_rust": {
-      "as": {
-        "string": 71,
-        "total": 71
-      },
-      "from": {
-        "local": 71,
-        "std": 119,
-        "total": 190
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 27,
-            "pub": 78,
-            "total": 105
-          },
-          "unsafe": {
-            "priv": 2,
-            "pub": 6,
-            "total": 8
-          },
-          "total": 113
-        },
-        "ty": {
-          "priv": 75,
-          "pub": 2,
-          "total": 77
-        },
-        "total": 190
-      }
-    },
-    "ptr_raw": {
-      "from": {
-        "bare": 309,
-        "total": 309
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 90,
-            "pub": 66,
-            "total": 156
-          },
-          "unsafe": {
-            "priv": 8,
-            "pub": 70,
-            "total": 78
-          },
-          "total": 234
-        },
-        "ty": {
-          "priv": 75,
-          "total": 75
-        },
-        "total": 309
-      },
-      "of_which": {
-        "has_wrapper": {
-          "priv": 15,
-          "pub": 2,
-          "total": 17
-        },
-        "total": 17
-      }
-    },
-    "ptr_raw_c_layout": {
-      "from": {
-        "bare": 254,
-        "total": 254
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 47,
-            "pub": 66,
-            "total": 113
-          },
-          "unsafe": {
-            "priv": 7,
-            "pub": 70,
-            "total": 77
-          },
-          "total": 190
-        },
-        "ty": {
-          "priv": 64,
-          "total": 64
-        },
-        "total": 254
-      },
-      "of_which": {
-        "has_wrapper": {
-          "priv": 15,
-          "pub": 2,
-          "total": 17
-        },
-        "total": 17
-      }
-    },
-    "ptr_raw_c_opaque": {
-      "from": {
-        "bare": 2,
-        "total": 2
-      },
-      "in": {
-        "ty": {
-          "priv": 2,
-          "total": 2
-        },
-        "total": 2
-      }
-    },
-    "ptr_raw_generic": {
-      "from": {
-        "bare": 8,
-        "total": 8
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 8,
-            "total": 8
-          },
-          "total": 8
-        },
-        "total": 8
-      }
-    },
-    "ptr_raw_rust": {
-      "from": {
-        "bare": 45,
-        "total": 45
-      },
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 35,
-            "total": 35
-          },
-          "unsafe": {
-            "priv": 1,
-            "total": 1
-          },
-          "total": 36
-        },
-        "ty": {
-          "priv": 9,
-          "total": 9
-        },
-        "total": 45
-      }
-    },
-    "ptr_void": {
-      "in": {
-        "fn": {
-          "safe": {
-            "priv": 36,
-            "total": 36
-          },
-          "total": 36
-        },
-        "total": 36
-      }
-    },
     "raw_ptr": {
       "casted_to": {
         "std": {
@@ -467,6 +53,11 @@
           "total": 174
         },
         "total": 174
+      },
+      "deref": {
+        "rd": 246,
+        "wr": 45,
+        "total": 291
       },
       "returned": {
         "safe": {
@@ -786,18 +377,18 @@
       },
       "total": 1
     },
-    "unsafe_blocks": {
-      "total": 932,
-      "of_which": {
-        "wrapper_impl": 9,
-        "ffi_export": 49
-      }
-    },
     "unsafe_impls": {
       "total": 8,
       "of_which": {
         "send": 7,
         "sync": 1
+      }
+    },
+    "unsafe_blocks": {
+      "total": 932,
+      "of_which": {
+        "wrapper_impl": 9,
+        "ffi_export": 49
       }
     },
     "code_lines": 13915,
