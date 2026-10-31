@@ -1,11 +1,8 @@
 {
   "crate_path": "/target/libgit2-bindings",
   "sys_crates": [
-    "clang_sys",
     "libgit2_sys",
-    "pcre2_sys",
-    "prettyplease",
-    "windows_sys"
+    "pcre2_sys"
   ],
   "ptr": {
     "code": {
@@ -226,8 +223,8 @@
           "total": 193
         },
         "of_which": {
-          "unsafe": 477,
-          "total": 477
+          "unsafe": 271,
+          "total": 271
         },
         "send_sync": {
           "send": {
@@ -339,107 +336,6 @@
       },
       "total": 138
     },
-    "c_type_borrow": {
-      "fn_sig": {
-        "sanctioned": {
-          "pub": 133,
-          "priv": 0,
-          "total": 133
-        },
-        "non_sanctioned": {
-          "pub": 7,
-          "priv": 0,
-          "total": 7
-        },
-        "opaque": {
-          "pub": 18,
-          "priv": 4,
-          "total": 22
-        },
-        "total": 162
-      },
-      "fn_body": {
-        "non_sanctioned": 0,
-        "opaque": 0,
-        "generic": 4,
-        "total": 4
-      },
-      "ty": {
-        "non_sanctioned": {
-          "pub": {
-            "fields": {
-              "pub": 0,
-              "priv": 0,
-              "total": 0
-            },
-            "total": 0
-          },
-          "priv": 0,
-          "total": 0
-        },
-        "opaque": {
-          "pub": {
-            "fields": {
-              "pub": 0,
-              "priv": 0,
-              "total": 0
-            },
-            "total": 0
-          },
-          "priv": 0,
-          "total": 0
-        },
-        "total": 0
-      },
-      "total": 166
-    },
-    "c_type_by_val_fn_sig": {
-      "pub": 81,
-      "priv": 11,
-      "total": 92
-    },
-    "c_type_by_val_ty": {
-      "pub": {
-        "fields": {
-          "pub": 0,
-          "priv": 4,
-          "total": 4
-        },
-        "total": 4
-      },
-      "priv": 0,
-      "total": 4
-    },
-    "c_type_std_owner_fn_sig": {
-      "pub": 0,
-      "priv": 0,
-      "total": 0
-    },
-    "c_type_std_owner_ty": {
-      "pub": {
-        "fields": {
-          "pub": 0,
-          "priv": 0,
-          "total": 0
-        },
-        "total": 0
-      },
-      "priv": 0,
-      "total": 0
-    },
-    "non_c_type_borrow": {
-      "pub": {
-        "safe": 1163,
-        "unsafe": 15,
-        "total": 1178
-      },
-      "priv": {
-        "safe": 159,
-        "unsafe": 4,
-        "total": 163
-      },
-      "total": 1341
-    },
     "raw_ptr_ty": {
       "pub": {
         "fields": {
@@ -488,9 +384,6 @@
     "raw_ptr_derefs": {
       "rd": 195,
       "wr": 154,
-      "of_which": {
-        "outside_impl": 14
-      },
       "total": 349
     },
     "void_ptr_ty": {
@@ -518,21 +411,6 @@
       },
       "total": 23
     },
-    "c_type_std_value_impl": {
-      "pub": 23,
-      "priv": 0,
-      "of_which": {
-        "derived": 11
-      },
-      "total": 23
-    },
-    "unsafe_blocks": {
-      "total": 1894,
-      "of_which": {
-        "wrapper_impl": 1476,
-        "ffi_export": 88
-      }
-    },
     "unsafe_impls": {
       "total": 271,
       "of_which": {
@@ -540,17 +418,15 @@
         "sync": 71
       }
     },
+    "unsafe_blocks": {
+      "total": 1894,
+      "of_which": {
+        "ffi_export": 88
+      }
+    },
     "code_lines": 15953,
-    "total_stmts": 4096,
-    "unsafe_block_stmts": 12,
     "unsafe_block_lines": 2702,
     "unsafe_block_code_lines": 2654,
-    "unsafe_traits": 1,
-    "c_type_layout_wrapper": 71,
-    "raw_ptr_as_slice_borrow": 91,
-    "raw_ptr_has_c_type_wrapper": 148,
-    "drop_impl": 6,
-    "clone_impl": 6,
     "ffi_calls": 530
   },
   "counts_unavailable": null,

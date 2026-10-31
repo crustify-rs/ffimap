@@ -38,24 +38,25 @@ toolchain changes.
 ## Usage
 
 ```sh
-ffimap path/to/workspace                 # human-readable summary
-ffimap path/to/workspace --json > scan.json
+ffimap path/to/workspace --sys-crates libgit2-sys > scan.json
 ```
 
 `WORKSPACE` is the directory holding the Cargo workspace or package to scan.
-ffimap writes no files: the summary or the JSON document goes to stdout, and
-progress and errors go to stderr.
+ffimap writes no files: the JSON document goes to stdout, and progress and
+errors go to stderr. There is no prose rendering of the counters -- that would
+be a second description of the schema in a place no test reads. `docs/schema.md`
+describes them; the document carries them.
 
 ## CLI
 
 ```text
-ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE[,CRATE...]]
+ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]] [--json]
                  [--seams NAMES] [--sites COUNTER ... | all]
 ```
 
 | Option | Effect |
 |---|---|
-| `--json` | Print the full JSON document instead of the summary. |
+| `--json` | Accepted and ignored: the document is the only output. Kept so existing invocations keep working. |
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). `all` names every counter that counts locations. |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, and descend through their types when deciding which types store a raw pointer. Name the crate's own bindings and anything else it reaches C through, such as `libc`. Nothing is discovered — a Cargo `links` key and a `*-sys` name both over-report — so unnamed means the scanned crate alone. |
 | `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |

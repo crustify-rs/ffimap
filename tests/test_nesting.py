@@ -43,16 +43,14 @@ class NestCountsTests(unittest.TestCase):
         self.assertEqual(tree["raw_ptr_fn"]["total"], 15)
 
     def test_of_which_subsets_are_not_summed_into_the_total(self) -> None:
-        # unsafe_blocks_wrapper_impl re-counts blocks unsafe_blocks already
+        # unsafe_blocks_ffi_export re-counts blocks unsafe_blocks already
         # counted, so the total stays the emitted number.
         tree = measure.nest_counts({
             "unsafe_blocks": 100,
-            "unsafe_blocks_wrapper_impl": 90,
             "unsafe_blocks_ffi_export": 5,
         })
         self.assertEqual(tree["unsafe_blocks"]["total"], 100)
-        self.assertEqual(tree["unsafe_blocks"]["of_which"],
-                         {"wrapper_impl": 90, "ffi_export": 5})
+        self.assertEqual(tree["unsafe_blocks"]["of_which"], {"ffi_export": 5})
 
     def test_a_public_type_splits_its_fields_by_visibility(self) -> None:
         tree = measure.nest_counts({

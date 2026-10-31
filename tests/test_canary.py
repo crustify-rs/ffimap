@@ -45,7 +45,7 @@ class CanaryTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        doc = scan.compose(FIXTURE, seams=["from_raw"])
+        doc = scan.compose(FIXTURE, seams=["from_raw"], sys_crates=["canary-sys"])
         cls.tree = doc["ptr"]
 
     def at(self, path: str) -> int:
@@ -135,7 +135,7 @@ class CanaryTests(unittest.TestCase):
         must not reappear under `std` or `ffibox`, which would attribute the
         crate's own conversion to someone else's vocabulary.
         """
-        tree = scan.compose(FIXTURE)["ptr"]
+        tree = scan.compose(FIXTURE, sys_crates=["canary-sys"])["ptr"]
         casted = tree["raw_ptr"]["casted_to"]
         self.assertNotIn("local_seam", casted)
         self.assertEqual(casted["std"]["total"], 15)
@@ -193,6 +193,16 @@ class CanaryTests(unittest.TestCase):
         """
         self.assertEqual(self.at("ty.storing_raw_ptr.pub"), 9)
         self.assertEqual(self.at("ty.total.pub"), 14)
+
+    def test_an_unnamed_sys_crate_leaves_the_peel_set(self) -> None:
+        """The peel set is named, so omitting `canary-sys` drops ThroughSys.
+
+        The counter reads low for a reason that is not in the code, which is
+        why the summary prints the peel set. Asserted here so the naming
+        requirement cannot be reverted to discovery without a failure.
+        """
+        tree = scan.compose(FIXTURE)["ptr"]
+        self.assertEqual(tree["ty"]["storing_raw_ptr"]["pub"], 8)
 
     def test_unsafe_cell(self) -> None:
         # Cellular and CellularNested. UnsafeCell is repr(transparent), so a

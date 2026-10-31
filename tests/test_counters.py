@@ -48,36 +48,6 @@ class EmissionTests(unittest.TestCase):
             self.assertIn(k, keys)
             self.assertIn(k, measure.SITE_COUNTERS)
 
-    def test_thread_safety_opt_ins_are_emitted(self) -> None:
-        keys, _ = _emission()
-        i = keys.index("unsafe_traits")
-        names = ["unsafe_send_impl", "unsafe_sync_impl", "c_type_layout_wrapper"]
-        self.assertEqual(keys[i + 1:i + 1 + len(names)], names)
-        for k in names:
-            self.assertIn(k, measure.SITE_COUNTERS)
-
-    def test_c_type_borrows_split_by_position_then_kind(self) -> None:
-        keys, _ = _emission()
-        i = keys.index("c_type_borrow_fn_sig_sanctioned_pub")
-        names = [
-            "c_type_borrow_fn_sig_sanctioned_pub", "c_type_borrow_fn_sig_sanctioned_priv",
-            "c_type_borrow_fn_sig_non_sanctioned_pub", "c_type_borrow_fn_sig_non_sanctioned_priv",
-            "c_type_borrow_fn_sig_opaque_pub", "c_type_borrow_fn_sig_opaque_priv",
-            "c_type_borrow_fn_body_non_sanctioned", "c_type_borrow_fn_body_opaque",
-            "c_type_borrow_fn_body_generic",
-            "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
-            "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
-            "c_type_borrow_ty_non_sanctioned_priv",
-            "c_type_borrow_ty_opaque_pub_fields_pub",
-            "c_type_borrow_ty_opaque_pub_fields_priv",
-            "c_type_borrow_ty_opaque_priv",
-            "raw_ptr_as_slice_borrow",
-        ]
-        self.assertEqual(keys[i:i + len(names)], names)
-        for k in names:
-            self.assertIn(k, measure.SITE_COUNTERS)
-        self.assertFalse([k for k in keys if k.startswith(("ty_wrapper", "ty_non_wrapper"))])
-
     def test_absent_position_kind_cells_are_not_emitted(self) -> None:
         """A kind that cannot occur in a position gets no counter at all,
         rather than one that is always 0: sanctioned is a signature-only
@@ -290,18 +260,8 @@ class PartitionTests(unittest.TestCase):
             for part in parts:
                 self.assertIn(f"{fam}_{part}", keys)
                 self.assertIn(f"{fam}_{part}", measure.SITE_COUNTERS)
-        for k in ("unsafe_fns", "unsafe_fns_pub", "unsafe_fns_priv",
-                  "non_c_type_borrow_pub_safe", "non_c_type_borrow_pub_unsafe",
-                  "non_c_type_borrow_priv_safe", "non_c_type_borrow_priv_unsafe"):
+        for k in ("unsafe_fns", "unsafe_fns_pub", "unsafe_fns_priv"):
             self.assertIn(k, keys)
-
-    def test_wrapper_value_families_are_emitted(self) -> None:
-        keys, _ = _emission()
-        for fam in ("by_val", "std_owner"):
-            for part in ("fn_sig_pub", "fn_sig_priv", "ty_pub_fields_pub",
-                         "ty_pub_fields_priv", "ty_priv"):
-                self.assertIn(f"c_type_{fam}_{part}", keys)
-                self.assertIn(f"c_type_{fam}_{part}", measure.SITE_COUNTERS)
 
     def test_ffibox_fn_and_ty_families_mirror(self) -> None:
         kinds = [k[len("fn_sig_"):-len("_pub")] for k in measure.FFIBOX_COUNTERS

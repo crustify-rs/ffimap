@@ -40,40 +40,13 @@ _TOOLCHAIN = tomllib.loads(
 # concatenated. The set the driver emits; kept explicit so a field added there
 # is a visible edit here rather than a silent passthrough.
 _COUNTS = (
-    "code_lines", "total_stmts", "safe_fns_pub", "safe_fns_priv",
-    "unsafe_blocks", "unsafe_block_stmts", "unsafe_block_lines",
-    "unsafe_block_code_lines", "unsafe_blocks_wrapper_impl",
-    "unsafe_blocks_ffi_export", "unsafe_fns", "unsafe_fns_pub",
-    "unsafe_fns_priv", "unsafe_impls", "unsafe_traits",
-    "unsafe_send_impl", "unsafe_sync_impl",
-    "c_type_layout_wrapper",
-    "c_type_borrow_fn_sig_sanctioned_pub",
-    "c_type_borrow_fn_sig_sanctioned_priv",
-    "c_type_borrow_fn_sig_non_sanctioned_pub",
-    "c_type_borrow_fn_sig_non_sanctioned_priv",
-    "c_type_borrow_fn_sig_opaque_pub",
-    "c_type_borrow_fn_sig_opaque_priv",
-    "c_type_borrow_fn_body_non_sanctioned",
-    "c_type_borrow_fn_body_opaque",
-    "c_type_borrow_fn_body_generic",
-    "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
-    "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
-    "c_type_borrow_ty_non_sanctioned_priv",
-    "c_type_borrow_ty_opaque_pub_fields_pub",
-    "c_type_borrow_ty_opaque_pub_fields_priv",
-    "c_type_borrow_ty_opaque_priv",
-    "raw_ptr_as_slice_borrow",
-    "c_type_by_val_fn_sig_pub", "c_type_by_val_fn_sig_priv",
-    "c_type_by_val_ty_pub_fields_pub", "c_type_by_val_ty_pub_fields_priv",
-    "c_type_by_val_ty_priv", "c_type_std_owner_fn_sig_pub",
-    "c_type_std_owner_fn_sig_priv", "c_type_std_owner_ty_pub_fields_pub",
-    "c_type_std_owner_ty_pub_fields_priv", "c_type_std_owner_ty_priv",
-    "non_c_type_borrow_pub_safe", "non_c_type_borrow_pub_unsafe",
-    "non_c_type_borrow_priv_safe", "non_c_type_borrow_priv_unsafe",
+    "code_lines", "safe_fns_pub", "safe_fns_priv",
+    "unsafe_blocks", "unsafe_block_lines",
+    "unsafe_block_code_lines", "unsafe_blocks_ffi_export", "unsafe_fns", "unsafe_fns_pub",
+    "unsafe_fns_priv", "unsafe_impls", "unsafe_send_impl", "unsafe_sync_impl",
     "raw_ptr_ty_pub_fields_pub", "raw_ptr_ty_pub_fields_priv",
     "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe", "raw_ptr_fn_pub_unsafe",
-    "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe", "raw_ptr_has_c_type_wrapper",
-    "safe_fns_seam_pub",
+    "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe", "safe_fns_seam_pub",
     "safe_fns_seam_priv",
     "unsafe_fns_seam_pub",
     "unsafe_fns_seam_priv",
@@ -81,17 +54,14 @@ _COUNTS = (
     "raw_ptr_fn_seam_pub_unsafe",
     "raw_ptr_fn_seam_priv_safe",
     "raw_ptr_fn_seam_priv_unsafe",
-    "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "raw_ptr_derefs_outside_impl",
-    "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
+    "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
-    "drop_impl", "clone_impl",
-    "c_type_std_value_impl_pub", "c_type_std_value_impl_priv",
-    "c_type_std_value_impl_derived", "ffi_calls",
+    "ffi_calls",
 )
 #: The counters that count source locations, so `--sites` can list them. Line
-#: and statement totals (`code_lines`, `total_stmts`, `unsafe_block_*lines`,
-#: `unsafe_block_stmts`) have no sites.
+#: and statement totals (`code_lines`, `unsafe_block_*lines`) have no sites.
+
 # The tree counters of docs/schema.md, by prefix and the family under it.
 #
 # `--sites` validates a dotted name against this rather than against a list of
@@ -117,38 +87,12 @@ def is_tree_counter(name: str) -> bool:
 
 SITE_COUNTERS = (
     "safe_fns_pub", "safe_fns_priv", "unsafe_blocks",
-    "unsafe_blocks_wrapper_impl", "unsafe_blocks_ffi_export", "unsafe_fns",
-    "unsafe_fns_pub", "unsafe_fns_priv", "unsafe_impls", "unsafe_traits",
-    "unsafe_send_impl", "unsafe_sync_impl",
-    "c_type_layout_wrapper",
-    "c_type_borrow_fn_sig_sanctioned_pub",
-    "c_type_borrow_fn_sig_sanctioned_priv",
-    "c_type_borrow_fn_sig_non_sanctioned_pub",
-    "c_type_borrow_fn_sig_non_sanctioned_priv",
-    "c_type_borrow_fn_sig_opaque_pub",
-    "c_type_borrow_fn_sig_opaque_priv",
-    "c_type_borrow_fn_body_non_sanctioned",
-    "c_type_borrow_fn_body_opaque",
-    "c_type_borrow_fn_body_generic",
-    "c_type_borrow_ty_non_sanctioned_pub_fields_pub",
-    "c_type_borrow_ty_non_sanctioned_pub_fields_priv",
-    "c_type_borrow_ty_non_sanctioned_priv",
-    "c_type_borrow_ty_opaque_pub_fields_pub",
-    "c_type_borrow_ty_opaque_pub_fields_priv",
-    "c_type_borrow_ty_opaque_priv",
-    "raw_ptr_as_slice_borrow",
-    "c_type_by_val_fn_sig_pub", "c_type_by_val_fn_sig_priv",
-    "c_type_by_val_ty_pub_fields_pub", "c_type_by_val_ty_pub_fields_priv",
-    "c_type_by_val_ty_priv", "c_type_std_owner_fn_sig_pub",
-    "c_type_std_owner_fn_sig_priv", "c_type_std_owner_ty_pub_fields_pub",
-    "c_type_std_owner_ty_pub_fields_priv", "c_type_std_owner_ty_priv",
-    "non_c_type_borrow_pub_safe",
-    "non_c_type_borrow_pub_unsafe", "non_c_type_borrow_priv_safe",
-    "non_c_type_borrow_priv_unsafe", "raw_ptr_ty_pub_fields_pub",
+    "unsafe_blocks_ffi_export", "unsafe_fns",
+    "unsafe_fns_pub", "unsafe_fns_priv", "unsafe_impls", "unsafe_send_impl", "unsafe_sync_impl",
+    "raw_ptr_ty_pub_fields_pub",
     "raw_ptr_ty_pub_fields_priv", "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe",
     "raw_ptr_fn_pub_unsafe", "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe",
-    "raw_ptr_has_c_type_wrapper", "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "raw_ptr_derefs_outside_impl",
-    "safe_fns_seam_pub",
+    "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "safe_fns_seam_pub",
     "safe_fns_seam_priv",
     "unsafe_fns_seam_pub",
     "unsafe_fns_seam_priv",
@@ -159,8 +103,6 @@ SITE_COUNTERS = (
     "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
     "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
     "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
-    "drop_impl", "clone_impl",
-    "c_type_std_value_impl_pub", "c_type_std_value_impl_priv",
     "ffi_calls",
 )
 #: The owner and handle counters, in the driver's order. Each is a breakdown
@@ -202,17 +144,15 @@ class DriverUnavailable(Exception):
 #     `safe` + `unsafe`, a public type's `pub` + `priv` fields.
 #   * an `of_which` SUBSET -- a child that re-counts some of the parent's own
 #     occurrences from another angle, so it must NEVER be summed in.
-#     `unsafe_blocks_wrapper_impl` is a subset of `unsafe_blocks`;
-#     `unsafe_send_impl` is "of `unsafe_impls`";
-#     `raw_ptr_derefs_outside_impl` is "of both" rd and wr;
-#     `raw_ptr_has_c_type_wrapper` is "of those positions".
+#     `unsafe_blocks_ffi_export` is a subset of `unsafe_blocks`, and
+#     `unsafe_send_impl` is "of `unsafe_impls`".
 #
 # `sites` and the `--ffibox` `by` breakdowns stay keyed by the flat LEAF name:
 # a site list and a breakdown belong to one leaf, not to a parent.
 
 #: flat leaf name -> path in the tree. Partition leaves only.
 _PARTITION: dict[str, tuple[str, ...]] = {}
-for _stem in ("raw_ptr", "void_ptr", "c_type_by_val", "c_type_std_owner"):
+for _stem in ("raw_ptr", "void_ptr"):
     _ty = f"{_stem}_ty"
     _PARTITION[f"{_ty}_pub_fields_pub"] = (_ty, "pub", "fields", "pub")
     _PARTITION[f"{_ty}_pub_fields_priv"] = (_ty, "pub", "fields", "priv")
@@ -221,43 +161,17 @@ for _stem in ("raw_ptr", "void_ptr"):
     for _v in ("pub", "priv"):
         for _s in ("safe", "unsafe"):
             _PARTITION[f"{_stem}_fn_{_v}_{_s}"] = (f"{_stem}_fn", _v, _s)
-for _stem in ("c_type_by_val", "c_type_std_owner"):
-    for _v in ("pub", "priv"):
-        _PARTITION[f"{_stem}_fn_sig_{_v}"] = (f"{_stem}_fn_sig", _v)
 for _v in ("pub", "priv"):
-    for _s in ("safe", "unsafe"):
-        _PARTITION[f"non_c_type_borrow_{_v}_{_s}"] = ("non_c_type_borrow", _v, _s)
     _PARTITION[f"safe_fns_{_v}"] = ("safe_fns", _v)
     _PARTITION[f"unsafe_fns_{_v}"] = ("unsafe_fns", _v)
 _PARTITION["raw_ptr_derefs_rd"] = ("raw_ptr_derefs", "rd")
 _PARTITION["raw_ptr_derefs_wr"] = ("raw_ptr_derefs", "wr")
-# Borrows into C memory: POSITION first, then kind, then visibility. Only the
-# kinds that occur in a position exist (see the driver's `Counts`): no
-# `fn_sig.generic`, no `fn_body.sanctioned`, no `ty.sanctioned`.
-for _k in ("sanctioned", "non_sanctioned", "opaque"):
-    for _v in ("pub", "priv"):
-        _PARTITION[f"c_type_borrow_fn_sig_{_k}_{_v}"] = ("c_type_borrow", "fn_sig", _k, _v)
-for _k in ("non_sanctioned", "opaque", "generic"):
-    _PARTITION[f"c_type_borrow_fn_body_{_k}"] = ("c_type_borrow", "fn_body", _k)
-for _k in ("non_sanctioned", "opaque"):
-    _PARTITION[f"c_type_borrow_ty_{_k}_pub_fields_pub"] = ("c_type_borrow", "ty", _k, "pub", "fields", "pub")
-    _PARTITION[f"c_type_borrow_ty_{_k}_pub_fields_priv"] = ("c_type_borrow", "ty", _k, "pub", "fields", "priv")
-    _PARTITION[f"c_type_borrow_ty_{_k}_priv"] = ("c_type_borrow", "ty", _k, "priv")
-
 #: flat leaf name -> (parent path, name under `of_which`). Never summed.
-_PARTITION["c_type_std_value_impl_pub"] = ("c_type_std_value_impl", "pub")
-_PARTITION["c_type_std_value_impl_priv"] = ("c_type_std_value_impl", "priv")
 
 _OF_WHICH: dict[str, tuple[tuple[str, ...], str]] = {
-    "unsafe_blocks_wrapper_impl": (("unsafe_blocks",), "wrapper_impl"),
     "unsafe_blocks_ffi_export": (("unsafe_blocks",), "ffi_export"),
     "unsafe_send_impl": (("unsafe_impls",), "send"),
     "unsafe_sync_impl": (("unsafe_impls",), "sync"),
-    "raw_ptr_derefs_outside_impl": (("raw_ptr_derefs",), "outside_impl"),
-    # Of the C types implementing a forced-`&self` std trait, those where at
-    # least one such impl is derived: the borrow over C memory was never
-    # weighed. A subset of the total, so never summed in.
-    "c_type_std_value_impl_derived": (("c_type_std_value_impl",), "derived"),
     # `--seams` names: the share of each fn-signature leaf that is seam
     # plumbing -- the conversion between a wrapper and its raw pointer -- which
     # a consumer of the safe API never performs. A subset, never summed in.
@@ -284,11 +198,6 @@ _PARENT_TOTALS: dict[str, tuple[str, ...]] = {"unsafe_fns": ("unsafe_fns",)}
 #: a flat counter that is a family's total but has NO partition children, only
 #: `of_which` subsets -- so its total is the emitted number, never a sum.
 _EXPLICIT_TOTAL: frozenset[str] = frozenset({"unsafe_blocks", "unsafe_impls"})
-
-# `raw_ptr_has_c_type_wrapper` and `raw_ptr_as_slice_borrow` stay top-level
-# scalars. The first is a subset of the `raw_ptr_ty` AND `raw_ptr_fn` positions
-# together, the second counts borrows rather than positions, so neither has one
-# parent whose total would mean anything.
 
 
 def _set(tree: dict, path: tuple[str, ...], value) -> None:
@@ -407,7 +316,7 @@ def _at(tree: dict, path: tuple[str, ...]):
 
 def flatten_counts(tree: dict) -> dict:
     """The inverse of :func:`nest_counts`, for consumers that want the flat
-    names (the human summary, and the round-trip test that keeps the two
+    names (the round-trip test that keeps the two
     specs honest)."""
     flat: dict = {}
     for name, path in _PARTITION.items():

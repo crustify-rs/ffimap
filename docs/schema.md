@@ -98,9 +98,9 @@ peel set of libgit2-bindings and had their `#[repr(C)]` types taken for C's,
 which contradicts a rule whose whole value is being narrow.
 
 A `-sys` crate left unnamed therefore drops its types out of the walk, and the
-counter reads low for a reason that is not in the code. The summary prints the
-peel set, and says so when it is the scanned crate alone, so the omission is
-visible where the figures are read.
+counter reads low for a reason that is not in the code. The document's
+`sys_crates` field records the set it ran with, so the omission is readable
+beside the figures it explains.
 
 ## 3. Calls
 

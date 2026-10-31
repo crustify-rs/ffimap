@@ -1,6 +1,6 @@
 """cli.py — the `ffimap` command.
 
-    ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE,...]
+    ffimap WORKSPACE [--ffibox] [--sys-crates CRATE,...]
                      [--seams NAMES]
                      [--sites COUNTER ... | all]
 
@@ -29,8 +29,10 @@ DESCRIPTION = (
 def add_arguments(p: argparse.ArgumentParser) -> None:
     """Register the scan's flags (not the workspace positional) on ``p``."""
     p.add_argument("--json", action="store_true",
-                   help="Print the document on stdout instead of a summary. "
-                        "Redirect it to keep it; ffimap writes no file.")
+                   help="Accepted and ignored: the document on stdout is the "
+                        "only output. Kept so existing invocations keep "
+                        "working. Redirect it to keep it; ffimap writes no "
+                        "file.")
     p.add_argument(
         "--sites", nargs="+", action="extend", default=None, metavar="COUNTER",
         help="Also report where these counters' increments are in the source: "
@@ -70,11 +72,16 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
 
 
 def run(workspace: Path, args: argparse.Namespace) -> int:
-    """Scan ``workspace`` and print the document or its summary."""
+    """Scan ``workspace`` and print the metrics document on stdout.
+
+    The document is the only output. A rendering of the counters in prose
+    would be a second description of the schema, in a place no test reads, so
+    there is none: `docs/schema.md` describes them and the JSON carries them.
+    """
     from ffimap import scan
     doc = scan.compose(workspace, sites=args.sites, ffibox=args.ffibox,
                        sys_crates=args.sys_crates, seams=args.seams)
-    print(json.dumps(doc, indent=2) if args.json else scan.summarize(doc))
+    print(json.dumps(doc, indent=2))
     return 0
 
 
