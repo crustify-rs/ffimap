@@ -151,7 +151,7 @@ class PartitionTests(unittest.TestCase):
         """A seam is counted in its own counter AND in the base one, so the
         two must never be summed: the document hangs them off `of_which`."""
         src = MAIN_RS.read_text()
-        self.assertIn('format!("{axis}.{pos}.of_which.seam.{safety}.{vis}")', src)
+        self.assertIn('format!("raw_ptr.{pos}.of_which.seam.{safety}.{vis}")', src)
         tree = measure.nest_ptr({"raw_ptr.taken.safe.pub": 10,
                                  "raw_ptr.taken.of_which.seam.safe.pub": 7})
         taken = tree["raw_ptr"]["taken"]

@@ -150,24 +150,48 @@
         "total": 64
       },
       "returned": {
+        "of_which": {
+          "void": {
+            "safe": {
+              "priv": 1,
+              "pub": 3,
+              "total": 4
+            },
+            "unsafe": {
+              "priv": 2,
+              "total": 2
+            },
+            "total": 6
+          }
+        },
         "safe": {
-          "priv": 74,
-          "pub": 2,
-          "total": 76
+          "priv": 75,
+          "pub": 5,
+          "total": 80
         },
         "unsafe": {
-          "priv": 4,
-          "total": 4
+          "priv": 6,
+          "total": 6
         },
-        "total": 80
+        "total": 86
       },
       "taken": {
-        "unsafe": {
-          "priv": 112,
-          "pub": 2,
-          "total": 114
+        "of_which": {
+          "void": {
+            "unsafe": {
+              "priv": 13,
+              "pub": 4,
+              "total": 17
+            },
+            "total": 17
+          }
         },
-        "total": 114
+        "unsafe": {
+          "priv": 125,
+          "pub": 6,
+          "total": 131
+        },
+        "total": 131
       }
     },
     "ty": {
@@ -267,6 +291,10 @@
       },
       "storing_raw_ptr": {
         "of_which": {
+          "ffibox": {
+            "pub": 28,
+            "total": 28
+          },
           "has_lifetime": {
             "priv": 4,
             "pub": 16,
@@ -286,15 +314,9 @@
             "pub": 17,
             "total": 17
           },
-          "no_ffibox_trait": {
-            "priv": 8,
-            "pub": 5,
-            "total": 13
-          },
           "none": {
             "priv": 4,
-            "pub": 8,
-            "total": 12
+            "total": 4
           }
         },
         "priv": 8,
@@ -306,34 +328,12 @@
         "pub": 347,
         "total": 374
       }
-    },
-    "void_ptr": {
-      "returned": {
-        "safe": {
-          "priv": 1,
-          "pub": 3,
-          "total": 4
-        },
-        "unsafe": {
-          "priv": 2,
-          "total": 2
-        },
-        "total": 6
-      },
-      "taken": {
-        "unsafe": {
-          "priv": 13,
-          "pub": 4,
-          "total": 17
-        },
-        "total": 17
-      }
     }
   },
   "counts_unavailable": null,
   "derived": {
     "fns_pub": 2403,
     "fns_priv": 352,
-    "raw_ptr_pub_safe_interface": 2
+    "raw_ptr_pub_safe_interface": 5
   }
 }

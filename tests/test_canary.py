@@ -64,10 +64,12 @@ class CanaryTests(unittest.TestCase):
     # ------------------------------------------------------------ signatures
 
     def test_raw_pointer_positions(self) -> None:
-        # 7 safe public: taken_safe_pub, taken_nonnull, taken_twice (x2),
-        # gateway, safe_with_unsafe, deref_write. NonNull is a carrier, and
-        # both arguments of taken_twice count independently.
-        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 7)
+        # 8 safe public: taken_safe_pub, taken_nonnull, taken_twice (x2),
+        # taken_void, gateway, safe_with_unsafe, deref_write. NonNull is a
+        # carrier, both arguments of taken_twice count independently, and
+        # `taken_void`'s `*c_void` is a raw pointer here with the `void` share
+        # recording that its pointee is erased.
+        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
         self.assertEqual(self.at("raw_ptr.taken.safe.priv"), 1)
         # 11 unsafe public: taken_unsafe_pub, the four conversion helpers
         # (std_strings takes two), Undeclared::from_raw, calls, calls_seam,
@@ -76,9 +78,20 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
         self.assertEqual(self.at("raw_ptr.returned.unsafe.priv"), 1)
 
-    def test_void_pointers_leave_the_raw_axis(self) -> None:
-        self.assertEqual(self.at("void_ptr.taken.safe.pub"), 1)
-        self.assertEqual(self.at("void_ptr.returned.unsafe.pub"), 1)
+    def test_void_pointers_are_a_share_of_the_raw_position(self) -> None:
+        """`taken_void` and `returned_void` are counted in the position they
+        sit in, and labelled `void` there.
+
+        A `*c_void` is a raw pointer with its pointee erased, so a top-level
+        family of its own made a reader add two trees to learn how many raw
+        pointers a signature carries -- and the flat counters it replaced
+        counted such a position in both, so adding them double-counted.
+        """
+        self.assertEqual(self.at("raw_ptr.taken.of_which.void.safe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.returned.of_which.void.unsafe.pub"), 1)
+        # ...and the share is inside the position's own total, never beside it:
+        # one of the 8 above is `taken_void`.
+        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
 
     def test_references_and_embedded_pointers_are_not_positions(self) -> None:
         """`taken_ref` and `taken_holder` must move nothing.
@@ -89,7 +102,7 @@ class CanaryTests(unittest.TestCase):
         counts above already pin.
         """
         self.assertEqual(
-            self.at("raw_ptr.taken.safe.pub") + self.at("raw_ptr.taken.safe.priv"), 8)
+            self.at("raw_ptr.taken.safe.pub") + self.at("raw_ptr.taken.safe.priv"), 9)
 
     def test_seam_share_carries_safety_and_visibility(self) -> None:
         # Undeclared::from_raw is the only declared seam, and it is unsafe and
@@ -272,7 +285,7 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(self.at("raw_ptr.in_impl.unsafe.pub"), 0)
         # `taken.safe.pub` is the free and inherent fns only, unchanged by the
         # two impls above.
-        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 7)
+        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
         self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
 
     def test_fn_partition_sums_to_total(self) -> None:

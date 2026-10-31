@@ -9,31 +9,23 @@ followed, no cast chain is composed, and no dataflow is performed.
 ```
 raw_ptr.
   taken.{safe,unsafe}.{pub,priv}
-  taken.of_which.seam.{safe,unsafe}.{pub,priv}
+  taken.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
   returned.{safe,unsafe}.{pub,priv}
-  returned.of_which.seam.{safe,unsafe}.{pub,priv}
+  returned.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
   in_impl.{safe,unsafe}.{pub,priv}
-  in_impl.of_which.seam.{safe,unsafe}.{pub,priv}
+  in_impl.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
   field.{pub,priv}
+  field.of_which.void.{pub,priv}
   deref.{rd,wr}
   casted_to.{std,ffibox,local_seam}.{borrow,slice,string,owner,other}
-
-void_ptr.
-  taken.{safe,unsafe}.{pub,priv}
-  taken.of_which.seam.{safe,unsafe}.{pub,priv}
-  returned.{safe,unsafe}.{pub,priv}
-  returned.of_which.seam.{safe,unsafe}.{pub,priv}
-  in_impl.{safe,unsafe}.{pub,priv}
-  in_impl.of_which.seam.{safe,unsafe}.{pub,priv}
-  field.{pub,priv}
 
 ty.
   storing_raw_ptr.{pub,priv}
   storing_raw_ptr.of_which.{pub,priv}
     impl_drop · impl_clone · has_lifetime
     impl_deref · impl_deref_mut · impl_send_sync
+    ffibox                                           --ffibox
     pub_field · none
-    no_ffibox_trait                                  --ffibox
   field.ffibox.<primitive>.{pub,priv}                --ffibox
   impl.total
   impl.of_which.unsafe
@@ -61,7 +53,13 @@ The counters are the whole of the document's `counts`. There is no second,
 flat counter block beside them, and no prose rendering of them: a reader who
 wants a rate divides the leaves it names.
 
-`{raw,void}_ptr.in_impl` holds the positions in a trait impl's method, both
+A `*c_void` is a raw pointer whose pointee is erased, so it is the `void`
+share of the position it sits in, not a family beside it: a reader asking how
+many raw pointers a signature carries does not have to add two trees, and one
+asking how many are typed subtracts the share. The former top-level
+`void_ptr.*` is gone.
+
+`raw_ptr.in_impl` holds the positions in a trait impl's method, both
 directions in one counter. The crate did not choose the position there: the
 trait fixed the signature, one declaration dictating a position in every impl
 of it, and no consumer of the safe API is routed to it -- ffibox's
@@ -72,7 +70,7 @@ git2-rs' 66 pointers "returned by a public safe fn": its `Binding` trait,
 once. The direction is dropped with the choice: what is left to say is that
 the trait's shape reaches a pointer here.
 
-`{raw,void}_ptr.field.pub` is one reachability question -- can a consumer of
+`raw_ptr.field.pub` is one reachability question -- can a consumer of
 the crate touch the field -- so it is the type being exported AND the field
 being exported, rather than two levels a reader has to combine.
 
@@ -115,8 +113,21 @@ children are subsets that overlap and are never summed. `measure.py` enforces
 both with `_PARTITION` and `_OF_WHICH`, and `_totals` cross-checks the sums.
 
 `ty.storing_raw_ptr.of_which` is a share family, not a partition: a type may
-implement both `Drop` and `Clone`. `none` is the residual, the types matching no
-other share.
+implement both `Drop` and `Clone`. `none` is the residual, the types matching
+no declaration share.
+
+The first six shares read std traits, so a crate that declares its lifecycle
+through a framework instead -- ffibox's `CDrop`, `CDispose`, `CDupClone` --
+said something none of them can see. `ffibox` is that statement, counted
+beside them, so the residual means what it says: on libgit2-bindings `none`
+read 12 of 41 while 8 of those 12 were `define_ctype!` layout newtypes whose
+release and clone sit on ffibox traits and whose lifetimes sit on their
+handles. It reads 4 now, against git2-rs' 15 of 97, which is the direction
+every other share points. `no_ffibox_trait` is gone with it: it was the exact
+complement of this share, 13 against 28 of 41.
+
+`pub_field` is not a declaration and does not rescue a type from the residual
+-- it is the opposite, an access the type does not govern.
 
 An `of_which` node therefore carries no `total` of its own -- summing two
 shares is not a quantity -- while each share keeps the total of its own
@@ -305,9 +316,9 @@ Three of them were not equivalents, and the tree's reading is the one kept:
   libgit2-bindings. `code.unsafe_call.ffi` classifies by the callee's ABI,
   which is part of its type and survives being stored in a field.
 - `raw_ptr_fn_*` counted a `*c_void` position in both the `raw_ptr` and the
-  `void_ptr` family; the tree partitions it to `void_ptr` alone. On
-  libgit2-bindings the flat total was 217 against the tree's 194, the
-  difference being exactly the 23 `void_ptr` positions.
+  `void_ptr` family, two unrelated top-level totals, so adding them
+  double-counted and reading either alone under-counted. The tree counts the
+  position once, in `raw_ptr`, and labels the erased ones as its `void` share.
 - `unsafe_block_lines` was the raw brace-to-brace span, blanks and comments
   included, so it was not comparable with the `code_lines` denominator.
   `code.loc.unsafe` applies the same filter to both.

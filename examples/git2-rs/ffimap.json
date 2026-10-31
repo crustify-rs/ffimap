@@ -104,16 +104,25 @@
         "total": 19
       },
       "taken": {
+        "of_which": {
+          "void": {
+            "safe": {
+              "priv": 36,
+              "total": 36
+            },
+            "total": 36
+          }
+        },
         "safe": {
-          "priv": 69,
-          "total": 69
+          "priv": 105,
+          "total": 105
         },
         "unsafe": {
           "priv": 5,
           "pub": 1,
           "total": 6
         },
-        "total": 75
+        "total": 111
       }
     },
     "ty": {
@@ -176,15 +185,6 @@
         "priv": 42,
         "pub": 183,
         "total": 225
-      }
-    },
-    "void_ptr": {
-      "taken": {
-        "safe": {
-          "priv": 36,
-          "total": 36
-        },
-        "total": 36
       }
     }
   },

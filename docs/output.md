@@ -1,5 +1,11 @@
 # The ffimap document
 
+> **Partly historical.** The availability and reproducibility rules below
+> still hold. The document's shape and the counters it carries are
+> [`schema.md`](schema.md)'s: `--json` is gone (the document is the only
+> output), there is no flat counter block or `ffibox` record, and
+> `void_ptr` is a share of `raw_ptr` rather than a family.
+
 What `ffimap --json` emits: the shape of the document, the conventions every
 counter is read under, and where each counter is described.
 

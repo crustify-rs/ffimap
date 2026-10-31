@@ -2,19 +2,19 @@
 //!
 //! Changes to the deterministic safety pass belong here.
 //!
-//! PoC: a rustc driver (HIR + typeck) that counts three properties of a Rust
-//! crate that the regex/`syn` approaches cannot do precisely:
+//! A rustc driver (HIR + typeck) over a crate's FFI and unsafe surface,
+//! counting what the regex and `syn` approaches cannot decide precisely: a
+//! raw-pointer dereference is `*p` where typeck says `p: *const T | *mut T`,
+//! so `*Box`, `*&` and a `Deref` impl are not one, and a call's FFI-ness is
+//! read from the callee's ABI rather than from its declaration site.
 //!
-//!   * `unsafe_blocks`        - number of `unsafe { ... }` blocks
-//!   * `unsafe_block_stmts`   - statements lexically inside unsafe blocks
-//!   * `unsafe_block_lines`   - source lines spanned by unsafe blocks (outermost)
-//!   * `raw_ptr_derefs_{rd,wr}` - dereferences `*p` where `p: *const T | *mut T`
-//!                              (decided by the *type* of the operand via typeck,
-//!                              so `*Box`/`*&`/`Deref` impls are NOT counted),
-//!                              by whether the place is written
+//! The counters it emits, and the rule behind each, are `docs/schema.md`.
+//! They go out as one JSON object per crate, `{"crate", "counts", "sites"}`,
+//! where `counts` is that document's tree keyed by dotted path. Nothing here
+//! describes them a second time.
 //!
-//! Run as a rustc-compatible front end: it compiles the given file/crate and
-//! prints the metrics as JSON in `after_analysis`. See `run.sh`.
+//! Run as a rustc-compatible front end: it compiles the given file or crate
+//! and prints its line in `after_analysis`.
 #![feature(rustc_private)]
 
 extern crate rustc_abi;
@@ -55,7 +55,7 @@ fn in_generated_file(tcx: TyCtxt<'_>, span: Span) -> bool {
 
 /// Raw-pointer positions in the fields of a struct or union the crate
 /// declares (nested ones included, as for signatures), into
-/// `{raw,void}_ptr.field.{pub,priv}`.
+/// `raw_ptr.field.{pub,priv}`, with the erased ones as its `of_which.void`.
 ///
 /// `pub` is one reachability question -- can a consumer of this crate touch
 /// the field -- so it is the type being exported AND the field being
@@ -82,9 +82,13 @@ fn count_ptr_fields(
         let v = if reachable { "pub" } else { "priv" };
         let site = counter_site(tcx, tcx.def_span(f.did));
         for pointee in pointees {
-            let axis = if is_c_void(tcx, pointee) { "void_ptr" } else { "raw_ptr" };
-            *ptr.entry(format!("{axis}.field.{v}")).or_default() += 1;
-            sites.add(&format!("{axis}.field.{v}"), site.clone());
+            *ptr.entry(format!("raw_ptr.field.{v}")).or_default() += 1;
+            sites.add(&format!("raw_ptr.field.{v}"), site.clone());
+            if is_c_void(tcx, pointee) {
+                let k = format!("raw_ptr.field.of_which.void.{v}");
+                *ptr.entry(k.clone()).or_default() += 1;
+                sites.add(&k, site.clone());
+            }
         }
     }
 }
@@ -1181,6 +1185,12 @@ impl Callbacks for MetricsCallbacks {
                     }
                 });
 
+                // The declaration shares. The first six read std traits, so
+                // a crate that declares its lifecycle through a framework
+                // instead -- ffibox's `CDrop`, `CDispose`, `CDupClone` -- said
+                // something that none of them can see. `ffibox` is that
+                // statement, counted beside them so the residual below means
+                // what it says.
                 let shares = [
                     (t.drop_, "impl_drop"),
                     (t.clone, "impl_clone"),
@@ -1188,6 +1198,7 @@ impl Callbacks for MetricsCallbacks {
                     (t.deref, "impl_deref"),
                     (t.deref_mut, "impl_deref_mut"),
                     (t.send_sync, "impl_send_sync"),
+                    (is_ffibox() && implements_ffibox_trait(tcx, did), "ffibox"),
                     (pub_field, "pub_field"),
                 ];
                 for (yes, name) in shares {
@@ -1196,14 +1207,12 @@ impl Callbacks for MetricsCallbacks {
                     }
                 }
                 // `none` is the residual: the type stores a pointer and
-                // declares nothing about it. `pub_field` is not a declaration,
-                // so it does not rescue a type from the residual -- it is the
-                // opposite, an access the type does not govern.
-                if !shares[..6].iter().any(|(yes, _)| *yes) {
+                // declares nothing about it, in any vocabulary. `pub_field` is
+                // not a declaration, so it does not rescue a type from the
+                // residual -- it is the opposite, an access the type does not
+                // govern.
+                if !shares[..7].iter().any(|(yes, _)| *yes) {
                     bump(format!("ty.storing_raw_ptr.of_which.none.{vis}"));
-                }
-                if is_ffibox() && !implements_ffibox_trait(tcx, did) {
-                    bump(format!("ty.storing_raw_ptr.of_which.no_ffibox_trait.{vis}"));
                 }
             }
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union) {
@@ -1366,12 +1375,21 @@ impl Callbacks for MetricsCallbacks {
                     for (found, pos) in [(ins, "taken"), (outs, "returned")] {
                         let pos = if in_trait_impl { "in_impl" } else { pos };
                         for pointee in found {
-                            let axis = if is_c_void(tcx, pointee) { "void_ptr" } else { "raw_ptr" };
                             bump(&mut ptr, &mut sites,
-                                 format!("{axis}.{pos}.{safety}.{vis}"));
+                                 format!("raw_ptr.{pos}.{safety}.{vis}"));
                             if seam {
                                 bump(&mut ptr, &mut sites,
-                                     format!("{axis}.{pos}.of_which.seam.{safety}.{vis}"));
+                                     format!("raw_ptr.{pos}.of_which.seam.{safety}.{vis}"));
+                            }
+                            // A `*c_void` is a raw pointer with its pointee
+                            // erased, so it is a SHARE of the position rather
+                            // than a family beside it: a reader asking how
+                            // many raw pointers a signature carries should not
+                            // have to add two trees, and one asking how many
+                            // of them are typed subtracts this.
+                            if is_c_void(tcx, pointee) {
+                                bump(&mut ptr, &mut sites,
+                                     format!("raw_ptr.{pos}.of_which.void.{safety}.{vis}"));
                             }
                         }
                     }

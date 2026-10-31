@@ -42,10 +42,11 @@ pub fn taken_nonnull(_p: NonNull<u8>) {}
 /// raw_ptr.taken.safe.pub x2 -- both arguments count, independently.
 pub fn taken_twice(_a: *mut u8, _b: *const u16) {}
 
-/// void_ptr.taken.safe.pub -- `*c_void` goes to its own axis, not raw_ptr.
+/// raw_ptr.taken.safe.pub, and its `of_which.void` share -- a `*c_void` is a
+/// raw pointer whose pointee is erased, counted once and labelled.
 pub fn taken_void(_p: *mut c_void) {}
 
-/// void_ptr.returned.unsafe.pub
+/// raw_ptr.returned.unsafe.pub, and its `of_which.void` share
 #[must_use]
 pub unsafe fn returned_void() -> *const c_void {
     std::ptr::null()
