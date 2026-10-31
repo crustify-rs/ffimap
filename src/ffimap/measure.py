@@ -444,25 +444,19 @@ def flatten_ffibox(tree: dict) -> dict:
             flat[name] = v
     return flat
 
-def sys_crates(ws: Path, extra: list[str] | None = None) -> list[str]:
-    """The crates whose `#[repr(C)]` types are C's, by crate (lib target)
-    name: every package in the build's dependency graph with a Cargo `links`
-    key or named `*-sys` (bindings that link nothing themselves, such as
-    `pcre2-sys`, set no `links`), plus ``extra``. `cargo metadata` resolves the graph; when it cannot,
-    only the workspace's own packages are read."""
-    names: set[str] = {n.replace("-", "_") for n in extra or ()}
-    for args in (["--format-version", "1"], ["--no-deps", "--format-version", "1"]):
-        r = subprocess.run(["cargo", "metadata", *args], cwd=ws,
-                           capture_output=True, text=True)
-        if r.returncode == 0:
-            for pkg in json.loads(r.stdout)["packages"]:
-                if not (pkg.get("links") or pkg["name"].endswith(("-sys", "_sys"))):
-                    continue
-                libs = [t["name"] for t in pkg["targets"]
-                        if {"lib", "rlib", "staticlib", "cdylib", "dylib"} & set(t["kind"])]
-                names.update(n.replace("-", "_") for n in libs or [pkg["name"]])
-            break
-    return sorted(names)
+def sys_crates(named: list[str] | None = None) -> list[str]:
+    """The crates whose `#[repr(C)]` types are C's and whose types the field
+    walk descends through, by crate (lib target) name: exactly the ones
+    ``--sys-crates`` named, with `-` normalized to `_`.
+
+    They are not discovered. Both signals that look like they would do it
+    over-report: `prettyplease` carries a Cargo `links` key to detect
+    duplicate versions of itself, and bindgen's `clang_sys` matches `*-sys`,
+    yet neither is any part of the scanned crate's C surface. Each would land
+    in the peel set and have its `#[repr(C)]` types taken for C's. What the
+    caller names cannot be wrong that way, so an empty set means a crate with
+    no C below it rather than a crate whose C went unfound."""
+    return sorted({n.replace("-", "_") for n in named or ()})
 
 
 #: The `ptr` axis. The driver emits dotted leaves (`ptr_borrowed_c_layout.pub`,

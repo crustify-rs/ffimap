@@ -57,7 +57,7 @@ ffimap WORKSPACE [--json] [--ffibox] [--sys-crates CRATE[,CRATE...]]
 |---|---|
 | `--json` | Print the full JSON document instead of the summary. |
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). `all` names every counter that counts locations. |
-| `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, beside those found automatically (crates with a Cargo `links` key or named `*-sys`). Use it for bindings such as `libc`. |
+| `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, and descend through their types when deciding which types store a raw pointer. Name the crate's own bindings and anything else it reaches C through, such as `libc`. Nothing is discovered — a Cargo `links` key and a `*-sys` name both over-report — so unnamed means the scanned crate alone. |
 | `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |
 | `--ffibox` | The crate is built on [ffibox](https://github.com/crustify-rs/ffibox). Sanctions the conventions' `as_ref` / `as_mut` layout accessors, which are matched by name and so hold only where that convention does. The owner and handle record is emitted either way. |
 
@@ -68,7 +68,7 @@ The JSON document has these top-level fields:
 | Field | Contents |
 |---|---|
 | `crate_path` | The scanned workspace. |
-| `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's. |
+| `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's, as `--sys-crates` named them. |
 | `counts` | The compiler-derived counters, or `null` when the workspace could not be built. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `derived` | Ratios computed from `counts`, such as the share of public functions that are `unsafe`. |

@@ -107,10 +107,11 @@ cannot be read as facts:
   such casts) and git2-rs (42), the rule admitted no type that declarations and
   containment did not already reach, so it was removed.
 
-The `sys_crates` set -- packages with a Cargo `links` key or a `*-sys` name,
-plus any named by `--sys-crates` -- no longer decides whether a type is C's. It
-survives only to skip those crates' own emissions, which are generated
-bindings rather than the audit subject, and as a guard in wrapper detection.
+The `sys_crates` set -- exactly what `--sys-crates` names -- no longer decides
+whether a type is C's. It survives to skip those crates' own emissions, which
+are generated bindings rather than the audit subject, as a guard in wrapper
+detection, and as the peel set the field walk descends through (see
+docs/schema.md, The peel set).
 
 ## Wrappers
 

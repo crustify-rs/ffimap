@@ -90,9 +90,17 @@ pointer inside an ffibox owner is ffibox's, so a type holding a `CBox` is not a
 population is therefore the types that manage a pointer themselves, and
 delegation is counted separately rather than silently folded in.
 
-A `-sys` crate left unnamed drops its types out of the walk, and the counter
-reads low for a reason that is not in the code. This is not diagnosed: most
-crates that stop the walk do so legitimately, so a warning would be noise.
+The set is named, by `--sys-crates`, and never discovered. A Cargo `links`
+key and a `*-sys` name both over-report: `prettyplease` sets `links` to detect
+duplicate versions of itself, and bindgen's `clang_sys` matches the name, yet
+neither is any part of the scanned crate's C surface. Discovery put both in the
+peel set of libgit2-bindings and had their `#[repr(C)]` types taken for C's,
+which contradicts a rule whose whole value is being narrow.
+
+A `-sys` crate left unnamed therefore drops its types out of the walk, and the
+counter reads low for a reason that is not in the code. The summary prints the
+peel set, and says so when it is the scanned crate alone, so the omission is
+visible where the figures are read.
 
 ## 3. Calls
 

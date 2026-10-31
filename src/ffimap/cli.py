@@ -42,9 +42,13 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--sys-crates", type=lambda v: [c for c in v.split(",") if c], default=None,
         metavar="CRATE[,CRATE...]",
-        help="Crates whose #[repr(C)] types are C's, beside the ones found "
-             "automatically (every crate with a Cargo `links` key or named "
-             "`*-sys`). Use it for bindings that are neither, such as `libc`.")
+        help="Crates whose #[repr(C)] types are C's: the crate's own "
+             "bindings and any other crate it reaches C through, such as "
+             "`libc`. The field walk descends through them too, so a pointer "
+             "a scanned type holds through one is counted as the scanned "
+             "crate's to manage. Nothing is discovered: a Cargo `links` key "
+             "and a `*-sys` name both over-report, so unnamed means the peel "
+             "set is the scanned crate alone.")
     p.add_argument(
         "--seams", type=lambda v: [n for n in v.replace(",", "\n").split() if n],
         default=None, metavar="NAMES",

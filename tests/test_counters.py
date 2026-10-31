@@ -201,17 +201,22 @@ class SysCrateTests(unittest.TestCase):
         self.assertEqual(seen, 1)
         self.assertEqual(counts["unsafe_blocks"], 1)
 
-    def test_sys_crates_reads_links_keys(self) -> None:
+    def test_sys_crates_are_exactly_the_named_ones(self) -> None:
+        self.assertEqual(
+            measure.sys_crates(["libgit2-sys", "libc", "libgit2_sys"]),
+            ["libc", "libgit2_sys"])
+        self.assertEqual(measure.sys_crates(None), [])
+
+    def test_sys_crates_are_never_discovered(self) -> None:
+        """A Cargo `links` key and a `*-sys` name both over-report, so the peel
+        set is named and nothing is read from the build graph: `prettyplease`
+        sets `links` to detect duplicate versions of itself, and bindgen's
+        `clang_sys` matches the name, yet neither is part of the scanned
+        crate's C surface. See docs/schema.md, The peel set."""
         from unittest import mock
-        meta = {"packages": [
-            {"name": "libgit2-sys", "links": "git2",
-             "targets": [{"name": "libgit2_sys", "kind": ["lib"]}]},
-            {"name": "pcre2-sys", "links": None,
-             "targets": [{"name": "pcre2_sys", "kind": ["lib"]}]},
-            {"name": "git2", "links": None, "targets": [{"name": "git2", "kind": ["lib"]}]}]}
-        done = mock.Mock(returncode=0, stdout=json.dumps(meta))
-        with mock.patch("ffimap.measure.subprocess.run", return_value=done):
-            self.assertEqual(measure.sys_crates(Path("."), ["libc"]), ["libc", "libgit2_sys", "pcre2_sys"])
+        with mock.patch("ffimap.measure.subprocess.run") as run:
+            self.assertEqual(measure.sys_crates(["libc"]), ["libc"])
+        run.assert_not_called()
 
 
 class PartitionTests(unittest.TestCase):

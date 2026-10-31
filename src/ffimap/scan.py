@@ -58,14 +58,15 @@ def compose(workspace: Path, sites: list[str] | None = None,
     record beside ``counts`` with one list per counter. ``ffibox`` asserts the
     crate is built on ffibox, which sanctions the conventions' ``as_ref`` /
     ``as_mut`` layout accessors; the owner and handle record is composed
-    either way. ``sys_crates`` add to the
-    sys crates found by Cargo's `links` keys; the set is recorded in
-    ``sys_crates``, since which types are C's rests on it. ``seams`` names the
+    either way. ``sys_crates`` names the crates
+    whose `#[repr(C)]` types are C's and whose types the field walk descends
+    through; nothing is discovered, since which types are C's rests on it. The
+    set is recorded in ``sys_crates``. ``seams`` names the
     functions that only convert between a wrapper and its raw pointer; they
     are reported as the ``of_which.seam`` share of each fn-signature counter.
     """
     wanted = site_counters(sites) if sites else None
-    sys = measure.sys_crates(workspace, sys_crates)
+    sys = measure.sys_crates(sys_crates)
     doc: dict = {"crate_path": str(workspace), "sys_crates": sys}
     all_sites: dict = {}
     flat: dict = {}
@@ -141,6 +142,12 @@ def summarize(doc: dict) -> str:
     c = measure.flatten_counts(doc.get("counts") or {})
     d = doc.get("derived", {})
     lines: list[str] = []
+    sys = doc.get("sys_crates")
+    if sys is not None:
+        lines.append(
+            f"  peel set             {', '.join(sys) if sys else 'the scanned crate only'}"
+            + ("" if sys else "   (no --sys-crates: a type's pointer held through"
+                              " a -sys crate is not counted)"))
     if c:
         lines += [
             f"  code lines           {c.get('code_lines')}",
