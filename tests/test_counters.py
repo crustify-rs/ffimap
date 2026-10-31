@@ -52,6 +52,26 @@ class MergeTests(unittest.TestCase):
 
 
 
+class SiteFamilyTests(unittest.TestCase):
+    def test_every_counter_family_the_driver_emits_takes_sites(self) -> None:
+        """`--sites` validates a dotted path against the prefix and the family
+        under it. A family the driver emits but the table omits is rejected,
+        which is how `raw_ptr.field` and `raw_ptr.in_impl` were unreachable
+        when each was added.
+        """
+        src = MAIN_RS.read_text()
+        emitted: set[tuple[str, str]] = set()
+        for m in re.finditer(r'"((?:raw_ptr|void_ptr|ty|fn|code)\.[\w.{}]+)"', src):
+            head, _, rest = m.group(1).partition(".")
+            fam = rest.partition(".")[0]
+            if fam and not fam.startswith("{"):
+                emitted.add((head, fam))
+        for head, fam in sorted(emitted):
+            with self.subTest(counter=f"{head}.{fam}"):
+                self.assertIn(fam, measure.TREE_SITE_FAMILIES[head])
+                self.assertTrue(measure.is_tree_counter(f"{head}.{fam}.x"))
+
+
 class SysCrateTests(unittest.TestCase):
     def test_emissions_of_sys_crates_are_skipped_by_name_or_links(self) -> None:
         line = lambda crate: json.dumps(

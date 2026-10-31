@@ -137,26 +137,37 @@
         "priv": 5,
         "total": 5
       },
+      "in_impl": {
+        "safe": {
+          "pub": 7,
+          "total": 7
+        },
+        "unsafe": {
+          "priv": 2,
+          "pub": 55,
+          "total": 57
+        },
+        "total": 64
+      },
       "returned": {
         "safe": {
           "priv": 74,
-          "pub": 9,
-          "total": 83
+          "pub": 2,
+          "total": 76
         },
         "unsafe": {
           "priv": 4,
-          "pub": 5,
-          "total": 9
+          "total": 4
         },
-        "total": 92
+        "total": 80
       },
       "taken": {
         "unsafe": {
-          "priv": 114,
-          "pub": 52,
-          "total": 166
+          "priv": 112,
+          "pub": 2,
+          "total": 114
         },
-        "total": 166
+        "total": 114
       }
     },
     "ty": {
@@ -323,6 +334,6 @@
   "derived": {
     "fns_pub": 2403,
     "fns_priv": 352,
-    "raw_ptr_pub_safe_interface": 9
+    "raw_ptr_pub_safe_interface": 2
   }
 }

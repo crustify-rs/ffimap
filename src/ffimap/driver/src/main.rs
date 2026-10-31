@@ -1339,7 +1339,24 @@ impl Callbacks for MetricsCallbacks {
                     // the call site; one that RETURNS a raw pointer still
                     // forces the caller to write `unsafe` before it means
                     // anything.
+                    //
+                    // A position in a trait impl's method goes to `in_impl`
+                    // instead, both directions in one counter. The crate did
+                    // not choose to put a raw pointer there: the trait fixed
+                    // the signature, one declaration dictating the position in
+                    // every impl of it, and no consumer of the safe API is
+                    // routed to it -- ffibox's `CDrop::c_drop(NonNull<T>)` is
+                    // the strategy that exists so that a consumer never holds
+                    // a pointer. Mixing those into `taken` makes the hazard
+                    // count move with how many types a lifecycle trait is
+                    // implemented for. The direction is dropped because it
+                    // says nothing once the signature is not the crate's:
+                    // what is left is "the trait's shape reaches a pointer
+                    // here".
                     let seam = is_seam_fn(tcx, did);
+                    let in_trait_impl = tcx.opt_parent(did).is_some_and(|parent| {
+                        matches!(tcx.def_kind(parent), DefKind::Impl { of_trait: true })
+                    });
                     let mut ins = Vec::new();
                     for t in sig.inputs() {
                         raw_pointees(tcx, *t, &mut ins);
@@ -1347,6 +1364,7 @@ impl Callbacks for MetricsCallbacks {
                     let mut outs = Vec::new();
                     raw_pointees(tcx, sig.output(), &mut outs);
                     for (found, pos) in [(ins, "taken"), (outs, "returned")] {
+                        let pos = if in_trait_impl { "in_impl" } else { pos };
                         for pointee in found {
                             let axis = if is_c_void(tcx, pointee) { "void_ptr" } else { "raw_ptr" };
                             bump(&mut ptr, &mut sites,

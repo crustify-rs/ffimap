@@ -112,9 +112,11 @@ def _derive(counts: dict | None) -> dict:
         "fns_priv": _at(counts, "fn.total.priv"),
         # The raw pointers a consumer meets without writing `unsafe`: those a
         # public safe fn takes or returns, and those in a public field of a
-        # public type. `raw_ptr_pub` used to sit beside this and summed the
-        # private fields of public types too, which are not public surface;
-        # it is gone rather than kept as a second, looser answer.
+        # public type. `raw_ptr.in_impl` is deliberately NOT in it: a trait
+        # fixed those positions, and no safe API routes a consumer to them.
+        # `raw_ptr_pub` used to sit beside this and summed the private fields
+        # of public types too, which are not public surface; it is gone rather
+        # than kept as a second, looser answer.
         "raw_ptr_pub_safe_interface": _at(counts, "raw_ptr.field.pub")
         + _at(counts, "raw_ptr.taken.safe.pub")
         + _at(counts, "raw_ptr.returned.safe.pub"),

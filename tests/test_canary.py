@@ -258,6 +258,23 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(self.at("raw_ptr.deref.rd"), 4)
         self.assertEqual(self.at("raw_ptr.deref.wr"), 3)
 
+    def test_a_trait_impls_pointer_positions_go_to_in_impl(self) -> None:
+        """`RawSeam::round_trip` takes one and returns one, implemented for
+        two types: 4 positions, both directions in one counter.
+
+        None of them reaches `taken` or `returned`. The crate did not choose
+        the position -- one trait declaration dictates it in every impl -- so
+        counting them there makes the hazard move with how many types
+        implement the trait. That is what read 63 of git2-rs' 66 "raw pointers
+        returned by a public safe fn": its `Binding` trait, once.
+        """
+        self.assertEqual(self.at("raw_ptr.in_impl.safe.pub"), 4)
+        self.assertEqual(self.at("raw_ptr.in_impl.unsafe.pub"), 0)
+        # `taken.safe.pub` is the free and inherent fns only, unchanged by the
+        # two impls above.
+        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 7)
+        self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
+
     def test_fn_partition_sums_to_total(self) -> None:
         for vis in ("pub", "priv"):
             with self.subTest(vis=vis):

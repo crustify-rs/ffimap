@@ -12,6 +12,8 @@ raw_ptr.
   taken.of_which.seam.{safe,unsafe}.{pub,priv}
   returned.{safe,unsafe}.{pub,priv}
   returned.of_which.seam.{safe,unsafe}.{pub,priv}
+  in_impl.{safe,unsafe}.{pub,priv}
+  in_impl.of_which.seam.{safe,unsafe}.{pub,priv}
   field.{pub,priv}
   deref.{rd,wr}
   casted_to.{std,ffibox,local_seam}.{borrow,slice,string,owner,other}
@@ -21,6 +23,8 @@ void_ptr.
   taken.of_which.seam.{safe,unsafe}.{pub,priv}
   returned.{safe,unsafe}.{pub,priv}
   returned.of_which.seam.{safe,unsafe}.{pub,priv}
+  in_impl.{safe,unsafe}.{pub,priv}
+  in_impl.of_which.seam.{safe,unsafe}.{pub,priv}
   field.{pub,priv}
 
 ty.
@@ -56,6 +60,17 @@ code.
 The counters are the whole of the document's `counts`. There is no second,
 flat counter block beside them, and no prose rendering of them: a reader who
 wants a rate divides the leaves it names.
+
+`{raw,void}_ptr.in_impl` holds the positions in a trait impl's method, both
+directions in one counter. The crate did not choose the position there: the
+trait fixed the signature, one declaration dictating a position in every impl
+of it, and no consumer of the safe API is routed to it -- ffibox's
+`CDrop::c_drop(NonNull<T>)` is the strategy that exists so a consumer never
+holds a pointer. Mixing them into `taken` or `returned` makes the hazard count
+move with how many types a trait is implemented for, which is what read 61 of
+git2-rs' 66 pointers "returned by a public safe fn": its `Binding` trait,
+once. The direction is dropped with the choice: what is left to say is that
+the trait's shape reaches a pointer here.
 
 `{raw,void}_ptr.field.pub` is one reachability question -- can a consumer of
 the crate touch the field -- so it is the type being exported AND the field

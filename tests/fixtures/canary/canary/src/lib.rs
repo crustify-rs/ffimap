@@ -269,3 +269,25 @@ macro_rules! impl_stub_display {
 }
 
 impl_stub_display!(Owned);
+
+/// A trait whose shape puts a raw pointer in every impl's signature: one
+/// declaration, a position per implementing type. Its positions go to
+/// `raw_ptr.in_impl`, not to `raw_ptr.{taken,returned}` -- the crate did not
+/// choose the position here, and no consumer of the safe API is routed to it.
+/// This is git2-rs's `Binding` and ffibox's `CDrop` in miniature.
+pub trait RawSeam {
+    /// Takes one and returns one: both land in the same `in_impl` counter.
+    fn round_trip(&self, p: *mut u8) -> *mut u8;
+}
+
+impl RawSeam for Owned {
+    fn round_trip(&self, p: *mut u8) -> *mut u8 {
+        p
+    }
+}
+
+impl RawSeam for Borrowed<'_> {
+    fn round_trip(&self, p: *mut u8) -> *mut u8 {
+        p
+    }
+}
