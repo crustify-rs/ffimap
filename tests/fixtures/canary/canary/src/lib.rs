@@ -149,8 +149,12 @@ pub struct Owned {
 }
 
 impl Drop for Owned {
+    /// A safe method of a foreign trait whose body frees through FFI: the
+    /// shape `fn.safe.of_which.with_unsafe` exists for, and the one a
+    /// counter that skipped trait impls could not see.
     fn drop(&mut self) {
-        let _ = self.p;
+        // SAFETY: canary fixture -- `c_fn` is a no-op stub.
+        unsafe { c_fn(self.p) };
     }
 }
 
@@ -251,3 +255,17 @@ pub fn deref_write(p: *mut u8) {
         *p = 1;
     }
 }
+
+/// A trait impl a macro wrote: counted like any other, and carried by
+/// `fn.total.of_which.macro` so a reader can subtract the boilerplate.
+macro_rules! impl_stub_display {
+    ($t:ty) => {
+        impl core::fmt::Display for $t {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str("stub")
+            }
+        }
+    };
+}
+
+impl_stub_display!(Owned);

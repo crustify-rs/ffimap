@@ -30,19 +30,26 @@
       "safe": {
         "of_which": {
           "with_unsafe": {
-            "priv": 30,
-            "pub": 662,
-            "total": 692
+            "priv": 53,
+            "pub": 742,
+            "total": 795
           }
         },
-        "priv": 628,
-        "pub": 1743,
-        "total": 2371
+        "priv": 1251,
+        "pub": 2602,
+        "total": 3853
       },
       "total": {
-        "priv": 640,
-        "pub": 1855,
-        "total": 2495
+        "of_which": {
+          "macro": {
+            "priv": 1123,
+            "pub": 1227,
+            "total": 2350
+          }
+        },
+        "priv": 1263,
+        "pub": 2714,
+        "total": 3977
       },
       "unsafe": {
         "priv": 12,
@@ -170,8 +177,8 @@
   },
   "counts_unavailable": null,
   "derived": {
-    "fns_pub": 1855,
-    "fns_priv": 640,
+    "fns_pub": 2714,
+    "fns_priv": 1263,
     "raw_ptr_pub_safe_interface": 66
   }
 }

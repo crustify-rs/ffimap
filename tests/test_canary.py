@@ -143,10 +143,10 @@ class CanaryTests(unittest.TestCase):
     # ----------------------------------------------------------------- calls
 
     def test_call_arms(self) -> None:
-        # c_fn, canary_sys::sys_c_fn, and the call through the stored
+        # c_fn, canary_sys::sys_c_fn, the call through the stored
         # `unsafe extern "C" fn` field -- which has no callee item at all, so
-        # an is_foreign_item test misses it.
-        self.assertEqual(self.at("code.unsafe_call.ffi"), 3)
+        # an is_foreign_item test misses it -- and `Owned::drop`'s free.
+        self.assertEqual(self.at("code.unsafe_call.ffi"), 4)
         # transmute. Marked #[rustc_intrinsic] with the Rust ABI, so an ABI
         # test alone would file it under `rust`.
         self.assertEqual(self.at("code.unsafe_call.intrinsic"), 1)
@@ -160,7 +160,7 @@ class CanaryTests(unittest.TestCase):
         It is the shape of a port campaign's ffi_export gateway. Were safety
         not gating membership, every call to one would be booked as FFI.
         """
-        self.assertEqual(self.at("code.unsafe_call.ffi"), 3)
+        self.assertEqual(self.at("code.unsafe_call.ffi"), 4)
 
     # ----------------------------------------------------------------- types
 
@@ -217,13 +217,42 @@ class CanaryTests(unittest.TestCase):
     # ------------------------------------------------------------- fn bodies
 
     def test_with_unsafe_is_counted_on_the_safe_arm_only(self) -> None:
-        """safe_with_unsafe and deref_write, not unsafe_with_unsafe.
+        """Five: `safe_with_unsafe`, `deref_write`, and the three trait-impl
+        methods -- `Owned::drop`, `Viewing::deref`, `Viewing::deref_mut`.
+        Not `unsafe_with_unsafe`.
 
         With `unsafe_op_in_unsafe_fn` denied, every `unsafe fn` doing anything
         raw has a block by construction, so counting it there would measure
         the lint rather than the code.
         """
-        self.assertEqual(self.at("fn.safe.of_which.with_unsafe.pub"), 2)
+        self.assertEqual(self.at("fn.safe.of_which.with_unsafe.pub"), 5)
+
+    def test_a_trait_impl_method_reaches_the_fn_family(self) -> None:
+        """A safe method of a foreign trait whose body holds unsafe is the
+        hazard the counter exists for -- `impl Drop for Foo { fn drop }` that
+        frees through FFI, and `Deref::deref` that builds a reference from a
+        raw pointer. Three of the five above are those, so a rule that skipped
+        trait impls would read 2.
+        """
+        sites = scan.compose(FIXTURE, seams=["from_raw"],
+                             sys_crates=["canary-sys"],
+                             sites=["fn.safe.of_which.with_unsafe.pub"])["sites"]
+        lines = {l for r in sites["fn.safe.of_which.with_unsafe.pub"]
+                 for l in r["lines"]}
+        src = (FIXTURE / "canary" / "src" / "lib.rs").read_text().splitlines()
+        named = {src[l - 1].strip() for l in lines}
+        self.assertIn("fn drop(&mut self) {", named)
+        self.assertIn("fn deref(&self) -> &u8 {", named)
+        self.assertIn("fn deref_mut(&mut self) -> &mut u8 {", named)
+
+    def test_a_macro_written_method_is_counted_and_marked(self) -> None:
+        """`impl_stub_display!(Owned)` writes one `Display::fmt`. It counts
+        like any other method -- it is compiled into this crate -- and the
+        share says so, which is what lets a reader subtract the boilerplate
+        `bitflags!` and `#[derive]` generate.
+        """
+        self.assertEqual(self.at("fn.total.of_which.macro.pub"), 1)
+        self.assertEqual(self.at("fn.total.of_which.macro.priv"), 0)
 
     def test_deref_split(self) -> None:
         self.assertEqual(self.at("raw_ptr.deref.rd"), 4)

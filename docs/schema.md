@@ -44,6 +44,7 @@ fn.
   unsafe.{pub,priv}
   ffibox.{taken,returned}.<primitive>.{pub,priv}     --ffibox
   total.{pub,priv}
+  total.of_which.macro.{pub,priv}
 
 code.
   loc.{total,unsafe}
@@ -61,6 +62,21 @@ the crate touch the field -- so it is the type being exported AND the field
 being exported, rather than two levels a reader has to combine.
 
 `fn.total` and `code.unsafe_call` totals are derived from their partitions.
+
+`fn.*` counts every function the crate defines, the methods of its trait impls
+included. A method implementing another crate's trait is still this crate's
+code: that crate fixed the signature's shape, not what the body does, and
+`impl Drop for Foo { fn drop }` is where a wrapper's unsafe free lives -- the
+one case `fn.safe.of_which.with_unsafe` exists for. A foreign *declaration*,
+an item in an `extern` block, is excluded by having no body to walk.
+
+Counting them makes the family sensitive to boilerplate a macro wrote:
+`#[derive]`, `bitflags!`, ffibox's `define_ctype!`. On libgit2-bindings that is
+802 of 2755 and on git2-rs 2350 of 3977, most of the latter from `bitflags!`.
+It is counted anyway -- what a macro emitted is compiled into the crate and
+runs like a hand-written method, the grounds `code.unsafe_block` already
+stands on -- and `fn.total.of_which.macro` carries the share, so a reader
+after the hand-written total subtracts it.
 
 ### 1.1 Vocabularies
 
@@ -338,12 +354,6 @@ fixture it reads 13, of which 1 is a call to the crate's own `unsafe fn` and
 calls `casted_to` already classifies. Splitting the arm into own-crate and
 dependency would separate "wrote unsafe helpers" from "used std's unsafe API";
 until it is split, the arm is not a measure of the crate's own unsafety.
-
-A trait impl's methods are outside `fn.*`, so a safe `Deref::deref` with an
-unsafe block in it does not reach `fn.safe.of_which.with_unsafe`. That is the
-`OidArray` shape -- the one `ty.storing_raw_ptr.of_which.impl_deref` exists to
-flag -- so the two counters disagree about it by construction, and the type
-counter is the one to read.
 
 `code.unsafe_call.ffi` counts calls through function pointers, which earlier
 versions keyed on `is_foreign_item` and missed. Figures measured before this

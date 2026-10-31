@@ -85,24 +85,31 @@
       "safe": {
         "of_which": {
           "with_unsafe": {
-            "priv": 53,
-            "pub": 756,
-            "total": 809
+            "priv": 54,
+            "pub": 804,
+            "total": 858
           }
         },
-        "priv": 242,
-        "pub": 1276,
-        "total": 1518
+        "priv": 260,
+        "pub": 2305,
+        "total": 2565
       },
       "total": {
-        "priv": 332,
-        "pub": 1324,
-        "total": 1656
+        "of_which": {
+          "macro": {
+            "priv": 23,
+            "pub": 779,
+            "total": 802
+          }
+        },
+        "priv": 352,
+        "pub": 2403,
+        "total": 2755
       },
       "unsafe": {
-        "priv": 90,
-        "pub": 48,
-        "total": 138
+        "priv": 92,
+        "pub": 98,
+        "total": 190
       }
     },
     "raw_ptr": {
@@ -133,22 +140,23 @@
       "returned": {
         "safe": {
           "priv": 74,
-          "pub": 2,
-          "total": 76
+          "pub": 9,
+          "total": 83
         },
         "unsafe": {
           "priv": 4,
-          "total": 4
+          "pub": 5,
+          "total": 9
         },
-        "total": 80
+        "total": 92
       },
       "taken": {
         "unsafe": {
-          "priv": 112,
-          "pub": 2,
-          "total": 114
+          "priv": 114,
+          "pub": 52,
+          "total": 166
         },
-        "total": 114
+        "total": 166
       }
     },
     "ty": {
@@ -313,8 +321,8 @@
   },
   "counts_unavailable": null,
   "derived": {
-    "fns_pub": 1324,
-    "fns_priv": 332,
-    "raw_ptr_pub_safe_interface": 2
+    "fns_pub": 2403,
+    "fns_priv": 352,
+    "raw_ptr_pub_safe_interface": 9
   }
 }

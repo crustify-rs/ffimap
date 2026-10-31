@@ -53,17 +53,6 @@ fn in_generated_file(tcx: TyCtxt<'_>, span: Span) -> bool {
         || file.ends_with("bindings.rs")
 }
 
-/// True when `did` is a method of an impl of a trait another crate defines
-/// (`Clone`, `Drop`, ffibox's `CDrop`, ..). That crate fixed its signature, so
-/// its raw pointers and `unsafe` are not the measured crate's surface.
-fn in_foreign_trait_impl(tcx: TyCtxt<'_>, did: DefId) -> bool {
-    let Some(parent) = tcx.opt_parent(did) else {
-        return false;
-    };
-    matches!(tcx.def_kind(parent), DefKind::Impl { of_trait: true })
-        && !tcx.impl_trait_ref(parent).skip_binder().def_id.is_local()
-}
-
 /// Raw-pointer positions in the fields of a struct or union the crate
 /// declares (nested ones included, as for signatures), into
 /// `{raw,void}_ptr.field.{pub,priv}`.
@@ -1293,12 +1282,24 @@ impl Callbacks for MetricsCallbacks {
             // Signature analysis (fns only).
             if matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn) {
                 let sig = tcx.fn_sig(did).skip_binder().skip_binder();
-                let foreign = in_foreign_trait_impl(tcx, did);
                 let safe = !sig.safety().is_unsafe();
-                // `fn.*` and the pointer positions. A foreign declaration
-                // is C's own surface, not the crate's, so it is left out of
-                // both.
-                if !foreign {
+                // Every fn the crate defines, the methods of its trait impls
+                // included. A method implementing another crate's trait is
+                // still this crate's code: that crate fixed the signature's
+                // shape, not what the body does, and `impl Drop for Foo` is
+                // where a wrapper's unsafe free lives. A foreign DECLARATION
+                // is excluded already, by having no body to walk.
+                //
+                // Counting them makes the family sensitive to boilerplate a
+                // macro wrote -- `#[derive]`, `bitflags!`, ffibox's
+                // `define_ctype!` -- which on these crates is the larger part
+                // of it. That is not a reason to drop them: what a macro
+                // emitted is compiled into this crate and runs like a
+                // hand-written method, the grounds the unsafe-block metrics
+                // already stand on. It is a reason to say which is which, so
+                // `fn.total.of_which.macro` carries the share and a reader
+                // after the hand-written total subtracts it.
+                {
                     let vis = if exported { "pub" } else { "priv" };
                     let safety = if safe { "safe" } else { "unsafe" };
                     let site = counter_site(tcx, tcx.def_span(did));
@@ -1312,6 +1313,10 @@ impl Callbacks for MetricsCallbacks {
                     // the same {pub,priv} split as its numerators for
                     // `fn.safe.pub / fn.total.pub` to be a ratio at all.
                     bump(&mut ptr, &mut sites, format!("fn.total.{vis}"));
+                    if tcx.def_span(did).from_expansion() {
+                        bump(&mut ptr, &mut sites,
+                             format!("fn.total.of_which.macro.{vis}"));
+                    }
                     // Counted on the safe arm only. With
                     // `unsafe_op_in_unsafe_fn` denied every `unsafe fn` doing
                     // anything raw has a block by construction, so counting
