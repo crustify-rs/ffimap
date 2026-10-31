@@ -35,10 +35,11 @@ ty.
 
   impl_trait.{pub,priv}
   impl_trait.of_which.unsafe
+  impl_trait.of_which.derived.{pub,priv}
   impl_trait.of_which.{std,local}.{pub,priv}
   impl_trait.of_which.ffibox.{pub,priv}              --ffibox
-  impl_trait.ffibox.<trait>.{handwritten,macro}      --ffibox
-  impl_trait.send_sync.{send,sync}.{pub,priv}
+  impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}  --ffibox
+  impl_trait.of_which.send_sync.{send,sync}.{pub,priv}
 
   generic.{pub,priv}
   generic.of_which.{lifetime,type}.{pub,priv}
@@ -114,6 +115,22 @@ exclusive ones, 208 on everything else.
 is a shape the crate chose; a std or framework one it adopted. On
 libgit2-bindings 1765 std, 193 ffibox, 2 local; on git2-rs 1704 std and 115
 local, the latter mostly its own `Binding`.
+
+The `std` arm is that large because of `#[derive]`, not because the crates
+implement std by hand: `of_which.derived` is 1171 of libgit2-bindings' 1960
+trait impls and 630 of git2-rs' 1863, so the hand-written std impls are 594
+and 1074. Without that share a reader comparing vocabularies is reading how
+many derives each crate spells. It is the counterpart of
+`fn.total.of_which.macro`, and the reason `of_which.unsafe` has always skipped
+`TrivialClone`.
+
+Every sub-classification of the same impls sits under `of_which`, nested where
+it refines another share: `of_which.ffibox.of_which.<trait>` is the ffibox
+impls by trait. That is not cosmetic. `ty.impl` used to carry an emitted
+`total`, which protected it; splitting it into `{pub,priv}` let `nest_ptr`
+derive the total from every child, and the two sub-classifications beside it
+pushed `impl_trait.total` to 2297 against the 1960 impls there are. It is 1960
+now, and `impl_block` 408 + `impl_trait` 1960 = 2368, the old merged figure.
 
 `ty.total.of_which.{std_trait,local_trait,ffibox_trait,no_trait}` asks the
 same of TYPES rather than impls, and is the denominator the

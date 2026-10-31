@@ -1358,6 +1358,14 @@ impl Callbacks for MetricsCallbacks {
                         tree_bump(&mut ptr, &mut sites, tcx, did,
                                   &format!("ty.impl_trait.of_which.{whose}.{self_vis}"));
                     }
+                    // Of those, the ones a `#[derive]` wrote. Nobody typed
+                    // them, and on these crates they are most of the `std`
+                    // arm, so a reader comparing vocabularies without this
+                    // share is reading how many derives each crate spells.
+                    if tcx.is_automatically_derived(did) {
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  &format!("ty.impl_trait.of_which.derived.{self_vis}"));
+                    }
                     // `TrivialClone` is a compiler-internal marker that
                     // `#[derive(Clone)]` emits as an `unsafe impl`. It asserts
                     // nothing the author wrote, and on libgit2-bindings it is
@@ -1377,7 +1385,7 @@ impl Callbacks for MetricsCallbacks {
                         if let n @ ("Send" | "Sync") = tcx.item_name(tr_did).as_str() {
                             let n = n.to_lowercase();
                             tree_bump(&mut ptr, &mut sites, tcx, did,
-                                      &format!("ty.impl_trait.send_sync.{n}.{self_vis}"));
+                                      &format!("ty.impl_trait.of_which.send_sync.{n}.{self_vis}"));
                         }
                     }
                     // ffibox's vocabulary, split by whether the impl was
@@ -1393,7 +1401,7 @@ impl Callbacks for MetricsCallbacks {
                                 "handwritten"
                             };
                             tree_bump(&mut ptr, &mut sites, tcx, did,
-                                      &format!("ty.impl_trait.ffibox.{n}.{how}"));
+                                      &format!("ty.impl_trait.of_which.ffibox.of_which.{n}.{how}"));
                         }
                     }
                 }

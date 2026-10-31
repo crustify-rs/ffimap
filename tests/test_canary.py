@@ -219,7 +219,7 @@ class CanaryTests(unittest.TestCase):
         two, and no other combination of the fixture's types gives 9.
         """
         self.assertEqual(self.at("ty.storing_raw_ptr.pub"), 9)
-        self.assertEqual(self.at("ty.total.pub"), 14)
+        self.assertEqual(self.at("ty.total.pub"), 15)
 
     def test_an_unnamed_sys_crate_leaves_the_peel_set(self) -> None:
         """The peel set is named, so omitting `canary-sys` drops ThroughSys.
@@ -238,8 +238,8 @@ class CanaryTests(unittest.TestCase):
 
     def test_unsafe_impls(self) -> None:
         self.assertEqual(self.at("ty.impl_trait.of_which.unsafe"), 2)
-        self.assertEqual(self.at("ty.impl_trait.send_sync.send.pub"), 1)
-        self.assertEqual(self.at("ty.impl_trait.send_sync.sync.pub"), 1)
+        self.assertEqual(self.at("ty.impl_trait.of_which.send_sync.send.pub"), 1)
+        self.assertEqual(self.at("ty.impl_trait.of_which.send_sync.sync.pub"), 1)
 
     # ------------------------------------------------------------- fn bodies
 
@@ -278,7 +278,10 @@ class CanaryTests(unittest.TestCase):
         share says so, which is what lets a reader subtract the boilerplate
         `bitflags!` and `#[derive]` generate.
         """
-        self.assertEqual(self.at("fn.total.of_which.macro.pub"), 1)
+        # Three: `Display::fmt` from the macro, and `Debug::fmt` plus
+        # `Default::default` from `Derived`'s `#[derive]`, which is an
+        # expansion like any other.
+        self.assertEqual(self.at("fn.total.of_which.macro.pub"), 3)
         self.assertEqual(self.at("fn.total.of_which.macro.priv"), 0)
 
     def test_deref_split(self) -> None:
@@ -314,8 +317,18 @@ class CanaryTests(unittest.TestCase):
         # `RawSeam`, the fixture's own trait, implemented for two types.
         self.assertEqual(self.at("ty.impl_trait.of_which.local.pub"), 2)
         # std's, across the workspace: Drop, Clone, Deref, DerefMut, Send,
-        # Sync, the macro-written Display, and the vendor crate's Default.
-        self.assertEqual(self.at("ty.impl_trait.of_which.std.pub"), 8)
+        # Sync, the macro-written Display, the vendor crate's Default, and
+        # `Derived`'s two derives.
+        self.assertEqual(self.at("ty.impl_trait.of_which.std.pub"), 10)
+
+    def test_derived_impls_are_a_share_of_the_trait_impls(self) -> None:
+        """`#[derive(Debug, Default)]` on `Derived` writes two impls nobody
+        typed. On the real crates that share is most of the `std` arm -- 1171
+        of libgit2-bindings' 1960 trait impls and 630 of git2-rs' 1863 -- so a
+        reader comparing vocabularies without it is reading how many derives
+        each crate spells.
+        """
+        self.assertEqual(self.at("ty.impl_trait.of_which.derived.pub"), 2)
 
     def test_generic_types_split_by_parameter_kind(self) -> None:
         """`Borrowed<'a>` over a lifetime, `Generic<T>` over a type. Both hold
@@ -327,9 +340,10 @@ class CanaryTests(unittest.TestCase):
         """The denominator `ty.storing_raw_ptr`'s shares lacked: how many
         types speak each vocabulary at all. Shares, not a partition -- `Owned`
         implements std traits AND the fixture's own `RawSeam`."""
-        self.assertEqual(self.at("ty.total.pub"), 14)
+        self.assertEqual(self.at("ty.total.pub"), 15)
         self.assertEqual(self.at("ty.total.of_which.local_trait.pub"), 2)
-        self.assertEqual(self.at("ty.total.of_which.std_trait.pub"), 4)
+        # `Derived` joins the std-trait share.
+        self.assertEqual(self.at("ty.total.of_which.std_trait.pub"), 5)
         self.assertEqual(self.at("ty.total.of_which.no_trait.pub"), 9)
         # 2 + 4 + 9 = 15 over 14 types: `Owned` implements both `Drop` and
         # the fixture's own `RawSeam`, so the arms are shares and a reader

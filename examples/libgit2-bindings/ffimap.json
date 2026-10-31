@@ -279,66 +279,70 @@
         "total": 408
       },
       "impl_trait": {
-        "ffibox": {
-          "CAlloc": {
-            "handwritten": 1,
-            "total": 1
-          },
-          "CAllocZeroed": {
-            "handwritten": 1,
-            "total": 1
-          },
-          "CCell": {
-            "handwritten": 32,
-            "macro": 33,
-            "total": 65
-          },
-          "CDispose": {
-            "handwritten": 5,
-            "total": 5
-          },
-          "CDrop": {
-            "handwritten": 22,
-            "macro": 14,
-            "total": 36
-          },
-          "CDupClone": {
-            "handwritten": 2,
-            "macro": 2,
-            "total": 4
-          },
-          "CLenClone": {
-            "macro": 1,
-            "total": 1
-          },
-          "CLenDrop": {
-            "macro": 1,
-            "total": 1
-          },
-          "CMutSeam": {
-            "macro": 33,
-            "total": 33
-          },
-          "CNew": {
-            "handwritten": 5,
-            "total": 5
-          },
-          "CRefClone": {
-            "handwritten": 5,
-            "total": 5
-          },
-          "CRefSeam": {
-            "macro": 33,
-            "total": 33
-          },
-          "CZeroable": {
-            "handwritten": 3,
-            "total": 3
-          },
-          "total": 193
-        },
         "of_which": {
+          "derived": {
+            "priv": 29,
+            "pub": 1142,
+            "total": 1171
+          },
           "ffibox": {
+            "of_which": {
+              "CAlloc": {
+                "handwritten": 1,
+                "total": 1
+              },
+              "CAllocZeroed": {
+                "handwritten": 1,
+                "total": 1
+              },
+              "CCell": {
+                "handwritten": 32,
+                "macro": 33,
+                "total": 65
+              },
+              "CDispose": {
+                "handwritten": 5,
+                "total": 5
+              },
+              "CDrop": {
+                "handwritten": 22,
+                "macro": 14,
+                "total": 36
+              },
+              "CDupClone": {
+                "handwritten": 2,
+                "macro": 2,
+                "total": 4
+              },
+              "CLenClone": {
+                "macro": 1,
+                "total": 1
+              },
+              "CLenDrop": {
+                "macro": 1,
+                "total": 1
+              },
+              "CMutSeam": {
+                "macro": 33,
+                "total": 33
+              },
+              "CNew": {
+                "handwritten": 5,
+                "total": 5
+              },
+              "CRefClone": {
+                "handwritten": 5,
+                "total": 5
+              },
+              "CRefSeam": {
+                "macro": 33,
+                "total": 33
+              },
+              "CZeroable": {
+                "handwritten": 3,
+                "total": 3
+              }
+            },
             "priv": 8,
             "pub": 185,
             "total": 193
@@ -346,6 +350,17 @@
           "local": {
             "priv": 2,
             "total": 2
+          },
+          "send_sync": {
+            "send": {
+              "pub": 73,
+              "total": 73
+            },
+            "sync": {
+              "pub": 71,
+              "total": 71
+            },
+            "total": 144
           },
           "std": {
             "priv": 67,
@@ -356,18 +371,7 @@
         },
         "priv": 77,
         "pub": 1883,
-        "send_sync": {
-          "send": {
-            "pub": 73,
-            "total": 73
-          },
-          "sync": {
-            "pub": 71,
-            "total": 71
-          },
-          "total": 144
-        },
-        "total": 2297
+        "total": 1960
       },
       "storing_raw_ptr": {
         "of_which": {

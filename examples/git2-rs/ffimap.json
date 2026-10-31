@@ -174,10 +174,26 @@
       },
       "impl_trait": {
         "of_which": {
+          "derived": {
+            "priv": 198,
+            "pub": 432,
+            "total": 630
+          },
           "local": {
             "priv": 24,
             "pub": 91,
             "total": 115
+          },
+          "send_sync": {
+            "send": {
+              "pub": 7,
+              "total": 7
+            },
+            "sync": {
+              "pub": 1,
+              "total": 1
+            },
+            "total": 8
           },
           "std": {
             "priv": 697,
@@ -188,18 +204,7 @@
         },
         "priv": 721,
         "pub": 1142,
-        "send_sync": {
-          "send": {
-            "pub": 7,
-            "total": 7
-          },
-          "sync": {
-            "pub": 1,
-            "total": 1
-          },
-          "total": 8
-        },
-        "total": 1871
+        "total": 1863
       },
       "storing_raw_ptr": {
         "of_which": {

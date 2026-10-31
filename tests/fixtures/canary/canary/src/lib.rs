@@ -165,6 +165,13 @@ impl Clone for Owned {
     }
 }
 
+/// ty.impl_trait.of_which.derived: `#[derive]` writes two std trait impls
+/// here that nobody typed, which is most of the `std` arm on a real crate.
+#[derive(Debug, Default)]
+pub struct Derived {
+    pub n: u32,
+}
+
 /// ty.storing_raw_ptr.of_which.has_lifetime
 pub struct Borrowed<'a> {
     p: *mut u8,
