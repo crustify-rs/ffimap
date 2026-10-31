@@ -36,7 +36,7 @@ class ComposeTests(unittest.TestCase):
             self.assertIsNone(document["counts"])
             self.assertEqual(document["counts_unavailable"], "no build")
             self.assertNotIn("ffibox", document)
-            self.assertEqual(document["derived"], {})
+            self.assertNotIn("derived", document)
 
 
 if __name__ == "__main__":

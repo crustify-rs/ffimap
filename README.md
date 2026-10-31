@@ -72,7 +72,6 @@ The JSON document has these top-level fields:
 | `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's, as `--sys-crates` named them. |
 | `counts` | The counter tree of `docs/schema.md`, or `null` when the workspace could not be built. Every counter lives here; there is no second, flat block. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
-| `derived` | A few sums over `counts` that span its families, such as the raw pointers reachable without writing `unsafe`. Sums, never ratios. |
 | `sites` | With `--sites`: source locations per requested counter. |
 
 When the build fails, ffimap reports no counts rather than approximate ones.

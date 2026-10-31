@@ -192,6 +192,19 @@
           "total": 131
         },
         "total": 131
+      },
+      "total": {
+        "safe": {
+          "priv": 80,
+          "pub": 5,
+          "total": 85
+        },
+        "unsafe": {
+          "priv": 131,
+          "pub": 6,
+          "total": 137
+        },
+        "total": 222
       }
     },
     "ty": {
@@ -330,10 +343,5 @@
       }
     }
   },
-  "counts_unavailable": null,
-  "derived": {
-    "fns_pub": 2403,
-    "fns_priv": 352,
-    "raw_ptr_pub_safe_interface": 5
-  }
+  "counts_unavailable": null
 }

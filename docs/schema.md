@@ -16,6 +16,7 @@ raw_ptr.
   in_impl.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
   field.{pub,priv}
   field.of_which.void.{pub,priv}
+  total.{safe,unsafe}.{pub,priv}
   deref.{rd,wr}
   casted_to.{std,ffibox,local_seam}.{borrow,slice,string,owner,other}
 
@@ -52,6 +53,20 @@ code.
 The counters are the whole of the document's `counts`. There is no second,
 flat counter block beside them, and no prose rendering of them: a reader who
 wants a rate divides the leaves it names.
+
+`raw_ptr.total` is the denominator, emitted rather than derived: the positions
+the crate CHOSE, by safety and visibility. `taken` and `returned` are in it,
+`in_impl` is not -- for the reason that family exists, since a reader comparing
+crates would otherwise be reading how often a trait is implemented -- and a
+`field` counts on the `safe` arm, because reading a field that holds a pointer
+takes no `unsafe`, so a public one on a public type is a pointer the interface
+hands over without asking for any. `deref` and `casted_to` are body sites, not
+positions, and are outside it.
+
+`raw_ptr.total.safe.pub` is therefore the raw pointers a consumer meets
+without writing `unsafe`: 5 on libgit2-bindings and 5 on git2-rs. It is not a
+sum of the families beside it, the same way `ty.total` is not a sum of its
+shares.
 
 A `*c_void` is a raw pointer whose pointee is erased, so it is the `void`
 share of the position it sits in, not a family beside it: a reader asking how

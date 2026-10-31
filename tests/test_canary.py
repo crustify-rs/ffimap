@@ -93,6 +93,20 @@ class CanaryTests(unittest.TestCase):
         # one of the 8 above is `taken_void`.
         self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
 
+    def test_total_is_the_positions_the_crate_chose(self) -> None:
+        """`raw_ptr.total.safe.pub` = 8 taken + 1 returned + 1 public field.
+
+        `in_impl` is outside it -- the 4 positions of `RawSeam`'s two impls do
+        not appear -- because a trait fixed those, so a reader comparing
+        crates would be reading how often the trait is implemented. A field
+        counts on the SAFE arm: reading one takes no `unsafe`, so a public
+        field of a public type hands a pointer over without asking for any.
+        """
+        self.assertEqual(self.at("raw_ptr.total.safe.pub"), 10)
+        self.assertEqual(self.at("raw_ptr.total.unsafe.pub"), 12)
+        # The same cells with `in_impl` added would be 14 and 12; it is not.
+        self.assertEqual(self.at("raw_ptr.in_impl.safe.pub"), 4)
+
     def test_references_and_embedded_pointers_are_not_positions(self) -> None:
         """`taken_ref` and `taken_holder` must move nothing.
 

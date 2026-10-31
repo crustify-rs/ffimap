@@ -44,7 +44,8 @@ _TOOLCHAIN = tomllib.loads(
 # exhaustive list would be a second copy of the schema that drifts from the
 # driver's. The two segments checked are the ones a typo lands in.
 TREE_SITE_FAMILIES = {
-    "raw_ptr": ("taken", "returned", "in_impl", "field", "deref", "casted_to"),
+    "raw_ptr": ("taken", "returned", "in_impl", "field", "total", "deref",
+                "casted_to"),
     "ty": ("storing_raw_ptr", "field", "impl", "wrapping_unsafe_cell", "total"),
     "fn": ("safe", "unsafe", "ffibox", "total"),
     "code": ("loc", "unsafe_block", "unsafe_call"),

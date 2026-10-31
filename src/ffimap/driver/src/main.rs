@@ -84,6 +84,12 @@ fn count_ptr_fields(
         for pointee in pointees {
             *ptr.entry(format!("raw_ptr.field.{v}")).or_default() += 1;
             sites.add(&format!("raw_ptr.field.{v}"), site.clone());
+            // Into the denominator's SAFE arm: reading a field holding a
+            // pointer takes no `unsafe`, so a public one on a public type is
+            // a pointer the interface hands over without asking for any.
+            let k = format!("raw_ptr.total.safe.{v}");
+            *ptr.entry(k.clone()).or_default() += 1;
+            sites.add(&k, site.clone());
             if is_c_void(tcx, pointee) {
                 let k = format!("raw_ptr.field.of_which.void.{v}");
                 *ptr.entry(k.clone()).or_default() += 1;
@@ -1377,6 +1383,15 @@ impl Callbacks for MetricsCallbacks {
                         for pointee in found {
                             bump(&mut ptr, &mut sites,
                                  format!("raw_ptr.{pos}.{safety}.{vis}"));
+                            // The denominator, emitted rather than derived:
+                            // the positions the crate CHOSE, so `in_impl` is
+                            // outside it for the reason it exists -- a trait
+                            // fixed those, and a reader comparing crates would
+                            // be reading how often a trait is implemented.
+                            if !in_trait_impl {
+                                bump(&mut ptr, &mut sites,
+                                     format!("raw_ptr.total.{safety}.{vis}"));
+                            }
                             if seam {
                                 bump(&mut ptr, &mut sites,
                                      format!("raw_ptr.{pos}.of_which.seam.{safety}.{vis}"));
