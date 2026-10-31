@@ -234,9 +234,16 @@ block by construction, so counting it there would measure the lint.
 
 The whole `c_type_*` family -- `borrow`, `by_val`, `std_owner`,
 `std_value_impl`, `layout_wrapper` -- with `non_c_type_borrow_*` and
-`raw_ptr_has_c_type_wrapper`. The C-reachability pass that fed them is kept: it
-no longer has a counter, but the peel set and the `-sys` vocabulary still use
-it.
+`raw_ptr_has_c_type_wrapper`.
+
+The C-reachability pass that fed them (`compute_c_visible`,
+`structural_wrapper` and their predicates) is NOT a dependency of the tree. The
+peel set is membership in the scanned crate or the named `-sys` crates, and
+asks it nothing; `structural_wrapper` consults the `-sys` names, not the
+reverse. Its only live consumer is
+`unsafe_blocks.of_which.{wrapper_impl,ffi_export}`, through `in_wrapper_impl`,
+and the legacy owner / handle block. Retiring the counters above therefore
+decides the pass's fate too.
 
 Also retired: `raw_ptr_as_slice_borrow` into `casted_to`, `drop_impl` and
 `clone_impl` into `ty.storing_raw_ptr.of_which`, `raw_ptr_derefs_outside_impl`,
