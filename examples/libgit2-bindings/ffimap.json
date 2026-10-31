@@ -227,7 +227,58 @@
         },
         "total": 8
       },
-      "impl": {
+      "generic": {
+        "of_which": {
+          "lifetime": {
+            "priv": 14,
+            "pub": 181,
+            "total": 195
+          },
+          "storing_raw_ptr": {
+            "priv": 6,
+            "pub": 17,
+            "total": 23
+          },
+          "type": {
+            "priv": 4,
+            "pub": 1,
+            "total": 5
+          }
+        },
+        "priv": 17,
+        "pub": 182,
+        "total": 199
+      },
+      "impl_block": {
+        "of_which": {
+          "ffibox": {
+            "layout": {
+              "priv": 2,
+              "pub": 98,
+              "total": 100
+            },
+            "mut": {
+              "priv": 2,
+              "pub": 61,
+              "total": 63
+            },
+            "ref": {
+              "pub": 37,
+              "total": 37
+            },
+            "total": 200
+          },
+          "other": {
+            "priv": 9,
+            "pub": 199,
+            "total": 208
+          }
+        },
+        "priv": 13,
+        "pub": 395,
+        "total": 408
+      },
+      "impl_trait": {
         "ffibox": {
           "CAlloc": {
             "handwritten": 1,
@@ -287,8 +338,24 @@
           "total": 193
         },
         "of_which": {
+          "ffibox": {
+            "priv": 8,
+            "pub": 185,
+            "total": 193
+          },
+          "local": {
+            "priv": 2,
+            "total": 2
+          },
+          "std": {
+            "priv": 67,
+            "pub": 1698,
+            "total": 1765
+          },
           "unsafe": 271
         },
+        "priv": 77,
+        "pub": 1883,
         "send_sync": {
           "send": {
             "pub": 73,
@@ -300,7 +367,7 @@
           },
           "total": 144
         },
-        "total": 2368
+        "total": 2297
       },
       "storing_raw_ptr": {
         "of_which": {
@@ -337,6 +404,23 @@
         "total": 41
       },
       "total": {
+        "of_which": {
+          "ffibox_trait": {
+            "priv": 8,
+            "pub": 164,
+            "total": 172
+          },
+          "no_trait": {
+            "priv": 11,
+            "pub": 5,
+            "total": 16
+          },
+          "std_trait": {
+            "priv": 12,
+            "pub": 305,
+            "total": 317
+          }
+        },
         "priv": 27,
         "pub": 347,
         "total": 374

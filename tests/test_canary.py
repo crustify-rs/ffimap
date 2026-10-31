@@ -237,9 +237,9 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(self.at("ty.wrapping_unsafe_cell.pub"), 2)
 
     def test_unsafe_impls(self) -> None:
-        self.assertEqual(self.at("ty.impl.of_which.unsafe"), 2)
-        self.assertEqual(self.at("ty.impl.send_sync.send.pub"), 1)
-        self.assertEqual(self.at("ty.impl.send_sync.sync.pub"), 1)
+        self.assertEqual(self.at("ty.impl_trait.of_which.unsafe"), 2)
+        self.assertEqual(self.at("ty.impl_trait.send_sync.send.pub"), 1)
+        self.assertEqual(self.at("ty.impl_trait.send_sync.sync.pub"), 1)
 
     # ------------------------------------------------------------- fn bodies
 
@@ -301,6 +301,44 @@ class CanaryTests(unittest.TestCase):
         # two impls above.
         self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
         self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
+
+    # ------------------------------------------------------------ type views
+
+    def test_impl_blocks_and_trait_impls_are_separate(self) -> None:
+        """An inherent `impl T` is the API the crate wrote for its own type;
+        an `impl Tr for T` satisfies someone else's shape. `ty.impl` used to
+        merge them."""
+        # The workspace's two inherent blocks: `canary::Undeclared` and
+        # `canary_vendor::VendorHolder`.
+        self.assertEqual(self.at("ty.impl_block.pub"), 2)
+        # `RawSeam`, the fixture's own trait, implemented for two types.
+        self.assertEqual(self.at("ty.impl_trait.of_which.local.pub"), 2)
+        # std's, across the workspace: Drop, Clone, Deref, DerefMut, Send,
+        # Sync, the macro-written Display, and the vendor crate's Default.
+        self.assertEqual(self.at("ty.impl_trait.of_which.std.pub"), 8)
+
+    def test_generic_types_split_by_parameter_kind(self) -> None:
+        """`Borrowed<'a>` over a lifetime, `Generic<T>` over a type. Both hold
+        a raw pointer, so both are in the `storing_raw_ptr` share."""
+        self.assertEqual(self.at("ty.generic.of_which.lifetime.pub"), 1)
+        self.assertEqual(self.at("ty.generic.of_which.storing_raw_ptr.pub"), 1)
+
+    def test_trait_provenance_is_a_share_of_every_type(self) -> None:
+        """The denominator `ty.storing_raw_ptr`'s shares lacked: how many
+        types speak each vocabulary at all. Shares, not a partition -- `Owned`
+        implements std traits AND the fixture's own `RawSeam`."""
+        self.assertEqual(self.at("ty.total.pub"), 14)
+        self.assertEqual(self.at("ty.total.of_which.local_trait.pub"), 2)
+        self.assertEqual(self.at("ty.total.of_which.std_trait.pub"), 4)
+        self.assertEqual(self.at("ty.total.of_which.no_trait.pub"), 9)
+        # 2 + 4 + 9 = 15 over 14 types: `Owned` implements both `Drop` and
+        # the fixture's own `RawSeam`, so the arms are shares and a reader
+        # must not add them.
+        self.assertGreater(
+            self.at("ty.total.of_which.local_trait.pub")
+            + self.at("ty.total.of_which.std_trait.pub")
+            + self.at("ty.total.of_which.no_trait.pub"),
+            self.at("ty.total.pub"))
 
     def test_fn_partition_sums_to_total(self) -> None:
         for vis in ("pub", "priv"):

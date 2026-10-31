@@ -139,10 +139,55 @@
       }
     },
     "ty": {
-      "impl": {
+      "generic": {
         "of_which": {
+          "lifetime": {
+            "priv": 14,
+            "pub": 90,
+            "total": 104
+          },
+          "storing_raw_ptr": {
+            "priv": 1,
+            "pub": 66,
+            "total": 67
+          },
+          "type": {
+            "priv": 2,
+            "total": 2
+          }
+        },
+        "priv": 14,
+        "pub": 90,
+        "total": 104
+      },
+      "impl_block": {
+        "of_which": {
+          "other": {
+            "priv": 69,
+            "pub": 201,
+            "total": 270
+          }
+        },
+        "priv": 69,
+        "pub": 201,
+        "total": 270
+      },
+      "impl_trait": {
+        "of_which": {
+          "local": {
+            "priv": 24,
+            "pub": 91,
+            "total": 115
+          },
+          "std": {
+            "priv": 697,
+            "pub": 1007,
+            "total": 1704
+          },
           "unsafe": 8
         },
+        "priv": 721,
+        "pub": 1142,
         "send_sync": {
           "send": {
             "pub": 7,
@@ -154,7 +199,7 @@
           },
           "total": 8
         },
-        "total": 2133
+        "total": 1871
       },
       "storing_raw_ptr": {
         "of_which": {
@@ -195,6 +240,23 @@
         "total": 97
       },
       "total": {
+        "of_which": {
+          "local_trait": {
+            "priv": 1,
+            "pub": 90,
+            "total": 91
+          },
+          "no_trait": {
+            "priv": 15,
+            "pub": 12,
+            "total": 27
+          },
+          "std_trait": {
+            "priv": 27,
+            "pub": 161,
+            "total": 188
+          }
+        },
         "priv": 42,
         "pub": 183,
         "total": 225

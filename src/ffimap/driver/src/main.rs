@@ -320,7 +320,9 @@ fn holds_raw_ptr_at(tcx: TyCtxt<'_>, did: DefId, depth: u32, seen: &mut HashSet<
     })
 }
 
-/// What a raw-pointer-holding type declares about the pointer it holds.
+/// What a local type declares through its trait impls: the std traits that
+/// bear on a raw pointer it holds, and which provenance of trait it
+/// implements at all.
 #[derive(Clone, Copy, Default)]
 struct HolderTraits {
     drop_: bool,
@@ -329,6 +331,13 @@ struct HolderTraits {
     clone: bool,
     derived_clone: bool,
     send_sync: bool,
+    std_trait: bool,
+    local_trait: bool,
+    ffibox_trait: bool,
+    /// The type's role in ffibox's convention, from the seam trait it
+    /// implements: `CCell` the layout type, `CRefSeam` its shared handle,
+    /// `CMutSeam` its exclusive one, `CLockedSeam` its locked one.
+    ffibox_shape: Option<&'static str>,
 }
 
 /// The traits a raw-pointer-holding type implements, which is what
@@ -350,9 +359,6 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
             continue;
         }
         let tr = tcx.impl_trait_ref(did).skip_binder().def_id;
-        if !is_std_crate(tcx, tr) {
-            continue;
-        }
         let ty::TyKind::Adt(d, _) = tcx.type_of(did).instantiate_identity().skip_norm_wip().kind()
         else {
             continue;
@@ -361,16 +367,34 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
             continue;
         }
         let e = out.entry(d.did()).or_default();
-        match tcx.item_name(tr).as_str() {
-            "Drop" => e.drop_ = true,
-            "Deref" => e.deref = true,
-            "DerefMut" => e.deref_mut = true,
-            "Send" | "Sync" => e.send_sync = true,
-            "Clone" => {
-                e.clone = true;
-                e.derived_clone |= tcx.is_automatically_derived(did);
+        let name = tcx.item_name(tr);
+        if is_std_crate(tcx, tr) {
+            e.std_trait = true;
+            match name.as_str() {
+                "Drop" => e.drop_ = true,
+                "Deref" => e.deref = true,
+                "DerefMut" => e.deref_mut = true,
+                "Send" | "Sync" => e.send_sync = true,
+                "Clone" => {
+                    e.clone = true;
+                    e.derived_clone |= tcx.is_automatically_derived(did);
+                }
+                _ => {}
             }
-            _ => {}
+        } else if tr.is_local() {
+            e.local_trait = true;
+        } else if is_ffibox_crate(tcx, tr) {
+            e.ffibox_trait = true;
+            // The seam traits are implemented ON the handle, with `type Cell`
+            // naming the wrapped type, so a type's role in the convention is
+            // simply which of the four it implements.
+            e.ffibox_shape = match name.as_str() {
+                "CCell" => Some("layout"),
+                "CRefSeam" => Some("ref"),
+                "CMutSeam" => Some("mut"),
+                "CLockedSeam" => Some("locked"),
+                _ => e.ffibox_shape,
+            };
         }
     }
     out
@@ -1124,7 +1148,7 @@ impl Callbacks for MetricsCallbacks {
         // yields only fns, closures and initializers, so a struct / impl /
         // trait never reaches it.
         // The types that store a raw pointer, by what they declare about it.
-        let holder_traits = ptr_holder_traits(tcx);
+        let facts = ptr_holder_traits(tcx);
         for ld in tcx.hir_crate_items(()).definitions() {
             let did = ld.to_def_id();
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
@@ -1139,6 +1163,67 @@ impl Callbacks for MetricsCallbacks {
                 if holds_unsafe_cell(tcx, did) {
                     tree_bump(&mut ptr, &mut sites, tcx, did,
                               &format!("ty.wrapping_unsafe_cell.{vis}"));
+                }
+                // What vocabulary the type speaks, as shares of every type
+                // the crate declares. These are the DENOMINATORS the
+                // `ty.storing_raw_ptr` shares were missing: that family says
+                // 29 of the pointer holders implement a std trait, and this
+                // says 317 types do, so the two read as a rate.
+                //
+                // Shares, not a partition: a type may implement std's `Drop`,
+                // ffibox's `CDrop` and one of the crate's own traits. `none`
+                // is the residual, a type with no trait impl at all.
+                //
+                // The cross-tabulation is NOT repeated here.
+                // `ty.storing_raw_ptr.of_which` already holds it from the
+                // other side, and finer -- `impl_drop` against `impl_clone`
+                // against `impl_send_sync`, which one `std` arm would
+                // collapse.
+                {
+                    let f = facts.get(&did).copied().unwrap_or_default();
+                    let whose = [
+                        (f.std_trait, "std"),
+                        (f.local_trait, "local"),
+                        (is_ffibox() && f.ffibox_trait, "ffibox"),
+                    ];
+                    for (yes, name) in whose {
+                        if yes {
+                            tree_bump(&mut ptr, &mut sites, tcx, did,
+                                      &format!("ty.total.of_which.{name}_trait.{vis}"));
+                        }
+                    }
+                    if !whose.iter().any(|(yes, _)| *yes) {
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  &format!("ty.total.of_which.no_trait.{vis}"));
+                    }
+                }
+                // Generic types, by the kind of parameter. A lifetime ties the
+                // type to something it borrows; a type parameter makes it a
+                // family rather than one layout, so every instantiation is a
+                // separate question about C's bytes. A type can carry both,
+                // hence shares.
+                {
+                    let g = tcx.generics_of(did);
+                    let lifetimes = g.own_params.iter().any(|p| {
+                        matches!(p.kind, ty::GenericParamDefKind::Lifetime)
+                    });
+                    let types = g.own_params.iter().any(|p| {
+                        matches!(p.kind, ty::GenericParamDefKind::Type { .. })
+                    });
+                    if lifetimes || types {
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  &format!("ty.generic.{vis}"));
+                        for (yes, name) in [(lifetimes, "lifetime"), (types, "type")] {
+                            if yes {
+                                tree_bump(&mut ptr, &mut sites, tcx, did,
+                                          &format!("ty.generic.of_which.{name}.{vis}"));
+                            }
+                        }
+                        if holds_raw_ptr(tcx, did) {
+                            tree_bump(&mut ptr, &mut sites, tcx, did,
+                                      &format!("ty.generic.of_which.storing_raw_ptr.{vis}"));
+                        }
+                    }
                 }
                 // The ffibox primitives the type's fields hold: the
                 // population `ty.storing_raw_ptr` gives up by not peeling
@@ -1170,7 +1255,7 @@ impl Callbacks for MetricsCallbacks {
                 };
                 bump(format!("ty.storing_raw_ptr.{vis}"));
 
-                let t = holder_traits.get(&did).copied().unwrap_or_default();
+                let t = facts.get(&did).copied().unwrap_or_default();
                 // A declared lifetime parameter is how a borrow is tied to its
                 // parent -- git2-rs's `Commit<'repo>` with
                 // `PhantomData<Object<'repo>>`.
@@ -1225,12 +1310,54 @@ impl Callbacks for MetricsCallbacks {
                 count_ptr_fields(tcx, did, &mut ptr, &mut sites);
             }
             match tcx.def_kind(did) {
+                // An inherent `impl T`: the crate's own API on its own type,
+                // as opposed to satisfying someone's trait. Under `--ffibox`
+                // the self type's role in the convention says which surface
+                // the block is -- the layout type's own API, or one of its
+                // handles'.
                 DefKind::Impl { of_trait: false } => {
-                    tree_bump(&mut ptr, &mut sites, tcx, did, "ty.impl.total");
+                    let self_vis = impl_self_vis(tcx, did);
+                    tree_bump(&mut ptr, &mut sites, tcx, did,
+                              &format!("ty.impl_block.{self_vis}"));
+                    let self_adt = match tcx
+                        .type_of(did)
+                        .instantiate_identity()
+                        .skip_norm_wip()
+                        .kind()
+                    {
+                        ty::TyKind::Adt(d, _) => Some(d.did()),
+                        _ => None,
+                    };
+                    let shape = self_adt
+                        .and_then(|d| facts.get(&d))
+                        .and_then(|f| f.ffibox_shape);
+                    let arm = match shape {
+                        Some(shape) if is_ffibox() => format!("ffibox.{shape}"),
+                        _ => "other".to_string(),
+                    };
+                    tree_bump(&mut ptr, &mut sites, tcx, did,
+                              &format!("ty.impl_block.of_which.{arm}.{self_vis}"));
                 }
                 DefKind::Impl { of_trait: true } => {
-                    tree_bump(&mut ptr, &mut sites, tcx, did, "ty.impl.total");
                     let tr_did = tcx.impl_trait_ref(did).skip_binder().def_id;
+                    let self_vis = impl_self_vis(tcx, did);
+                    tree_bump(&mut ptr, &mut sites, tcx, did,
+                              &format!("ty.impl_trait.{self_vis}"));
+                    // Whose trait it is. A local one the crate declared is a
+                    // shape it chose; a std or framework one it adopted.
+                    let whose = if is_std_crate(tcx, tr_did) {
+                        Some("std")
+                    } else if tr_did.is_local() {
+                        Some("local")
+                    } else if is_ffibox() && is_ffibox_crate(tcx, tr_did) {
+                        Some("ffibox")
+                    } else {
+                        None
+                    };
+                    if let Some(whose) = whose {
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  &format!("ty.impl_trait.of_which.{whose}.{self_vis}"));
+                    }
                     // `TrivialClone` is a compiler-internal marker that
                     // `#[derive(Clone)]` emits as an `unsafe impl`. It asserts
                     // nothing the author wrote, and on libgit2-bindings it is
@@ -1239,9 +1366,9 @@ impl Callbacks for MetricsCallbacks {
                     if tcx.item_name(tr_did).as_str() != "TrivialClone"
                         && tcx.impl_trait_header(did).safety.is_unsafe()
                     {
-                        tree_bump(&mut ptr, &mut sites, tcx, did, "ty.impl.of_which.unsafe");
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  "ty.impl_trait.of_which.unsafe");
                     }
-                    let self_vis = impl_self_vis(tcx, did);
                     // `unsafe impl Send` / `Sync` on any type, the crate-wide
                     // claim that memory it reaches is thread-safe.
                     if tcx.crate_name(tr_did.krate).as_str() == "core"
@@ -1250,7 +1377,7 @@ impl Callbacks for MetricsCallbacks {
                         if let n @ ("Send" | "Sync") = tcx.item_name(tr_did).as_str() {
                             let n = n.to_lowercase();
                             tree_bump(&mut ptr, &mut sites, tcx, did,
-                                      &format!("ty.impl.send_sync.{n}.{self_vis}"));
+                                      &format!("ty.impl_trait.send_sync.{n}.{self_vis}"));
                         }
                     }
                     // ffibox's vocabulary, split by whether the impl was
@@ -1266,7 +1393,7 @@ impl Callbacks for MetricsCallbacks {
                                 "handwritten"
                             };
                             tree_bump(&mut ptr, &mut sites, tcx, did,
-                                      &format!("ty.impl.ffibox.{n}.{how}"));
+                                      &format!("ty.impl_trait.ffibox.{n}.{how}"));
                         }
                     }
                 }

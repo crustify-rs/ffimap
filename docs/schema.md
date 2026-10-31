@@ -28,12 +28,26 @@ ty.
     ffibox                                           --ffibox
     pub_field · none
   field.ffibox.<primitive>.{pub,priv}                --ffibox
-  impl.total
-  impl.of_which.unsafe
-  impl.ffibox.<trait>.{handwritten,macro}            --ffibox
-  impl.send_sync.{send,sync}.{pub,priv}
+
+  impl_block.{pub,priv}
+  impl_block.of_which.other.{pub,priv}
+  impl_block.of_which.ffibox.{layout,ref,mut,locked}.{pub,priv}   --ffibox
+
+  impl_trait.{pub,priv}
+  impl_trait.of_which.unsafe
+  impl_trait.of_which.{std,local}.{pub,priv}
+  impl_trait.of_which.ffibox.{pub,priv}              --ffibox
+  impl_trait.ffibox.<trait>.{handwritten,macro}      --ffibox
+  impl_trait.send_sync.{send,sync}.{pub,priv}
+
+  generic.{pub,priv}
+  generic.of_which.{lifetime,type}.{pub,priv}
+  generic.of_which.storing_raw_ptr.{pub,priv}
+
   wrapping_unsafe_cell.{pub,priv}
   total.{pub,priv}
+  total.of_which.{std_trait,local_trait,no_trait}.{pub,priv}
+  total.of_which.ffibox_trait.{pub,priv}             --ffibox
 
 fn.
   safe.{pub,priv}
@@ -84,6 +98,40 @@ move with how many types a trait is implemented for, which is what read 61 of
 git2-rs' 66 pointers "returned by a public safe fn": its `Binding` trait,
 once. The direction is dropped with the choice: what is left to say is that
 the trait's shape reaches a pointer here.
+
+`ty.impl_block` counts an inherent `impl T` and `ty.impl_trait` an
+`impl Tr for T`, which `ty.impl` used to merge. The split is the one the
+counters were already asking either side of: a trait impl satisfies someone
+else's shape, an inherent block is the API the crate wrote for its own type.
+Under `--ffibox` an inherent block is also split by the self type's role in
+the convention, read from the seam trait it implements -- `CCell` the layout
+type, `CRefSeam` its shared handle, `CMutSeam` its exclusive one,
+`CLockedSeam` its locked one -- since those are three different surfaces. On
+libgit2-bindings: 408 blocks, 100 on layout types, 37 on shared handles, 63 on
+exclusive ones, 208 on everything else.
+
+`ty.impl_trait.of_which.{std,local,ffibox}` is whose trait it is. A local one
+is a shape the crate chose; a std or framework one it adopted. On
+libgit2-bindings 1765 std, 193 ffibox, 2 local; on git2-rs 1704 std and 115
+local, the latter mostly its own `Binding`.
+
+`ty.total.of_which.{std_trait,local_trait,ffibox_trait,no_trait}` asks the
+same of TYPES rather than impls, and is the denominator the
+`ty.storing_raw_ptr` shares lacked: that family says 29 of the pointer
+holders implement a std trait, and this says 317 types do. Shares, not a
+partition -- a type may implement std's `Drop`, ffibox's `CDrop` and one of
+the crate's own traits -- with `no_trait` the residual.
+
+The cross-tabulation is recorded once, in `ty.storing_raw_ptr.of_which`, which
+is the finer direction: it separates `impl_drop` from `impl_clone` from
+`impl_send_sync`, which a single `std` arm would collapse.
+
+`ty.generic` is the types carrying a generic parameter, by kind. A lifetime
+ties the type to something it borrows; a type parameter makes it a family
+rather than one layout, so each instantiation is a separate question about C's
+bytes. A type may carry both, so these are shares. On libgit2-bindings 199 of
+374 are generic, 195 over a lifetime and 5 over a type, and 23 of them hold a
+raw pointer.
 
 `raw_ptr.field.pub` is one reachability question -- can a consumer of
 the crate touch the field -- so it is the type being exported AND the field
@@ -279,7 +327,7 @@ drifted apart.
 
 ## 5. ffibox impls
 
-`ty.impl.ffibox.<trait>.{handwritten,macro}` splits each impl by whether it was
+`ty.impl_trait.ffibox.<trait>.{handwritten,macro}` splits each impl by whether it was
 generated. ffibox ships `define_ctype!` and the `impl_c*!` family
 (`impl_cdrop!`, `impl_cdupclone!`, `impl_cdispose!`, `impl_clendrop!`,
 `impl_clenclone!`, `impl_crefclone!`, `impl_cguarded!`), so an impl either
@@ -291,11 +339,11 @@ the emitted key stays `macro`.
 
 ## 6. Deliberate asymmetries
 
-`ty.impl.ffibox` splits `{handwritten,macro}` but not `{pub,priv}`: whether a
+`ty.impl_trait.ffibox` splits `{handwritten,macro}` but not `{pub,priv}`: whether a
 generator was used does not vary with visibility, and the split would cost 68
 cells for nothing.
 
-`ty.impl.send_sync` splits `{pub,priv}` but not by origin: asserting `Send` on a
+`ty.impl_trait.send_sync` splits `{pub,priv}` but not by origin: asserting `Send` on a
 public type is a claim to consumers, on a private one it is internal
 bookkeeping.
 
@@ -320,8 +368,8 @@ Then the rest of the flat block, each into the tree counter that measures the
 same thing: `code_lines` and `unsafe_block_code_lines` into `code.loc.*`,
 `unsafe_blocks` into `code.unsafe_block.total`, `unsafe_blocks_ffi_export`
 into its `of_which`, `safe_fns_*` and `unsafe_fns_*` into `fn.{safe,unsafe}.*`
-with their seam shares, `unsafe_impls` into `ty.impl.of_which.unsafe`,
-`unsafe_{send,sync}_impl` into `ty.impl.send_sync.*`, `raw_ptr_derefs_{rd,wr}`
+with their seam shares, `unsafe_impls` into `ty.impl_trait.of_which.unsafe`,
+`unsafe_{send,sync}_impl` into `ty.impl_trait.send_sync.*`, `raw_ptr_derefs_{rd,wr}`
 into `raw_ptr.deref.*`, and `{raw,void}_ptr_ty_*` into
 `{raw,void}_ptr.field.*`.
 
@@ -342,7 +390,7 @@ Three of them were not equivalents, and the tree's reading is the one kept:
 Last, the owner / handle record: the second emission line and its 24 counters
 (`fn_sig_{ffibox,non_ffibox}_{owner,handle}_*`, the `ty_*` variants,
 `ffibox_impl_*`, `ffibox_define_ctype_*`, `ffibox_ccell_not_layout`,
-`ffibox_layout_not_ccell`). `ty.field.ffibox`, `ty.impl.ffibox` and
+`ffibox_layout_not_ccell`). `ty.field.ffibox`, `ty.impl_trait.ffibox` and
 `fn.ffibox` cover the vocabulary it measured, by primitive and by trait rather
 than by the owner / handle pair, and they split an impl by whether a macro
 wrote it.
