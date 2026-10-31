@@ -124,8 +124,9 @@ after the hand-written total subtracts it.
 ### 1.2 Partitions and shares
 
 A `partition` node's children are disjoint and sum to it; an `of_which` node's
-children are subsets that overlap and are never summed. `measure.py` enforces
-both with `_PARTITION` and `_OF_WHICH`, and `_totals` cross-checks the sums.
+children are subsets that overlap and are never summed. `nest_ptr` derives
+every partition `total` bottom-up and skips `of_which` when summing, so no sum
+is written by the driver and none can disagree with its parts.
 
 `ty.storing_raw_ptr.of_which` is a share family, not a partition: a type may
 implement both `Drop` and `Clone`. `none` is the residual, the types matching
