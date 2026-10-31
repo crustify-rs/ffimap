@@ -7,13 +7,18 @@
     "libz_sys",
     "openssl_sys"
   ],
-  "ptr": {
+  "counts": {
     "code": {
       "loc": {
         "total": 13915,
         "unsafe": 3497
       },
-      "unsafe_block": 932,
+      "unsafe_block": {
+        "of_which": {
+          "ffi_export": 49
+        },
+        "total": 932
+      },
       "unsafe_call": {
         "ffi": 674,
         "intrinsic": 12,
@@ -28,8 +33,7 @@
             "priv": 30,
             "pub": 662,
             "total": 692
-          },
-          "total": 692
+          }
         },
         "priv": 628,
         "pub": 1743,
@@ -62,6 +66,10 @@
         "wr": 45,
         "total": 291
       },
+      "field": {
+        "priv": 74,
+        "total": 74
+      },
       "returned": {
         "safe": {
           "priv": 12,
@@ -91,8 +99,7 @@
     "ty": {
       "impl": {
         "of_which": {
-          "unsafe": 8,
-          "total": 8
+          "unsafe": 8
         },
         "send_sync": {
           "send": {
@@ -139,8 +146,7 @@
             "priv": 4,
             "pub": 11,
             "total": 15
-          },
-          "total": 152
+          }
         },
         "priv": 6,
         "pub": 91,
@@ -161,130 +167,6 @@
         "total": 36
       }
     }
-  },
-  "counts": {
-    "safe_fns": {
-      "pub": {
-        "total": 1743,
-        "of_which": {
-          "seam": 0
-        }
-      },
-      "priv": {
-        "total": 628,
-        "of_which": {
-          "seam": 0
-        }
-      },
-      "total": 2371
-    },
-    "unsafe_fns": {
-      "pub": {
-        "total": 112,
-        "of_which": {
-          "seam": 0
-        }
-      },
-      "priv": {
-        "total": 12,
-        "of_which": {
-          "seam": 0
-        }
-      },
-      "total": 124
-    },
-    "raw_ptr_ty": {
-      "pub": {
-        "fields": {
-          "pub": 0,
-          "priv": 73,
-          "total": 73
-        },
-        "total": 73
-      },
-      "priv": 1,
-      "total": 74
-    },
-    "raw_ptr_fn": {
-      "pub": {
-        "safe": {
-          "total": 66,
-          "of_which": {
-            "seam": 0
-          }
-        },
-        "unsafe": {
-          "total": 70,
-          "of_which": {
-            "seam": 0
-          }
-        },
-        "total": 136
-      },
-      "priv": {
-        "safe": {
-          "total": 120,
-          "of_which": {
-            "seam": 0
-          }
-        },
-        "unsafe": {
-          "total": 8,
-          "of_which": {
-            "seam": 0
-          }
-        },
-        "total": 128
-      },
-      "total": 264
-    },
-    "raw_ptr_derefs": {
-      "rd": 246,
-      "wr": 45,
-      "total": 291
-    },
-    "void_ptr_ty": {
-      "pub": {
-        "fields": {
-          "pub": 0,
-          "priv": 0,
-          "total": 0
-        },
-        "total": 0
-      },
-      "priv": 0,
-      "total": 0
-    },
-    "void_ptr_fn": {
-      "pub": {
-        "safe": 0,
-        "unsafe": 0,
-        "total": 0
-      },
-      "priv": {
-        "safe": 36,
-        "unsafe": 0,
-        "total": 36
-      },
-      "total": 36
-    },
-    "unsafe_blocks": {
-      "total": 932,
-      "of_which": {
-        "ffi_export": 49
-      }
-    },
-    "unsafe_impls": {
-      "total": 8,
-      "of_which": {
-        "send": 7,
-        "sync": 1
-      }
-    },
-    "code_lines": 13915,
-    "unsafe_block_lines": 3624,
-    "unsafe_block_code_lines": 3497,
-    "ffi_calls": 672
   },
   "counts_unavailable": null,
   "ffibox": {
@@ -531,7 +413,6 @@
   "derived": {
     "fns_pub": 1855,
     "fns_priv": 640,
-    "raw_ptr_pub": 209,
     "raw_ptr_pub_safe_interface": 66
   }
 }

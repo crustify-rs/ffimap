@@ -12,6 +12,7 @@ raw_ptr.
   taken.of_which.seam.{safe,unsafe}.{pub,priv}
   returned.{safe,unsafe}.{pub,priv}
   returned.of_which.seam.{safe,unsafe}.{pub,priv}
+  field.{pub,priv}
   deref.{rd,wr}
   casted_to.{std,ffibox,local_seam}.{borrow,slice,string,owner,other}
 
@@ -20,6 +21,7 @@ void_ptr.
   taken.of_which.seam.{safe,unsafe}.{pub,priv}
   returned.{safe,unsafe}.{pub,priv}
   returned.of_which.seam.{safe,unsafe}.{pub,priv}
+  field.{pub,priv}
 
 ty.
   storing_raw_ptr.{pub,priv}
@@ -45,9 +47,18 @@ fn.
 
 code.
   loc.{total,unsafe}
-  unsafe_block
+  unsafe_block.total
+  unsafe_block.of_which.ffi_export
   unsafe_call.{ffi,intrinsic,rust}
 ```
+
+The counters are the whole of the document's `counts`. There is no second,
+flat counter block beside them, and no prose rendering of them: a reader who
+wants a rate divides the leaves it names.
+
+`{raw,void}_ptr.field.pub` is one reachability question -- can a consumer of
+the crate touch the field -- so it is the type being exported AND the field
+being exported, rather than two levels a reader has to combine.
 
 `fn.total` and `code.unsafe_call` totals are derived from their partitions.
 
@@ -75,6 +86,10 @@ both with `_PARTITION` and `_OF_WHICH`, and `_totals` cross-checks the sums.
 `ty.storing_raw_ptr.of_which` is a share family, not a partition: a type may
 implement both `Drop` and `Clone`. `none` is the residual, the types matching no
 other share.
+
+An `of_which` node therefore carries no `total` of its own -- summing two
+shares is not a quantity -- while each share keeps the total of its own
+`{pub,priv}` partition.
 
 ## 2. The peel set
 
@@ -232,22 +247,48 @@ block by construction, so counting it there would measure the lint.
 
 ## 7. Retired counters
 
+The counters the tree replaced are gone, not kept beside it. A second answer
+to a question the tree answers is a liability: the two drift, and a reader has
+no way to tell which one is current.
+
 The whole `c_type_*` family -- `borrow`, `by_val`, `std_owner`,
-`std_value_impl`, `layout_wrapper` -- with `non_c_type_borrow_*` and
-`raw_ptr_has_c_type_wrapper`.
+`std_value_impl`, `layout_wrapper` -- with `non_c_type_borrow_*`,
+`raw_ptr_has_c_type_wrapper`, `raw_ptr_as_slice_borrow` (into `casted_to`),
+`drop_impl` and `clone_impl` (into `ty.storing_raw_ptr.of_which`),
+`raw_ptr_derefs_outside_impl`, `unsafe_traits`, `total_stmts`,
+`unsafe_block_stmts` and `unsafe_blocks_wrapper_impl`.
 
-The C-reachability pass that fed them (`compute_c_visible`,
-`structural_wrapper` and their predicates) is NOT a dependency of the tree. The
-peel set is membership in the scanned crate or the named `-sys` crates, and
-asks it nothing; `structural_wrapper` consults the `-sys` names, not the
-reverse. Its only live consumer is
-`unsafe_blocks.of_which.{wrapper_impl,ffi_export}`, through `in_wrapper_impl`,
-and the legacy owner / handle block. Retiring the counters above therefore
-decides the pass's fate too.
+Then the rest of the flat block, each into the tree counter that measures the
+same thing: `code_lines` and `unsafe_block_code_lines` into `code.loc.*`,
+`unsafe_blocks` into `code.unsafe_block.total`, `unsafe_blocks_ffi_export`
+into its `of_which`, `safe_fns_*` and `unsafe_fns_*` into `fn.{safe,unsafe}.*`
+with their seam shares, `unsafe_impls` into `ty.impl.of_which.unsafe`,
+`unsafe_{send,sync}_impl` into `ty.impl.send_sync.*`, `raw_ptr_derefs_{rd,wr}`
+into `raw_ptr.deref.*`, and `{raw,void}_ptr_ty_*` into
+`{raw,void}_ptr.field.*`.
 
-Also retired: `raw_ptr_as_slice_borrow` into `casted_to`, `drop_impl` and
-`clone_impl` into `ty.storing_raw_ptr.of_which`, `raw_ptr_derefs_outside_impl`,
-`unsafe_traits`, `total_stmts`, `unsafe_block_stmts`.
+Three of them were not equivalents, and the tree's reading is the one kept:
+
+- `ffi_calls` used `is_foreign_item`, a property of the declaration site, so it
+  missed every call made through a function pointer -- 27 of 557 on
+  libgit2-bindings. `code.unsafe_call.ffi` classifies by the callee's ABI,
+  which is part of its type and survives being stored in a field.
+- `raw_ptr_fn_*` counted a `*c_void` position in both the `raw_ptr` and the
+  `void_ptr` family; the tree partitions it to `void_ptr` alone. On
+  libgit2-bindings the flat total was 217 against the tree's 194, the
+  difference being exactly the 23 `void_ptr` positions.
+- `unsafe_block_lines` was the raw brace-to-brace span, blanks and comments
+  included, so it was not comparable with the `code_lines` denominator.
+  `code.loc.unsafe` applies the same filter to both.
+
+The C-reachability pass that fed the `c_type_*` family is not a dependency of
+the tree: the peel set is membership in the scanned crate or the named `-sys`
+crates and asks it nothing, and `structural_wrapper` consults the `-sys` names
+rather than supplying them. Its retired-counter half is gone; its core
+(`compute_c_visible`, `is_c_accessible`, `structural_wrapper`, `embedded_c`,
+`is_type_wrapper`, about 300 lines) is held alive by `holds_c_pointer` and so
+by the legacy owner / handle block alone. Retiring that block is what deletes
+the pass.
 
 ## 8. Sites
 
@@ -257,10 +298,11 @@ leaves are open on purpose: the ffibox arms are generated from a vocabulary of
 17 traits and 10 primitives, so an exhaustive list would be a second copy of
 this document and would drift from the driver's.
 
-`all` stays the flat counters. Enumerating every leaf of the tree is a
-different request, and nothing needs it yet.
+`all` means the owner / handle counters, which are the only closed list left.
+Enumerating every leaf of the tree is a different request, and nothing needs it
+yet.
 
-## 8. Limitations
+## 9. Limitations
 
 `raw_ptr.casted_to` is a filter, not a partition. A crate that hand-rolls a
 conversion and does not declare it in `--seams` is invisible, not filed under

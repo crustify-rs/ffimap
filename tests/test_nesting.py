@@ -1,70 +1,69 @@
-"""The `counts` tree and its inverse.
+"""The counter tree `nest_ptr` builds, and the ffibox record's.
 
-The nesting spec in `measure.py` is two tables that have to agree: one folds
-the driver's flat counters into the tree, the other reads them back. A
-round-trip over every counter the driver emits keeps them honest, and is the
-test that would have caught `unsafe_blocks` being both a family total and an
-`of_which` parent.
+The driver emits dotted keys; `nest_ptr` folds them into records and derives
+every `total`. What it must get right is which parents get one: an `of_which`
+node holds overlapping shares, so its children must never be summed, and a
+top-level prefix mixes grains, so summing across it means nothing.
 """
 import unittest
 
 from ffimap import measure
 
 
-def _one_of_each() -> dict:
-    """Every counter the driver emits, with a distinct value so that a leaf
-    landing in the wrong slot changes the round trip.
-
-    `unsafe_fns` is a flat counter that must equal its two children, and
-    `nest_counts` enforces that, so the fixture satisfies it rather than
-    tripping the cross-check.
-    """
-    flat = {name: i + 1 for i, name in enumerate(measure._COUNTS)}
-    flat["unsafe_fns"] = flat["unsafe_fns_pub"] + flat["unsafe_fns_priv"]
-    return flat
-
-
-class NestCountsTests(unittest.TestCase):
-    def test_round_trip_is_exact_over_every_counter(self) -> None:
-        flat = _one_of_each()
-        self.assertEqual(measure.flatten_counts(measure.nest_counts(flat)), flat)
-
-    def test_every_counter_is_placed(self) -> None:
-        tree = measure.nest_counts(_one_of_each())
-        self.assertEqual(set(measure.flatten_counts(tree)), set(measure._COUNTS))
-
+class NestPtrTests(unittest.TestCase):
     def test_partition_totals_sum_their_children(self) -> None:
-        tree = measure.nest_counts({
-            "raw_ptr_fn_pub_safe": 1, "raw_ptr_fn_pub_unsafe": 2,
-            "raw_ptr_fn_priv_safe": 4, "raw_ptr_fn_priv_unsafe": 8,
+        tree = measure.nest_ptr({
+            "raw_ptr.taken.safe.pub": 1, "raw_ptr.taken.safe.priv": 2,
+            "raw_ptr.taken.unsafe.pub": 4, "raw_ptr.taken.unsafe.priv": 8,
         })
-        self.assertEqual(tree["raw_ptr_fn"]["pub"]["total"], 3)
-        self.assertEqual(tree["raw_ptr_fn"]["priv"]["total"], 12)
-        self.assertEqual(tree["raw_ptr_fn"]["total"], 15)
+        self.assertEqual(tree["raw_ptr"]["taken"]["safe"]["total"], 3)
+        self.assertEqual(tree["raw_ptr"]["taken"]["unsafe"]["total"], 12)
+        self.assertEqual(tree["raw_ptr"]["taken"]["total"], 15)
 
-    def test_of_which_subsets_are_not_summed_into_the_total(self) -> None:
-        # unsafe_blocks_ffi_export re-counts blocks unsafe_blocks already
-        # counted, so the total stays the emitted number.
-        tree = measure.nest_counts({
-            "unsafe_blocks": 100,
-            "unsafe_blocks_ffi_export": 5,
+    def test_a_top_level_prefix_gets_no_total(self) -> None:
+        """`raw_ptr.taken` counts signature positions and `raw_ptr.deref`
+        counts body sites; their sum is not a quantity."""
+        tree = measure.nest_ptr({"raw_ptr.taken.safe.pub": 1, "raw_ptr.deref.rd": 2})
+        self.assertNotIn("total", tree["raw_ptr"])
+        self.assertNotIn("total", tree)
+
+    def test_of_which_is_never_summed_and_gets_no_total(self) -> None:
+        tree = measure.nest_ptr({
+            "code.unsafe_block.total": 100,
+            "code.unsafe_block.of_which.ffi_export": 5,
         })
-        self.assertEqual(tree["unsafe_blocks"]["total"], 100)
-        self.assertEqual(tree["unsafe_blocks"]["of_which"], {"ffi_export": 5})
+        self.assertEqual(tree["code"]["unsafe_block"]["total"], 100)
+        self.assertEqual(tree["code"]["unsafe_block"]["of_which"], {"ffi_export": 5})
 
-    def test_a_public_type_splits_its_fields_by_visibility(self) -> None:
-        tree = measure.nest_counts({
-            "raw_ptr_ty_pub_fields_pub": 1, "raw_ptr_ty_pub_fields_priv": 2,
-            "raw_ptr_ty_priv": 4,
+    def test_a_share_keeps_its_own_partition_total(self) -> None:
+        """Summing two different shares is meaningless, but the `pub` / `priv`
+        split inside ONE share is a partition and does have a total."""
+        tree = measure.nest_ptr({
+            "ty.storing_raw_ptr.pub": 9,
+            "ty.storing_raw_ptr.of_which.impl_drop.pub": 2,
+            "ty.storing_raw_ptr.of_which.impl_drop.priv": 1,
+            "ty.storing_raw_ptr.of_which.impl_clone.pub": 4,
         })
-        self.assertEqual(tree["raw_ptr_ty"]["pub"]["fields"], {"pub": 1, "priv": 2, "total": 3})
-        self.assertEqual(tree["raw_ptr_ty"]["priv"], 4)
-        self.assertEqual(tree["raw_ptr_ty"]["total"], 7)
+        of_which = tree["ty"]["storing_raw_ptr"]["of_which"]
+        self.assertEqual(of_which["impl_drop"]["total"], 3)
+        self.assertNotIn("total", of_which)
+        self.assertEqual(tree["ty"]["storing_raw_ptr"]["total"], 9)
 
-    def test_a_flat_parent_total_must_match_its_children(self) -> None:
-        with self.assertRaises(AssertionError):
-            measure.nest_counts({"unsafe_fns": 99, "unsafe_fns_pub": 1,
-                                 "unsafe_fns_priv": 1})
+    def test_an_emitted_total_is_not_overwritten_by_a_sum(self) -> None:
+        """`ty.total` is the denominator the driver emits -- every type the
+        crate declares -- and it occupies the name a derived sum would take.
+        It must survive beside `ty.storing_raw_ptr`, which is one of its
+        subsets, not a sibling to add to it."""
+        tree = measure.nest_ptr({"ty.total.pub": 300, "ty.total.priv": 74,
+                                 "ty.storing_raw_ptr.pub": 9})
+        self.assertEqual(tree["ty"]["total"], {"pub": 300, "priv": 74, "total": 374})
+        self.assertEqual(tree["ty"]["storing_raw_ptr"], {"pub": 9, "total": 9})
+
+    def test_a_leaf_and_a_prefix_cannot_share_a_name(self) -> None:
+        with self.assertRaises(ValueError):
+            measure.nest_ptr({"code.unsafe_block": 1, "code.unsafe_block.of_which.x": 1})
+        with self.assertRaises(ValueError):
+            measure.nest_ptr({"code.unsafe_block.of_which.x": 1, "code.unsafe_block": 1})
 
 
 class NestFfiboxTests(unittest.TestCase):

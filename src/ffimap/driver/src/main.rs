@@ -88,89 +88,38 @@ fn in_foreign_trait_impl(tcx: TyCtxt<'_>, did: DefId) -> bool {
         && !tcx.impl_trait_ref(parent).skip_binder().def_id.is_local()
 }
 
-/// Where a raw-pointer position sits: a field of a type, or a fn signature.
-#[derive(Clone, Copy)]
-enum PtrSite {
-    /// A field, by the effective visibility of its TYPE and, for an exported
-    /// type, of the field itself (reachable from outside the crate or not).
-    Type { exported: bool, field_exported: bool },
-    /// A parameter or return, by the fn's effective visibility and safety.
-    Fn { exported: bool, safe: bool, seam: bool },
-}
-
-impl PtrSite {
-    /// The `raw_ptr_fn_seam_*` subset counter, when this position sits in a
-    /// declared seam. `None` for a field, or a fn that is not one.
-    fn seam_counter(self) -> Option<&'static str> {
-        match self {
-            PtrSite::Fn { seam: false, .. } | PtrSite::Type { .. } => None,
-            PtrSite::Fn { exported: true, safe: true, .. } => Some("raw_ptr_fn_seam_pub_safe"),
-            PtrSite::Fn { exported: true, safe: false, .. } => Some("raw_ptr_fn_seam_pub_unsafe"),
-            PtrSite::Fn { exported: false, safe: true, .. } => Some("raw_ptr_fn_seam_priv_safe"),
-            PtrSite::Fn { exported: false, safe: false, .. } => Some("raw_ptr_fn_seam_priv_unsafe"),
-        }
-    }
-
-    /// The `raw_ptr_*` and `void_ptr_*` partition counters for this position.
-    fn counters(self) -> (&'static str, &'static str) {
-        match self {
-            PtrSite::Type { exported: true, field_exported: true } => {
-                ("raw_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_pub")
-            }
-            PtrSite::Type { exported: true, field_exported: false } => {
-                ("raw_ptr_ty_pub_fields_priv", "void_ptr_ty_pub_fields_priv")
-            }
-            PtrSite::Type { exported: false, .. } => ("raw_ptr_ty_priv", "void_ptr_ty_priv"),
-            PtrSite::Fn { exported: true, safe: true, .. } => ("raw_ptr_fn_pub_safe", "void_ptr_fn_pub_safe"),
-            PtrSite::Fn { exported: true, safe: false, .. } => ("raw_ptr_fn_pub_unsafe", "void_ptr_fn_pub_unsafe"),
-            PtrSite::Fn { exported: false, safe: true, .. } => ("raw_ptr_fn_priv_safe", "void_ptr_fn_priv_safe"),
-            PtrSite::Fn { exported: false, safe: false, .. } => ("raw_ptr_fn_priv_unsafe", "void_ptr_fn_priv_unsafe"),
-        }
-    }
-}
-
-/// Count one raw-pointer position (pointee `p`) into its partition,
-/// `raw_ptr_ty_{pub,priv}` or `raw_ptr_fn_{pub,priv}_{safe,unsafe}`; `*c_void`
-/// positions likewise into `void_ptr_*`.
-fn count_ptr_position(
+/// Raw-pointer positions in the fields of a struct or union the crate
+/// declares (nested ones included, as for signatures), into
+/// `{raw,void}_ptr.field.{pub,priv}`.
+///
+/// `pub` is one reachability question -- can a consumer of this crate touch
+/// the field -- so it is the type being exported AND the field being
+/// exported, rather than two levels a reader has to combine.
+fn count_ptr_fields(
     tcx: TyCtxt<'_>,
-    p: Ty<'_>,
-    at: PtrSite,
-    site: (String, usize),
-    c: &mut Counts,
+    did: DefId,
+    ptr: &mut PtrTally,
     sites: &mut Sites,
 ) {
-    let (raw, void) = at.counters();
-    *c.slot(raw) += 1;
-    sites.add(raw, site.clone());
-    if let Some(k) = at.seam_counter() {
-        *c.slot(k) += 1;
-        sites.add(k, site.clone());
-    }
-    if is_c_void(tcx, p) {
-        *c.slot(void) += 1;
-        sites.add(void, site.clone());
-    }
-}
-
-/// Raw-pointer positions in the fields of a struct or union the crate declares
-/// (nested ones included, as for signatures), counted into
-/// `raw_ptr_ty_{pub,priv}` by the effective visibility of the TYPE: every
-/// raw pointer a public type holds counts, private fields included, since it
-/// is that type's representation.
-fn count_raw_ptr_fields(tcx: TyCtxt<'_>, did: DefId, c: &mut Counts, sites: &mut Sites) {
     if in_generated_file(tcx, tcx.def_span(did)) {
         return;
     }
-    let exported = did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
+    let vis = tcx.effective_visibilities(());
+    let exported = did.as_local().is_some_and(|l| vis.is_exported(l));
     for f in tcx.adt_def(did).all_fields() {
         let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
         let mut pointees = Vec::new();
         raw_pointees(tcx, ft, &mut pointees);
+        if pointees.is_empty() {
+            continue;
+        }
+        let reachable = exported && f.did.as_local().is_some_and(|l| vis.is_exported(l));
+        let v = if reachable { "pub" } else { "priv" };
         let site = counter_site(tcx, tcx.def_span(f.did));
-        let field_exported = f.did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
-        for p in pointees {
-            count_ptr_position(tcx, p, PtrSite::Type { exported, field_exported }, site.clone(), c, sites);
+        for pointee in pointees {
+            let axis = if is_c_void(tcx, pointee) { "void_ptr" } else { "raw_ptr" };
+            *ptr.entry(format!("{axis}.field.{v}")).or_default() += 1;
+            sites.add(&format!("{axis}.field.{v}"), site.clone());
         }
     }
 }
@@ -687,7 +636,8 @@ fn mirror_into_tree<'a>(ptr: &'a mut PtrTally, c: &Counts) -> &'a PtrTally {
     for (key, n) in [
         ("code.loc.total", c.code_lines),
         ("code.loc.unsafe", c.unsafe_block_code_lines),
-        ("code.unsafe_block", c.unsafe_blocks),
+        ("code.unsafe_block.total", c.unsafe_blocks),
+        ("code.unsafe_block.of_which.ffi_export", c.unsafe_blocks_ffi_export),
         ("raw_ptr.deref.rd", c.raw_ptr_derefs_rd),
         ("raw_ptr.deref.wr", c.raw_ptr_derefs_wr),
     ] {
@@ -1061,187 +1011,23 @@ fn in_ffi_export(tcx: TyCtxt<'_>, mut did: DefId) -> bool {
 
 #[derive(Default)]
 struct Counts {
-    code_lines: u64, // crate-wide physical LoC: non-blank, non-`//`-comment source lines
-    // Safe fns and methods with a body the crate defines, by effective
-    // visibility, on the same terms as unsafe_fns_*: fns_pub = safe_fns_pub +
-    // unsafe_fns_pub, likewise _priv. Methods implementing another crate's
-    // trait are left out.
-    safe_fns_pub: u64,
-    safe_fns_priv: u64,
+    // The quantities the tree reads through `mirror_into_tree`, which are
+    // accumulated while walking rather than bumped at a single site: line
+    // metrics need the outermost block's span, and the deref split needs the
+    // place's write-ness. Every other counter is a `bump` straight into the
+    // tree, so it has no field here.
+    code_lines: u64,              // non-blank, non-`//`-comment source lines
     unsafe_blocks: u64,
-    unsafe_block_lines: u64, // raw brace-to-brace span (incl. blanks/comments)
-    unsafe_block_code_lines: u64, // non-blank, non-`//`-comment lines only
-    // unsafe blocks at the C-ABI boundary (`in_ffi_export`: `#[no_mangle]` /
-    // `#[export_name]` / `extern "C"`)
+    unsafe_block_code_lines: u64, // the same, inside outermost unsafe blocks
+    // Of `unsafe_blocks`, those at the C-ABI boundary (`in_ffi_export`:
+    // `#[no_mangle]` / `#[export_name]` / `extern "C"`). A region
+    // attribution, never an exemption.
     unsafe_blocks_ffi_export: u64,
-    // `unsafe fn` DECLARATIONS the crate defines, by rustc's effective
-    // visibility (callable from outside the crate): unsafe_fns = unsafe_fns_pub
-    // + unsafe_fns_priv. `_pub` is the public unsafe surface, an obligation
-    // the crate exports to every caller. Methods implementing another crate's
-    // trait are left out: that crate fixed their signature.
-    unsafe_fns: u64,
-    unsafe_fns_pub: u64,
-    unsafe_fns_priv: u64,
-    unsafe_impls: u64,
-    // Of `unsafe_impls`, the crate's `unsafe impl Send` / `unsafe impl Sync`
-    // (`core::marker`): every site that opts a type into being thread safe by
-    // assertion rather than by its fields. Negative impls (`impl !Send`) are
-    // not unsafe and are not counted.
-    unsafe_send_impl: u64,
-    unsafe_sync_impl: u64,
-    // Layout newtypes, found by shape (`structural_wrapper`): a
-    // `#[repr(C)]` / `#[repr(transparent)]` struct storing a C-reachable type's
-    // bytes inline (see "C visibility"). How these relate to ffibox's `CCell` is the `--ffibox` record's
-    // (`ffibox_layout_not_ccell` / `ffibox_ccell_not_layout`).
-    // Borrows into C memory: `&W` / `&mut W` (or `&[W]`, `Option<&W>`, ..),
-    // W a layout newtype or a local C type, wherever they occur:
-    //  * fn signatures (the receiver included): sanctioned on REF_ACCESSORS
-    //    and STD_VALUE_TRAITS impls, non-sanctioned elsewhere;
-    //  * fn bodies: formed from a raw pointer -- `&*p`, `&(*p).f`, an autoref
-    //    through `*p`, or a non-local call such as `p.as_ref()` /
-    //    `NonNull::as_ref` / `slice::from_raw_parts` -- never sanctioned;
-    //  * fields of the crate's types: a field holding such a reference, or a
-    //    reference to any C-reachable type (a handle over `&'a ffi::T`) --
-    //    never sanctioned.
-    // A shared `&W` over `UnsafeCell` storage is not a borrow here.
-    // Split by POSITION first, because that is what "on the public interface"
-    // means: a `&*p` inside a `pub fn`'s body is an internal operation, not
-    // something the interface hands a caller. Only the signature positions
-    // carry a visibility, by the fn's effective visibility; the field ones
-    // carry the type's and the field's, as raw_ptr_ty_* do.
-    //
-    // Not every kind occurs in every position, and the absent ones are not
-    // emitted rather than emitted as a constant 0:
-    //   sanctioned -- signatures only (REF_ACCESSORS / STD_VALUE_TRAITS impls);
-    //   generic    -- bodies only: the referent is a type parameter or
-    //                 associated type, so whether it is C memory depends on
-    //                 the instantiation, which a generically-read body does
-    //                 not show;
-    //   opaque / non_sanctioned -- all three positions.
-    // c_type_borrow_fn_sig_non_sanctioned_*'s target is 0.
-    // References to a slice-like target -- `[T]`, `[T; N]`, `str`, `CStr`,
-    // `OsStr`, `Path` -- over a type that is not a C type, formed from a raw
-    // pointer in a body: `CStr::from_ptr(p)`, `slice::from_raw_parts(p, n)`,
-    // `&*slice_ptr`, `&(*p).name` of an array field.
-    // Layout newtypes held by VALUE on the crate's surface, outside ffibox
-    // owners: `by_val` directly (`Foo`, `Option<Foo>`, `(Foo, u8)`, `[Foo; N]`,
-    // `Cell<Foo>`, ..), `std_owner` under a Rust heap owner (`Box<Foo>`,
-    // `Rc`, `Arc`, `Vec`, `VecDeque`, `Pin<Box<Foo>>`). Each occurrence counts
-    // once, in one family. Nothing behind a reference or pointer counts.
-    //   _fn_sig_{pub,priv}: parameters and return of a fn, by its effective
-    //     visibility (`-> Self` on the wrapper's own constructor included);
-    //     methods implementing another crate's trait are left out;
-    //   _ty_{pub_fields_pub,pub_fields_priv,priv}: fields of the crate's
-    //     structs, unions and enums, split as raw_ptr_ty_*.
-    // A by-value layout newtype is Rust-owned storage that can be moved,
-    // so a C pointer retained into it dangles, and no owner runs its C
-    // destructor: the cases ffibox's `CBox` / `CVal` exist for.
-    // `&T` / `&mut T` in fn signatures (the receiver and nested references
-    // included), by the fn's visibility and safety as for raw_ptr_fn_*, where
-    // `T` -- or a slice's element --
-    // is neither a layout wrapper nor C-reachable: `&CStr`, `&str`, `&[u8]`,
-    // `&mut Config`. The counterpart of c_type_borrow_*: borrows that stay
-    // on the Rust side of the boundary. A reference to a C type itself counts
-    // in neither.
-    // Raw-pointer positions in the items the crate defines, nested ones
-    // included, each in exactly one counter by where it sits:
-    //   raw_ptr_ty_pub_fields_{pub,priv}, raw_ptr_ty_priv  (fields of types)
-    //   raw_ptr_fn_{pub,priv}_{safe,unsafe}               (fn signatures)
-    // A field counts by its TYPE's effective visibility and, in a public type,
-    // by whether the field itself is reachable from outside the crate. A
-    // signature counts by the fn's effective visibility and its safety: `_safe`
-    // is reachable from safe code, `_unsafe` only by an `unsafe fn` caller.
-    // raw_ptr_ty_pub_fields_pub + raw_ptr_fn_pub_safe are the raw pointers on
-    // the safe public interface.
-    // Methods implementing another crate's trait are left out: that crate
-    // fixed their signature.
-    raw_ptr_ty_pub_fields_pub: u64,
-    raw_ptr_ty_pub_fields_priv: u64,
-    raw_ptr_ty_priv: u64,
-    raw_ptr_fn_pub_safe: u64,
-    raw_ptr_fn_pub_unsafe: u64,
-    raw_ptr_fn_priv_safe: u64,
-    raw_ptr_fn_priv_unsafe: u64,
-    // of those positions, the ones whose pointee is a C type with a wrapper
-    // (`*mut ffi::git_oid` where `GitOid` exists)
-    // Dereferences `*p` of a raw pointer, by what is done with the place `*p`
-    // (or a field or index below it): `_wr` when it is assigned (`=`, `op=`)
-    // or borrowed mutably (`&mut`, `&raw mut`, a `&mut self` autoref), `_rd`
-    // otherwise. `*(*p).next = x` is a read of `(*p).next` and a write.
     raw_ptr_derefs_rd: u64,
     raw_ptr_derefs_wr: u64,
-    // the `*c_void` positions among them, partitioned the same way:
-    // void_ptr_ty_pub_fields_{pub,priv}, void_ptr_ty_priv,
-    // void_ptr_fn_{pub,priv}_{safe,unsafe}
-    void_ptr_ty_pub_fields_pub: u64,
-    void_ptr_ty_pub_fields_priv: u64,
-    void_ptr_ty_priv: u64,
-    void_ptr_fn_pub_safe: u64,
-    void_ptr_fn_pub_unsafe: u64,
-    void_ptr_fn_priv_safe: u64,
-    void_ptr_fn_priv_unsafe: u64,
-    // Crate-defined types with an `impl Drop` (`drop_impl`) or a hand-written
-    // `impl Clone`, not derived (`clone_impl`), one per type: each a decision
-    // about how a value is torn down or copied, worth checking against the C
-    // object it may hold. A type that owns through another crate's owner
-    // (`Box`, ffibox's `CBox`) has neither: that owner's impls are its crate's.
-    /// C types implementing a `STD_VALUE_TRAITS` trait: each forces a `&self`
-    /// over memory C may write, which `c_type_borrow_fn_sig_sanctioned_*`
-    /// counts but does not question. Distinct types, not impls.
-    /// Of those, the ones where at least one such impl is derived: nobody
-    /// weighed the borrow.
-    // Calls to a foreign item -- one declared in an `extern` block
-    // (`is_foreign_item`), which is the FFI boundary itself and is
-    // crate-agnostic: a bindgen `*-sys` binding, `libc`, or a local
-    // `extern "C"` block all resolve to it. Calling one is an unsafe op, so
-    // this is the crate-wide unsafe-FFI-call surface. Resolution-based on the
-    // callee, so alias- and re-export-proof.
-    // Of the fn-signature counters above, the share whose function is a
-    // declared `--seams` name: plumbing between a wrapper and its raw
-    // pointer, which a consumer of the safe API never performs. Subsets,
-    // never summed into their parent. All zero without `--seams`.
-    safe_fns_seam_pub: u64,
-    safe_fns_seam_priv: u64,
-    unsafe_fns_seam_pub: u64,
-    unsafe_fns_seam_priv: u64,
-    raw_ptr_fn_seam_pub_safe: u64,
-    raw_ptr_fn_seam_pub_unsafe: u64,
-    raw_ptr_fn_seam_priv_safe: u64,
-    raw_ptr_fn_seam_priv_unsafe: u64,
-    ffi_calls: u64,
 }
 
 
-impl Counts {
-    /// The partition counter `name`, for the position helpers.
-    fn slot(&mut self, name: &str) -> &mut u64 {
-        match name {
-            "raw_ptr_ty_pub_fields_pub" => &mut self.raw_ptr_ty_pub_fields_pub,
-            "raw_ptr_ty_pub_fields_priv" => &mut self.raw_ptr_ty_pub_fields_priv,
-            "raw_ptr_ty_priv" => &mut self.raw_ptr_ty_priv,
-            "raw_ptr_fn_pub_safe" => &mut self.raw_ptr_fn_pub_safe,
-            "raw_ptr_fn_pub_unsafe" => &mut self.raw_ptr_fn_pub_unsafe,
-            "raw_ptr_fn_priv_safe" => &mut self.raw_ptr_fn_priv_safe,
-            "raw_ptr_fn_priv_unsafe" => &mut self.raw_ptr_fn_priv_unsafe,
-            "void_ptr_ty_pub_fields_pub" => &mut self.void_ptr_ty_pub_fields_pub,
-            "void_ptr_ty_pub_fields_priv" => &mut self.void_ptr_ty_pub_fields_priv,
-            "void_ptr_ty_priv" => &mut self.void_ptr_ty_priv,
-            "void_ptr_fn_pub_safe" => &mut self.void_ptr_fn_pub_safe,
-            "void_ptr_fn_pub_unsafe" => &mut self.void_ptr_fn_pub_unsafe,
-            "void_ptr_fn_priv_safe" => &mut self.void_ptr_fn_priv_safe,
-            "void_ptr_fn_priv_unsafe" => &mut self.void_ptr_fn_priv_unsafe,
-            "safe_fns_seam_pub" => &mut self.safe_fns_seam_pub,
-            "safe_fns_seam_priv" => &mut self.safe_fns_seam_priv,
-            "unsafe_fns_seam_pub" => &mut self.unsafe_fns_seam_pub,
-            "unsafe_fns_seam_priv" => &mut self.unsafe_fns_seam_priv,
-            "raw_ptr_fn_seam_pub_safe" => &mut self.raw_ptr_fn_seam_pub_safe,
-            "raw_ptr_fn_seam_pub_unsafe" => &mut self.raw_ptr_fn_seam_pub_unsafe,
-            "raw_ptr_fn_seam_priv_safe" => &mut self.raw_ptr_fn_seam_priv_safe,
-            "raw_ptr_fn_seam_priv_unsafe" => &mut self.raw_ptr_fn_seam_priv_unsafe,
-            _ => unreachable!("not a position partition: {name}"),
-        }
-    }
-}
 
 /// Source sites `(file, 1-based line)` per counter, keyed by the counter's
 /// output name: every increment of a location-counting counter records where it
@@ -1526,9 +1312,6 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
                 // the `code_lines` rebuild removed from the denominator.
                 if self.depth == 0 {
                     let sm = self.tcx.sess.source_map();
-                    let lo = sm.lookup_char_pos(b.span.lo()).line;
-                    let hi = sm.lookup_char_pos(b.span.hi()).line;
-                    self.c.unsafe_block_lines += (hi.saturating_sub(lo) + 1) as u64;
                     // filtered: drop blank + `//`-comment lines (same filter as
                     // the code_LOC denominator, so the ratio is apples-to-apples)
                     if let Ok(snip) = sm.span_to_snippet(b.span) {
@@ -2243,25 +2026,6 @@ fn ffibox_json(tcx: TyCtxt<'_>, krate: rustc_span::Symbol) -> String {
 
 // ---------------------------------------------------------------- seed mode
 
-/// Collect free-function callee `DefId`s + call-site spans in a body, for FFI
-/// call classification and named-symbol resolution.
-struct CallCollector<'a, 'tcx> {
-    typeck: &'tcx TypeckResults<'tcx>,
-    out: &'a mut Vec<(DefId, Span)>,
-}
-impl<'a, 'tcx> Visitor<'tcx> for CallCollector<'a, 'tcx> {
-    fn visit_expr(&mut self, e: &'tcx hir::Expr<'tcx>) {
-        if let hir::ExprKind::Call(f, _) = e.kind {
-            if let hir::ExprKind::Path(ref qp) = f.kind {
-                if let hir::def::Res::Def(_, did) = self.typeck.qpath_res(qp, f.hir_id) {
-                    self.out.push((did, e.span));
-                }
-            }
-        }
-        intravisit::walk_expr(self, e);
-    }
-}
-
 struct MetricsCallbacks;
 
 impl Callbacks for MetricsCallbacks {
@@ -2392,7 +2156,7 @@ impl Callbacks for MetricsCallbacks {
                 }
             }
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union) {
-                count_raw_ptr_fields(tcx, did, &mut c, &mut sites);
+                count_ptr_fields(tcx, did, &mut ptr, &mut sites);
             }
             match tcx.def_kind(did) {
                 DefKind::Impl { of_trait: false } => {
@@ -2439,33 +2203,6 @@ impl Callbacks for MetricsCallbacks {
                                       &format!("ty.impl.ffibox.{n}.{how}"));
                         }
                     }
-                    // `TrivialClone` is a compiler-internal marker `#[derive(Clone)]`
-                    // emits as an `unsafe impl`; it asserts nothing the author
-                    // wrote and would swamp the real lifecycle contracts.
-                    let internal = tcx
-                        .item_name(tcx.impl_trait_ref(did).skip_binder().def_id)
-                        .as_str()
-                        == "TrivialClone";
-                    if !internal && tcx.impl_trait_header(did).safety.is_unsafe() {
-                        c.unsafe_impls += 1;
-                        sites.add("unsafe_impls", counter_site(tcx, tcx.def_span(did)));
-                        // `unsafe impl Send` / `Sync`: a thread-safety opt-in.
-                        let tr = tcx.impl_trait_ref(did).skip_binder().def_id;
-                        if tcx.crate_name(tr.krate).as_str() == "core" {
-                            let k = match tcx.item_name(tr).as_str() {
-                                "Send" => Some(("unsafe_send_impl", &mut c.unsafe_send_impl)),
-                                "Sync" => Some(("unsafe_sync_impl", &mut c.unsafe_sync_impl)),
-                                _ => None,
-                            };
-                            if let Some((k, slot)) = k {
-                                *slot += 1;
-                                sites.add(k, counter_site(tcx, tcx.def_span(did)));
-                            }
-                        }
-                    }
-                    // A crate type's own `Drop` / hand-written `Clone`. A
-                    // `#[derive(Clone)]` copies field by field and decides
-                    // nothing about a C object.
                 }
                 _ => {}
             }
@@ -2473,19 +2210,6 @@ impl Callbacks for MetricsCallbacks {
 
         for owner in tcx.hir_body_owners() {
             let did = owner.to_def_id();
-            {
-                let typeck = tcx.typeck(owner);
-                let mut callees: Vec<(DefId, Span)> = Vec::new();
-                CallCollector {
-                    typeck,
-                    out: &mut callees,
-                }
-                .visit_body(tcx.hir_body_owned_by(owner));
-                for (_, span) in callees.iter().filter(|(d, _)| tcx.is_foreign_item(*d)) {
-                    c.ffi_calls += 1;
-                    sites.add("ffi_calls", counter_site(tcx, *span));
-                }
-            }
             let in_ffi = in_ffi_export(tcx, did);
             let exported = did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
             let blocks_before = c.unsafe_blocks;
@@ -2585,51 +2309,6 @@ impl Callbacks for MetricsCallbacks {
                         }
                     }
                 }
-                let seam = is_seam_fn(tcx, did);
-                if safe && !foreign {
-                    let site = counter_site(tcx, tcx.def_span(did));
-                    if seam {
-                        let k = if exported { "safe_fns_seam_pub" } else { "safe_fns_seam_priv" };
-                        *c.slot(k) += 1;
-                        sites.add(k, site.clone());
-                    }
-                    if exported {
-                        c.safe_fns_pub += 1;
-                        sites.add("safe_fns_pub", site);
-                    } else {
-                        c.safe_fns_priv += 1;
-                        sites.add("safe_fns_priv", site);
-                    }
-                }
-                if !safe && !foreign {
-                    let site = counter_site(tcx, tcx.def_span(did));
-                    c.unsafe_fns += 1;
-                    sites.add("unsafe_fns", site.clone());
-                    if seam {
-                        let k = if exported { "unsafe_fns_seam_pub" } else { "unsafe_fns_seam_priv" };
-                        *c.slot(k) += 1;
-                        sites.add(k, site.clone());
-                    }
-                    if exported {
-                        c.unsafe_fns_pub += 1;
-                        sites.add("unsafe_fns_pub", site);
-                    } else {
-                        c.unsafe_fns_priv += 1;
-                        sites.add("unsafe_fns_priv", site);
-                    }
-                }
-                // Raw pointers in the signature, args and return: every
-                // position, by the fn's visibility and safety.
-                if !foreign {
-                    let site = counter_site(tcx, tcx.def_span(did));
-                    let mut pointees = Vec::new();
-                    for t in sig.inputs().iter().copied().chain(std::iter::once(sig.output())) {
-                        raw_pointees(tcx, t, &mut pointees);
-                    }
-                    for p in pointees {
-                        count_ptr_position(tcx, p, PtrSite::Fn { exported, safe, seam }, site.clone(), &mut c, &mut sites);
-                    }
-                }
             }
         }
         // Crate-wide code LoC — the denominator. Built from the COMPILED crate
@@ -2719,9 +2398,9 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"code_lines\":{},\"safe_fns_pub\":{},\"safe_fns_priv\":{},\"unsafe_blocks\":{},\"unsafe_block_lines\":{},\"unsafe_block_code_lines\":{},\"unsafe_blocks_ffi_export\":{},\"unsafe_fns\":{},\"unsafe_fns_pub\":{},\"unsafe_fns_priv\":{},\"unsafe_impls\":{},\"unsafe_send_impl\":{},\"unsafe_sync_impl\":{},\"raw_ptr_ty_pub_fields_pub\":{},\"raw_ptr_ty_pub_fields_priv\":{},\"raw_ptr_ty_priv\":{},\"raw_ptr_fn_pub_safe\":{},\"raw_ptr_fn_pub_unsafe\":{},\"raw_ptr_fn_priv_safe\":{},\"raw_ptr_fn_priv_unsafe\":{},\"raw_ptr_derefs_rd\":{},\"raw_ptr_derefs_wr\":{},\"void_ptr_ty_pub_fields_pub\":{},\"void_ptr_ty_pub_fields_priv\":{},\"void_ptr_ty_priv\":{},\"void_ptr_fn_pub_safe\":{},\"void_ptr_fn_pub_unsafe\":{},\"void_ptr_fn_priv_safe\":{},\"void_ptr_fn_priv_unsafe\":{},\"safe_fns_seam_pub\":{},\"safe_fns_seam_priv\":{},\"unsafe_fns_seam_pub\":{},\"unsafe_fns_seam_priv\":{},\"raw_ptr_fn_seam_pub_safe\":{},\"raw_ptr_fn_seam_pub_unsafe\":{},\"raw_ptr_fn_seam_priv_safe\":{},\"raw_ptr_fn_seam_priv_unsafe\":{},\"ffi_calls\":{},\"ptr\":{},\"sites\":{}}}",
-            krate, c.code_lines, c.safe_fns_pub, c.safe_fns_priv, c.unsafe_blocks, c.unsafe_block_lines, c.unsafe_block_code_lines, c.unsafe_blocks_ffi_export, c.unsafe_fns, c.unsafe_fns_pub, c.unsafe_fns_priv, c.unsafe_impls, c.unsafe_send_impl, c.unsafe_sync_impl, c.raw_ptr_ty_pub_fields_pub, c.raw_ptr_ty_pub_fields_priv, c.raw_ptr_ty_priv, c.raw_ptr_fn_pub_safe, c.raw_ptr_fn_pub_unsafe, c.raw_ptr_fn_priv_safe, c.raw_ptr_fn_priv_unsafe, c.raw_ptr_derefs_rd, c.raw_ptr_derefs_wr, c.void_ptr_ty_pub_fields_pub, c.void_ptr_ty_pub_fields_priv, c.void_ptr_ty_priv, c.void_ptr_fn_pub_safe, c.void_ptr_fn_pub_unsafe, c.void_ptr_fn_priv_safe, c.void_ptr_fn_priv_unsafe, c.safe_fns_seam_pub, c.safe_fns_seam_priv, c.unsafe_fns_seam_pub, c.unsafe_fns_seam_priv, c.raw_ptr_fn_seam_pub_safe, c.raw_ptr_fn_seam_pub_unsafe, c.raw_ptr_fn_seam_priv_safe, c.raw_ptr_fn_seam_priv_unsafe, c.ffi_calls,
-            ptr_json(&mirror_into_tree(&mut ptr, &c)),
+            "{{\"crate\":\"{}\",\"counts\":{},\"sites\":{}}}",
+            krate,
+            ptr_json(mirror_into_tree(&mut ptr, &c)),
             sites.json()
         );
         Compilation::Continue

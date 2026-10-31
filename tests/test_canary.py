@@ -46,7 +46,7 @@ class CanaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         doc = scan.compose(FIXTURE, seams=["from_raw"], sys_crates=["canary-sys"])
-        cls.tree = doc["ptr"]
+        cls.tree = doc["counts"]
 
     def at(self, path: str) -> int:
         """A leaf by its dotted path, 0 where the counter did not fire.
@@ -135,7 +135,7 @@ class CanaryTests(unittest.TestCase):
         must not reappear under `std` or `ffibox`, which would attribute the
         crate's own conversion to someone else's vocabulary.
         """
-        tree = scan.compose(FIXTURE, sys_crates=["canary-sys"])["ptr"]
+        tree = scan.compose(FIXTURE, sys_crates=["canary-sys"])["counts"]
         casted = tree["raw_ptr"]["casted_to"]
         self.assertNotIn("local_seam", casted)
         self.assertEqual(casted["std"]["total"], 15)
@@ -201,7 +201,7 @@ class CanaryTests(unittest.TestCase):
         why the summary prints the peel set. Asserted here so the naming
         requirement cannot be reverted to discovery without a failure.
         """
-        tree = scan.compose(FIXTURE)["ptr"]
+        tree = scan.compose(FIXTURE)["counts"]
         self.assertEqual(tree["ty"]["storing_raw_ptr"]["pub"], 8)
 
     def test_unsafe_cell(self) -> None:

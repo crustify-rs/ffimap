@@ -25,10 +25,12 @@ from ffimap import measure
 def site_counters(requested: list[str]) -> list[str]:
     """Validate `--sites` names; `all` expands to every site-bearing counter.
     The owner / handle counters are always measured, so they need no flag."""
-    valid = measure.SITE_COUNTERS + measure.FFIBOX_COUNTERS
+    valid = measure.FFIBOX_COUNTERS
     if "all" in requested:
-        # `all` stays the flat counters: the tree's leaves are not enumerable
-        # here, and asking for every one of them would be a different request.
+        # The owner / handle counters only: a counter tree's leaves are not
+        # enumerable here -- the ffibox arms come from a vocabulary, so there
+        # is no closed list -- and asking for every one would be a different
+        # request. Name the tree counters whose sites you want.
         return list(valid)
     # An owner / handle counter takes a key from its breakdown,
     # `<counter>:<key>` (`fn_sig_ffibox_owner_pub:CVal`), for that key alone.
@@ -69,13 +71,10 @@ def compose(workspace: Path, sites: list[str] | None = None,
     sys = measure.sys_crates(sys_crates)
     doc: dict = {"crate_path": str(workspace), "sys_crates": sys}
     all_sites: dict = {}
-    flat: dict = {}
     try:
-        flat, all_sites, breakdowns, ptr = measure.measure(
+        all_sites, breakdowns, counts = measure.measure(
             workspace, ffibox=ffibox, sys=sys, seams=seams)
-        doc["ptr"] = ptr
-        # `derived` reads the flat counters; the document carries the tree.
-        doc["counts"] = measure.nest_counts(flat)
+        doc["counts"] = counts
         doc["counts_unavailable"] = None
     except measure.DriverUnavailable as e:
         # No counts rather than substitute ones: see measure.py.
@@ -87,7 +86,7 @@ def compose(workspace: Path, sites: list[str] | None = None,
     doc["ffibox"] = _ffibox_record(breakdowns)
     if wanted is not None:
         doc["sites"] = {k: all_sites.get(k, []) for k in wanted}
-    doc["derived"] = _derive(flat)
+    doc["derived"] = _derive(doc["counts"])
     return doc
 
 
@@ -103,32 +102,44 @@ def _ffibox_record(breakdowns: dict | None) -> dict | None:
     return {"counts": measure.nest_ffibox(flat), "by": by}
 
 
-def _derive(c: dict) -> dict:
-    """Ratios a reader actually compares crates on.
+def _at(tree: dict | None, path: str) -> int:
+    """A counter by its dotted path, 0 where it did not fire: the driver emits
+    no key for a counter that never incremented."""
+    node: object = tree or {}
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return 0
+        node = node[part]
+    return node if isinstance(node, int) else 0
+
+
+def _derive(counts: dict | None) -> dict:
+    """The sums a reader actually compares crates on.
 
     Absolute unsafe-block counts are close to meaningless across crates of
     different sizes, and *lower is not automatically better*: a wrapper over C
     must contain unsafe, and folding 600 small audited blocks into 200 large
-    ones makes the crate worse while improving the number. So the headline
-    figures here are the ones that ARE categorical — how much unsafety the
-    crate pushes across its public API boundary, where the caller has to
-    discharge it.
+    ones makes the crate worse while improving the number. So the figure here
+    is the one that IS categorical -- how much unsafety the crate pushes
+    across its public API boundary, where the caller has to discharge it.
+
+    Sums only. No ratios: a ratio moves when its denominator moves, so one
+    reads as a change in the crate when only the other term changed --
+    `fn.unsafe.pub / fn.unsafe.total` rises when private unsafe fns are
+    DELETED. The counts are all in `counts`; a consumer that wants a rate
+    divides its own.
     """
-    if not c:
+    if not counts:
         return {}
-    pub_fns = (c.get("safe_fns_pub") or 0) + (c.get("unsafe_fns_pub") or 0)
-    priv_fns = (c.get("safe_fns_priv") or 0) + (c.get("unsafe_fns_priv") or 0)
-    # Sums only. No ratios: a ratio moves when its denominator moves, so one
-    # reads as a change in the crate when only the other term changed --
-    # `unsafe_fns_pub / unsafe_fns` rises when private unsafe fns are DELETED.
-    # The counts are all here; a consumer that wants a rate divides its own.
     return {
-        # Categorical: what the crate's public interface hands its callers.
-        "fns_pub": pub_fns,
-        "fns_priv": priv_fns,
-        "raw_ptr_pub": (c.get("raw_ptr_ty_pub_fields_pub") or 0)
-                       + (c.get("raw_ptr_ty_pub_fields_priv") or 0) + (c.get("raw_ptr_fn_pub_safe") or 0)
-                       + (c.get("raw_ptr_fn_pub_unsafe") or 0),
-        "raw_ptr_pub_safe_interface": (c.get("raw_ptr_ty_pub_fields_pub") or 0)
-                                      + (c.get("raw_ptr_fn_pub_safe") or 0),
+        "fns_pub": _at(counts, "fn.total.pub"),
+        "fns_priv": _at(counts, "fn.total.priv"),
+        # The raw pointers a consumer meets without writing `unsafe`: those a
+        # public safe fn takes or returns, and those in a public field of a
+        # public type. `raw_ptr_pub` used to sit beside this and summed the
+        # private fields of public types too, which are not public surface;
+        # it is gone rather than kept as a second, looser answer.
+        "raw_ptr_pub_safe_interface": _at(counts, "raw_ptr.field.pub")
+        + _at(counts, "raw_ptr.taken.safe.pub")
+        + _at(counts, "raw_ptr.returned.safe.pub"),
     }

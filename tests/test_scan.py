@@ -11,8 +11,9 @@ class ComposeTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             (workspace / "Cargo.toml").write_text("[workspace]\n")
+            counts = {"code": {"loc": {"total": 1}}}
             with mock.patch("ffimap.scan.measure.measure",
-                            return_value=({"code_lines": 1}, {}, None, {})) as measure, \
+                            return_value=({}, None, counts)) as measure, \
                  mock.patch("ffimap.scan.measure.sys_crates",
                             return_value=["foo_sys"]):
                 document = scan.compose(workspace)
@@ -21,6 +22,7 @@ class ComposeTests(unittest.TestCase):
                                             seams=None)
             self.assertEqual(document["sys_crates"], ["foo_sys"])
             self.assertEqual(document["crate_path"], str(workspace))
+            self.assertEqual(document["counts"], counts)
 
     def test_a_failed_build_gives_no_counts(self) -> None:
         with TemporaryDirectory() as temporary:

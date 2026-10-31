@@ -36,32 +36,6 @@ _DRIVER_CRATE = Path(__file__).resolve().parent / "driver"
 _TOOLCHAIN = tomllib.loads(
     (_DRIVER_CRATE / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
 
-# Count fields summed across the per-crate emissions, and site arrays
-# concatenated. The set the driver emits; kept explicit so a field added there
-# is a visible edit here rather than a silent passthrough.
-_COUNTS = (
-    "code_lines", "safe_fns_pub", "safe_fns_priv",
-    "unsafe_blocks", "unsafe_block_lines",
-    "unsafe_block_code_lines", "unsafe_blocks_ffi_export", "unsafe_fns", "unsafe_fns_pub",
-    "unsafe_fns_priv", "unsafe_impls", "unsafe_send_impl", "unsafe_sync_impl",
-    "raw_ptr_ty_pub_fields_pub", "raw_ptr_ty_pub_fields_priv",
-    "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe", "raw_ptr_fn_pub_unsafe",
-    "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe", "safe_fns_seam_pub",
-    "safe_fns_seam_priv",
-    "unsafe_fns_seam_pub",
-    "unsafe_fns_seam_priv",
-    "raw_ptr_fn_seam_pub_safe",
-    "raw_ptr_fn_seam_pub_unsafe",
-    "raw_ptr_fn_seam_priv_safe",
-    "raw_ptr_fn_seam_priv_unsafe",
-    "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
-    "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
-    "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
-    "ffi_calls",
-)
-#: The counters that count source locations, so `--sites` can list them. Line
-#: and statement totals (`code_lines`, `unsafe_block_*lines`) have no sites.
-
 # The tree counters of docs/schema.md, by prefix and the family under it.
 #
 # `--sites` validates a dotted name against this rather than against a list of
@@ -85,26 +59,6 @@ def is_tree_counter(name: str) -> bool:
     return bool(rest) and family in TREE_SITE_FAMILIES.get(head, ())
 
 
-SITE_COUNTERS = (
-    "safe_fns_pub", "safe_fns_priv", "unsafe_blocks",
-    "unsafe_blocks_ffi_export", "unsafe_fns",
-    "unsafe_fns_pub", "unsafe_fns_priv", "unsafe_impls", "unsafe_send_impl", "unsafe_sync_impl",
-    "raw_ptr_ty_pub_fields_pub",
-    "raw_ptr_ty_pub_fields_priv", "raw_ptr_ty_priv", "raw_ptr_fn_pub_safe",
-    "raw_ptr_fn_pub_unsafe", "raw_ptr_fn_priv_safe", "raw_ptr_fn_priv_unsafe",
-    "raw_ptr_derefs_rd", "raw_ptr_derefs_wr", "safe_fns_seam_pub",
-    "safe_fns_seam_priv",
-    "unsafe_fns_seam_pub",
-    "unsafe_fns_seam_priv",
-    "raw_ptr_fn_seam_pub_safe",
-    "raw_ptr_fn_seam_pub_unsafe",
-    "raw_ptr_fn_seam_priv_safe",
-    "raw_ptr_fn_seam_priv_unsafe",
-    "void_ptr_ty_pub_fields_pub", "void_ptr_ty_pub_fields_priv",
-    "void_ptr_ty_priv", "void_ptr_fn_pub_safe", "void_ptr_fn_pub_unsafe",
-    "void_ptr_fn_priv_safe", "void_ptr_fn_priv_unsafe",
-    "ffi_calls",
-)
 #: The owner and handle counters, in the driver's order. Each is a breakdown
 #: `{type, handle kind or trait: N}` rather than a number, and each counts
 #: source locations, so all of them take `--sites`. Always measured: the
@@ -133,71 +87,22 @@ class DriverUnavailable(Exception):
 
 # ---------------------------------------------------------------- nesting
 #
-# `counts` is emitted as a TREE. The driver counts flat, suffixed names
-# (`raw_ptr_fn_pub_safe`); this spec folds them into one record per family so
-# that the parent total is in the document rather than reconstructed by a
-# consumer who has to know which suffixes belong together.
+# The counters are a TREE: the driver emits dotted keys (`raw_ptr.taken.safe.pub`)
+# and `nest_ptr` folds them into records, so a parent total is in the document
+# rather than reconstructed by a consumer who has to know which leaves belong
+# together.
 #
-# Two relationships, which the flat names could not tell apart:
+# Two relationships, which a flat name could not tell apart:
 #
 #   * a PARTITION -- disjoint children that sum to the parent. `pub` + `priv`,
-#     `safe` + `unsafe`, a public type's `pub` + `priv` fields.
+#     `safe` + `unsafe`.
 #   * an `of_which` SUBSET -- a child that re-counts some of the parent's own
 #     occurrences from another angle, so it must NEVER be summed in.
-#     `unsafe_blocks_ffi_export` is a subset of `unsafe_blocks`, and
-#     `unsafe_send_impl` is "of `unsafe_impls`".
+#     `code.unsafe_block.of_which.ffi_export` is a subset of the blocks
+#     `code.unsafe_block.total` counted.
 #
-# `sites` and the `--ffibox` `by` breakdowns stay keyed by the flat LEAF name:
-# a site list and a breakdown belong to one leaf, not to a parent.
-
-#: flat leaf name -> path in the tree. Partition leaves only.
-_PARTITION: dict[str, tuple[str, ...]] = {}
-for _stem in ("raw_ptr", "void_ptr"):
-    _ty = f"{_stem}_ty"
-    _PARTITION[f"{_ty}_pub_fields_pub"] = (_ty, "pub", "fields", "pub")
-    _PARTITION[f"{_ty}_pub_fields_priv"] = (_ty, "pub", "fields", "priv")
-    _PARTITION[f"{_ty}_priv"] = (_ty, "priv")
-for _stem in ("raw_ptr", "void_ptr"):
-    for _v in ("pub", "priv"):
-        for _s in ("safe", "unsafe"):
-            _PARTITION[f"{_stem}_fn_{_v}_{_s}"] = (f"{_stem}_fn", _v, _s)
-for _v in ("pub", "priv"):
-    _PARTITION[f"safe_fns_{_v}"] = ("safe_fns", _v)
-    _PARTITION[f"unsafe_fns_{_v}"] = ("unsafe_fns", _v)
-_PARTITION["raw_ptr_derefs_rd"] = ("raw_ptr_derefs", "rd")
-_PARTITION["raw_ptr_derefs_wr"] = ("raw_ptr_derefs", "wr")
-#: flat leaf name -> (parent path, name under `of_which`). Never summed.
-
-_OF_WHICH: dict[str, tuple[tuple[str, ...], str]] = {
-    "unsafe_blocks_ffi_export": (("unsafe_blocks",), "ffi_export"),
-    "unsafe_send_impl": (("unsafe_impls",), "send"),
-    "unsafe_sync_impl": (("unsafe_impls",), "sync"),
-    # `--seams` names: the share of each fn-signature leaf that is seam
-    # plumbing -- the conversion between a wrapper and its raw pointer -- which
-    # a consumer of the safe API never performs. A subset, never summed in.
-    "safe_fns_seam_pub": (("safe_fns", "pub"), "seam"),
-    "safe_fns_seam_priv": (("safe_fns", "priv"), "seam"),
-    "unsafe_fns_seam_pub": (("unsafe_fns", "pub"), "seam"),
-    "unsafe_fns_seam_priv": (("unsafe_fns", "priv"), "seam"),
-    "raw_ptr_fn_seam_pub_safe": (("raw_ptr_fn", "pub", "safe"), "seam"),
-    "raw_ptr_fn_seam_pub_unsafe": (("raw_ptr_fn", "pub", "unsafe"), "seam"),
-    "raw_ptr_fn_seam_priv_safe": (("raw_ptr_fn", "priv", "safe"), "seam"),
-    "raw_ptr_fn_seam_priv_unsafe": (("raw_ptr_fn", "priv", "unsafe"), "seam"),
-}
-
-#: the paths that carry an `of_which`, so a PARTITION leaf landing on one is
-#: stored as `{"total": n}` rather than a bare number and still has somewhere
-#: to hang its subset.
-_OF_WHICH_PARENTS: frozenset[tuple[str, ...]] = frozenset(
-    parent for parent, _ in _OF_WHICH.values())
-
-#: a flat counter that is already a family's total: cross-checked, not stored
-#: twice. `unsafe_fns` == `unsafe_fns_pub` + `unsafe_fns_priv`.
-_PARENT_TOTALS: dict[str, tuple[str, ...]] = {"unsafe_fns": ("unsafe_fns",)}
-
-#: a flat counter that is a family's total but has NO partition children, only
-#: `of_which` subsets -- so its total is the emitted number, never a sum.
-_EXPLICIT_TOTAL: frozenset[str] = frozenset({"unsafe_blocks", "unsafe_impls"})
+# `sites` and the `--ffibox` `by` breakdowns stay keyed by the leaf's dotted
+# name: a site list and a breakdown belong to one leaf, not to a parent.
 
 
 def _set(tree: dict, path: tuple[str, ...], value) -> None:
@@ -211,12 +116,7 @@ def _set(tree: dict, path: tuple[str, ...], value) -> None:
 
 def _totals(node: dict) -> int:
     """Depth-first: give every internal node a `total` that sums its PARTITION
-    children, ignoring `of_which`, and return it.
-
-    A node that already carries an explicit `total` keeps it: it came from a
-    flat counter the driver emits for the whole family (`unsafe_blocks`), whose
-    only children are `of_which` subsets that must not be summed.
-    """
+    children, ignoring `of_which`, and return it."""
     if "of_which" in node and not isinstance(node["of_which"], dict):
         raise AssertionError("of_which must be a record")
     if isinstance(node.get("total"), int):
@@ -233,50 +133,6 @@ def _totals(node: dict) -> int:
     return total
 
 
-def nest_counts(flat: dict) -> dict:
-    """Fold the driver's flat counters into the tree described above.
-
-    Every name in ``flat`` must be placed, so a counter added to the driver
-    fails here rather than vanishing from the document.
-    """
-    tree: dict = {}
-    # Ordered passes: a family's node must exist as a record before an
-    # `of_which` subset is hung off it, and `unsafe_blocks` / `unsafe_impls`
-    # are flat counters that become their family's explicit total.
-    for name, value in flat.items():
-        if name in _PARTITION:
-            path = _PARTITION[name]
-            if path in _OF_WHICH_PARENTS:
-                _set(tree, path + ("total",), int(value))
-            else:
-                _set(tree, path, int(value))
-    for name in _EXPLICIT_TOTAL:
-        if name in flat:
-            _set(tree, (name, "total"), int(flat[name]))
-    for name, value in flat.items():
-        if name in _PARTITION or name in _OF_WHICH or name in _PARENT_TOTALS \
-                or name in _EXPLICIT_TOTAL:
-            continue
-        tree[name] = int(value)           # a scalar with no family
-    for name, value in flat.items():
-        if name in _OF_WHICH:
-            parent, leaf = _OF_WHICH[name]
-            _set(tree, parent + ("of_which", leaf), int(value))
-    for node in tree.values():
-        if isinstance(node, dict):
-            _totals(node)
-    for name, path in _PARENT_TOTALS.items():
-        if name in flat:
-            node = tree
-            for k in path:
-                node = node[k]
-            if node["total"] != int(flat[name]):
-                raise AssertionError(
-                    f"{name}={flat[name]} but its children sum to {node['total']}")
-    return tree
-
-
-#: the `--ffibox` leaves, folded the same way.
 _FFIBOX_PARTITION: dict[str, tuple[str, ...]] = {}
 for _box in ("ffibox", "non_ffibox"):
     for _kind in ("owner", "handle"):
@@ -312,33 +168,6 @@ def _at(tree: dict, path: tuple[str, ...]):
             return None
         node = node[k]
     return node
-
-
-def flatten_counts(tree: dict) -> dict:
-    """The inverse of :func:`nest_counts`, for consumers that want the flat
-    names (the round-trip test that keeps the two
-    specs honest)."""
-    flat: dict = {}
-    for name, path in _PARTITION.items():
-        v = _at(tree, path + ("total",)) if path in _OF_WHICH_PARENTS else _at(tree, path)
-        if v is not None:
-            flat[name] = v
-    for name, (parent, leaf) in _OF_WHICH.items():
-        v = _at(tree, parent + ("of_which", leaf))
-        if v is not None:
-            flat[name] = v
-    for name, path in _PARENT_TOTALS.items():
-        v = _at(tree, path + ("total",))
-        if v is not None:
-            flat[name] = v
-    for name in _EXPLICIT_TOTAL:
-        v = _at(tree, (name, "total"))
-        if v is not None:
-            flat[name] = v
-    for name, v in tree.items():
-        if not isinstance(v, dict):
-            flat[name] = v
-    return flat
 
 
 def flatten_ffibox(tree: dict) -> dict:
@@ -395,11 +224,11 @@ def _ptr_totals(node: dict) -> int:
 
 def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
                        ) -> tuple[dict, dict, int, dict, dict]:
-    """Merge driver JSON lines; return counts, sites, crate count, and the
-    `--ffibox` breakdowns (empty unless the driver emitted them). Sys crates
-    -- named `*_sys`, or in ``sys`` -- are bindings, never the subject."""
-    out = {k: 0 for k in _COUNTS}
-    sites: dict[str, list] = {k: [] for k in SITE_COUNTERS}
+    """Merge driver JSON lines; return sites, crate count, the `--ffibox`
+    breakdowns (empty unless the driver emitted them) and the flat counter
+    keys. Sys crates -- named `*_sys`, or in ``sys`` -- are bindings, never the
+    subject."""
+    sites: dict[str, list] = {}
     ffibox: dict[str, dict[str, int]] = {}
     ptr: dict[str, int] = {}
     seen = 0
@@ -422,16 +251,15 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
             for k, rows in d.get("sites", {}).items():
                 sites.setdefault(k, []).extend(rows)
             continue
-        if "unsafe_blocks" not in d:
+        # The metrics line, as opposed to the owner / handle one above.
+        if "counts" not in d:
             continue
         seen += 1
-        for k, n in d.get("ptr", {}).items():
+        for k, n in d.get("counts", {}).items():
             ptr[k] = ptr.get(k, 0) + int(n)
-        for k in _COUNTS:
-            out[k] += int(d.get(k, 0))
         for k, rows in d.get("sites", {}).items():
             sites.setdefault(k, []).extend(rows)
-    return out, sites, seen, ffibox, ptr
+    return sites, seen, ffibox, ptr
 
 
 def nest_ptr(flat: dict[str, int]) -> dict:
@@ -460,22 +288,25 @@ def nest_ptr(flat: dict[str, int]) -> dict:
             raise ValueError(f"counter {key!r} is both a leaf and a prefix")
         node[parts[-1]] = prev + int(n)
 
-    def totals(node: dict, depth: int) -> int:
+    def totals(node: dict, depth: int, is_of_which: bool) -> int:
         subtotal = 0
         for name, child in list(node.items()):
             if isinstance(child, dict):
-                got = totals(child, depth + 1)
+                got = totals(child, depth + 1, name == "of_which")
                 if name != "of_which":
                     subtotal += got
             elif name != "of_which":
                 subtotal += child
-        if depth > 1 and "total" not in node:
+        # The `of_which` node itself gets none: its children are overlapping
+        # shares, so their sum is not a quantity. Each share still does -- the
+        # `pub` / `priv` split inside one share is a partition.
+        if depth > 1 and "total" not in node and not is_of_which:
             node["total"] = subtotal
             return subtotal
         got = node.get("total")
         return got if isinstance(got, int) else subtotal
 
-    totals(tree, 0)
+    totals(tree, 0, False)
     return tree
 
 
@@ -582,9 +413,9 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
             f"{r.stderr[-1200:]}")
 
     # `-sys` crates are generated bindings, never the audit subject.
-    out, sites, seen, ffibox_counts, ptr = _collect_emissions(r.stdout, set(sys or ()))
+    sites, seen, ffibox_counts, ptr = _collect_emissions(r.stdout, set(sys or ()))
     if not seen:
         raise DriverUnavailable(
             "no crate emitted metrics — the build was served from cache, so "
             "nothing was measured")
-    return out, sites, ffibox_counts, nest_ptr(ptr)
+    return sites, ffibox_counts, nest_ptr(ptr)

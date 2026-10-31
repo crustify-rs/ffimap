@@ -10,19 +10,11 @@ from ffimap import measure, scan
 MAIN_RS = Path(measure.__file__).parent / "driver" / "src" / "main.rs"
 
 
-#: Keys of the emission line that are not `Counts` fields: the `ptr` axis is a
-#: keyed tally the Python side assembles, not 96 struct fields.
-_NON_COUNT_KEYS = {"ptr"}
-
-
-def _emission() -> tuple[list[str], list[str]]:
-    """The driver's per-crate JSON line: its keys, and the value arguments, in order."""
+def _mirrored() -> list[str]:
+    """The tree keys `mirror_into_tree` fills from `Counts`, in order."""
     src = MAIN_RS.read_text()
-    fmt = re.search(r'"\{\{\\"crate\\":\\"\{\}\\",(.*?)\\"sites\\":\{\}\}\}"', src).group(1)
-    keys = [k for k in re.findall(r'\\"(\w+)\\":\{\}', fmt) if k not in _NON_COUNT_KEYS]
-    args = src[src.index(fmt):].split("\n", 2)[1]
-    values = re.findall(r"\bc\.(\w+)", args)
-    return keys, values
+    body = re.search(r"fn mirror_into_tree.*?\n\}", src, re.S).group(0)
+    return re.findall(r'\("([\w.]+)", c\.(?:\w+)\)', body)
 
 
 def _counts_fields() -> list[str]:
@@ -32,53 +24,19 @@ def _counts_fields() -> list[str]:
 
 
 class EmissionTests(unittest.TestCase):
-    def test_emitted_keys_match_their_values_in_order(self) -> None:
-        keys, values = _emission()
-        self.assertEqual(keys, values)
+    def test_the_line_carries_the_tree_and_the_sites(self) -> None:
+        """One shape, two members. A flat counter block beside the tree would
+        be a second answer to every question the tree answers."""
+        src = MAIN_RS.read_text()
+        fmt = next(f for f in re.findall(r'"(\{\{\\"crate\\".*?\}\})"', src)
+                   if "counts" in f)
+        self.assertEqual(re.findall(r'\\"(\w+)\\":', fmt),
+                         ["crate", "counts", "sites"])
 
-    def test_every_count_is_emitted_and_merged(self) -> None:
-        keys, _ = _emission()
-        self.assertEqual(set(_counts_fields()), set(keys))
-        self.assertEqual(set(measure._COUNTS), set(keys))
-
-    def test_visibility_splits_are_emitted(self) -> None:
-        keys, _ = _emission()
-        for k in ("unsafe_fns_pub", "unsafe_fns_priv", "safe_fns_pub", "safe_fns_priv",
-                  "raw_ptr_fn_pub_safe", "raw_ptr_ty_pub_fields_pub"):
-            self.assertIn(k, keys)
-            self.assertIn(k, measure.SITE_COUNTERS)
-
-    def test_absent_position_kind_cells_are_not_emitted(self) -> None:
-        """A kind that cannot occur in a position gets no counter at all,
-        rather than one that is always 0: sanctioned is a signature-only
-        distinction, and `generic` -- a borrow whose referent is a type
-        parameter -- is only decidable in a body."""
-        keys, _ = _emission()
-        for absent in ("c_type_borrow_fn_sig_generic_pub", "c_type_borrow_fn_sig_generic_priv",
-                       "c_type_borrow_fn_body_sanctioned",
-                       "c_type_borrow_ty_sanctioned_priv",
-                       "c_type_borrow_ty_generic_priv"):
-            self.assertNotIn(absent, keys)
-        # ...and the pre-split names are gone entirely.
-        for old in ("c_type_borrow_sanctioned", "c_type_borrow_non_sanctioned",
-                    "c_type_borrow_opaque", "c_type_borrow_generic"):
-            self.assertNotIn(old, keys)
-
-    def test_redundant_wrapper_counters_are_gone(self) -> None:
-        keys, _ = _emission()
-        for k in ("deref_impl_on_wrapper", "ty_wrapper_deref_impl", "ty_wrapper_deref_mut_impl",
-                  "ty_wrapper_send_impl", "ty_wrapper_sync_impl"):
-            self.assertNotIn(k, keys)
-        self.assertFalse([k for k in keys if k.startswith("ptr_wrapper")])
-
-    def test_new_counts_sum_across_crates(self) -> None:
-        line = lambda crate, n: json.dumps(
-            {"crate": crate, "unsafe_blocks": 0, "safe_fns_pub": n, "raw_ptr_fn_pub_safe": n, "sites": {}})
-        counts, _, seen, _, _ = measure._collect_emissions(
-            "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
-        self.assertEqual(seen, 2)
-        self.assertEqual(counts["safe_fns_pub"], 5)
-        self.assertEqual(counts["raw_ptr_fn_pub_safe"], 5)
+    def test_every_counts_field_reaches_the_tree(self) -> None:
+        """`Counts` holds only what is accumulated while walking and then
+        mirrored; a field that reaches no tree key counts into nothing."""
+        self.assertEqual(len(_mirrored()), len(_counts_fields()))
 
 
 class FfiboxTests(unittest.TestCase):
@@ -87,12 +45,22 @@ class FfiboxTests(unittest.TestCase):
         body = re.search(r"const FFIBOX_COUNTERS: &\[&str\] = &\[(.*?)\];", src, re.S).group(1)
         self.assertEqual(tuple(re.findall(r'"(\w+)"', body)), measure.FFIBOX_COUNTERS)
 
+    def test_tree_counters_sum_across_crates(self) -> None:
+        line = lambda crate, n: json.dumps(
+            {"crate": crate, "counts": {"fn.safe.pub": n, "raw_ptr.taken.safe.pub": n},
+             "sites": {}})
+        _, seen, _, counts = measure._collect_emissions(
+            "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
+        self.assertEqual(seen, 2)
+        self.assertEqual(counts["fn.safe.pub"], 5)
+        self.assertEqual(counts["raw_ptr.taken.safe.pub"], 5)
+
     def test_breakdowns_merge_across_crates_and_skip_sys(self) -> None:
         line = lambda crate, n: json.dumps({
             "crate": crate,
             "ffibox": {"fn_sig_ffibox_owner_pub": {"CBox": n}, "ffibox_impl_manual": {"CDrop": 1}},
             "sites": {"fn_sig_ffibox_owner_pub": [{"file": "a.rs", "count": n, "lines": [1]}]}})
-        _, sites, seen, ffibox, _ = measure._collect_emissions(
+        sites, seen, ffibox, _ = measure._collect_emissions(
             "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
         # an ffibox line is not a metrics line
         self.assertEqual(seen, 0)
@@ -125,17 +93,15 @@ class FfiboxTests(unittest.TestCase):
              mock.patch.object(measure, "_bust_cache"), \
              mock.patch.object(measure.subprocess, "run", return_value=done), \
              mock.patch.object(measure, "_collect_emissions",
-                               return_value=({k: 0 for k in measure._COUNTS}, {}, 1,
-                                             breakdowns, {})):
+                               return_value=({}, 1, breakdowns, {})):
             for flag in (False, True):
-                _, _, got, _ = measure.measure(Path(temporary), ffibox=flag)
+                _, got, _ = measure.measure(Path(temporary), ffibox=flag)
                 self.assertEqual(got, breakdowns, f"dropped with ffibox={flag}")
 
     def test_compose_nests_the_owner_handle_record(self) -> None:
         with TemporaryDirectory() as temporary, \
              mock.patch("ffimap.scan.measure.measure",
-                        return_value=({k: 0 for k in measure._COUNTS}, {},
-                                      {"fn_sig_non_ffibox_handle_pub": {"Buf": 3}}, {})), \
+                        return_value=({}, {"fn_sig_non_ffibox_handle_pub": {"Buf": 3}}, {})), \
              mock.patch("ffimap.scan.measure.sys_crates", return_value=[]):
             doc = scan.compose(Path(temporary), ffibox=False)
         self.assertIsNotNone(doc["ffibox"])
@@ -164,12 +130,13 @@ class FfiboxTests(unittest.TestCase):
 
 class SysCrateTests(unittest.TestCase):
     def test_emissions_of_sys_crates_are_skipped_by_name_or_links(self) -> None:
-        line = lambda crate: json.dumps({"crate": crate, "unsafe_blocks": 1, "sites": {}})
-        counts, _, seen, _, _ = measure._collect_emissions(
+        line = lambda crate: json.dumps(
+            {"crate": crate, "counts": {"code.unsafe_block.total": 1}, "sites": {}})
+        _, seen, _, counts = measure._collect_emissions(
             "\n".join([line("safe"), line("ffmpeg_sys_the_third"), line("x_sys")]),
             {"ffmpeg_sys_the_third"})
         self.assertEqual(seen, 1)
-        self.assertEqual(counts["unsafe_blocks"], 1)
+        self.assertEqual(counts["code.unsafe_block.total"], 1)
 
     def test_sys_crates_are_exactly_the_named_ones(self) -> None:
         self.assertEqual(
@@ -239,29 +206,14 @@ class PartitionTests(unittest.TestCase):
     def test_seam_counters_are_subsets_not_partitions(self) -> None:
         """A seam is counted in its own counter AND in the base one, so the
         two must never be summed: the document hangs them off `of_which`."""
-        for leaf, parent in (("safe_fns_seam_pub", ("safe_fns", "pub")),
-                             ("unsafe_fns_seam_priv", ("unsafe_fns", "priv")),
-                             ("raw_ptr_fn_seam_pub_safe", ("raw_ptr_fn", "pub", "safe"))):
-            self.assertIn(leaf, measure._COUNTS)
-            self.assertIn(leaf, measure.SITE_COUNTERS)
-            self.assertEqual(measure._OF_WHICH[leaf], (parent, "seam"))
-        tree = measure.nest_counts({"safe_fns_pub": 10, "safe_fns_priv": 0,
-                                    "safe_fns_seam_pub": 7})
-        self.assertEqual(tree["safe_fns"]["pub"], {"total": 10, "of_which": {"seam": 7}})
-        self.assertEqual(tree["safe_fns"]["total"], 10)   # not 17
-
-    def test_raw_and_void_partitions_are_emitted(self) -> None:
-        keys, _ = _emission()
-        parts = ("ty_pub_fields_pub", "ty_pub_fields_priv", "ty_priv", "fn_pub_safe", "fn_pub_unsafe",
-                 "fn_priv_safe", "fn_priv_unsafe")
-        for k in ("raw_ptr", "raw_ptr_args", "raw_ptr_rets", "raw_ptr_fields", "void_ptr"):
-            self.assertNotIn(k, keys)
-        for fam in ("raw_ptr", "void_ptr"):
-            for part in parts:
-                self.assertIn(f"{fam}_{part}", keys)
-                self.assertIn(f"{fam}_{part}", measure.SITE_COUNTERS)
-        for k in ("unsafe_fns", "unsafe_fns_pub", "unsafe_fns_priv"):
-            self.assertIn(k, keys)
+        src = MAIN_RS.read_text()
+        self.assertIn('format!("{axis}.{pos}.of_which.seam.{safety}.{vis}")', src)
+        tree = measure.nest_ptr({"raw_ptr.taken.safe.pub": 10,
+                                 "raw_ptr.taken.of_which.seam.safe.pub": 7})
+        taken = tree["raw_ptr"]["taken"]
+        self.assertEqual(taken["safe"], {"pub": 10, "total": 10})
+        self.assertEqual(taken["of_which"]["seam"]["safe"], {"pub": 7, "total": 7})
+        self.assertEqual(taken["total"], 10)   # not 17
 
     def test_ffibox_fn_and_ty_families_mirror(self) -> None:
         kinds = [k[len("fn_sig_"):-len("_pub")] for k in measure.FFIBOX_COUNTERS
