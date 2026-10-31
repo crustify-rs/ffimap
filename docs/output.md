@@ -85,7 +85,6 @@ Each counter is described, with the others of its area, in:
 | [`unsafe.md`](unsafe.md) | the unsafe surface: `unsafe` blocks, fns, impls and traits, and FFI calls |
 | [`raw.md`](raw.md) | raw and `void` pointers: positions, dereferences, slice borrows |
 | [`ctypes.md`](ctypes.md) | C types: which types are C's, wrappers, borrows into C memory, C values held by value, hand-written `Drop` / `Clone` |
-| [`ffibox.md`](ffibox.md) | the owner and handle record |
 
 ### Derived
 

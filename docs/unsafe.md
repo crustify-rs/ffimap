@@ -1,5 +1,10 @@
 # The unsafe surface
 
+> **Historical.** This describes the flat counters, which the counter tree
+> of [`schema.md`](schema.md) replaced. It is kept for the reasoning behind
+> each rule for the unsafe surface -- including the rules that were
+> tried and rejected -- not as a description of what ffimap emits today.
+
 How much unsafety the crate contains, and how much of it crosses the public
 API boundary where a caller has to discharge it.
 

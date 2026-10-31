@@ -23,31 +23,20 @@ from ffimap import measure
 
 
 def site_counters(requested: list[str]) -> list[str]:
-    """Validate `--sites` names; `all` expands to every site-bearing counter.
-    The owner / handle counters are always measured, so they need no flag."""
-    valid = measure.FFIBOX_COUNTERS
-    if "all" in requested:
-        # The owner / handle counters only: a counter tree's leaves are not
-        # enumerable here -- the ffibox arms come from a vocabulary, so there
-        # is no closed list -- and asking for every one would be a different
-        # request. Name the tree counters whose sites you want.
-        return list(valid)
-    # An owner / handle counter takes a key from its breakdown,
-    # `<counter>:<key>` (`fn_sig_ffibox_owner_pub:CVal`), for that key alone.
-    keyed = lambda n: n.partition(":")[0] in measure.FFIBOX_COUNTERS and ":" in n
-    unknown = [n for n in requested
-               if n not in valid and not keyed(n)
-               and not measure.is_tree_counter(n)]
+    """Validate `--sites` names, each a counter's dotted path.
+
+    There is no `all`: the tree's leaves are not a closed list -- the ffibox
+    arms are generated from a vocabulary of traits and primitives -- so asking
+    for every one is a different request from naming the few you want.
+    """
+    unknown = [n for n in requested if not measure.is_tree_counter(n)]
     if unknown:
         families = " ".join(
             f"{head}.{{{','.join(fams)}}}"
             for head, fams in measure.TREE_SITE_FAMILIES.items())
         raise SystemExit(
-            "ffimap: --sites takes counters that count source locations; "
-            f"unknown or siteless: {' '.join(unknown)}. Valid: "
-            + " ".join(valid) + ", or all; a tree counter is a dotted path "
-            "under " + families + "; an owner / handle counter also "
-            "takes <counter>:<key> for one key of its breakdown")
+            "ffimap: --sites takes a counter's dotted path; not a counter: "
+            f"{' '.join(unknown)}. A path runs under " + families)
     return list(dict.fromkeys(requested))
 
 
@@ -58,9 +47,10 @@ def compose(workspace: Path, sites: list[str] | None = None,
 
     ``sites`` names counters whose source locations to report, as a ``sites``
     record beside ``counts`` with one list per counter. ``ffibox`` asserts the
-    crate is built on ffibox, which sanctions the conventions' ``as_ref`` /
-    ``as_mut`` layout accessors; the owner and handle record is composed
-    either way. ``sys_crates`` names the crates
+    crate is built on ffibox, which turns on the vocabulary's arms
+    (``ty.field.ffibox``, ``ty.impl.ffibox``, ``fn.ffibox``) and sanctions the
+    conventions' ``as_ref`` / ``as_mut`` layout accessors. ``sys_crates`` names
+    the crates
     whose `#[repr(C)]` types are C's and whose types the field walk descends
     through; nothing is discovered, since which types are C's rests on it. The
     set is recorded in ``sys_crates``. ``seams`` names the
@@ -72,7 +62,7 @@ def compose(workspace: Path, sites: list[str] | None = None,
     doc: dict = {"crate_path": str(workspace), "sys_crates": sys}
     all_sites: dict = {}
     try:
-        all_sites, breakdowns, counts = measure.measure(
+        all_sites, counts = measure.measure(
             workspace, ffibox=ffibox, sys=sys, seams=seams)
         doc["counts"] = counts
         doc["counts_unavailable"] = None
@@ -80,26 +70,12 @@ def compose(workspace: Path, sites: list[str] | None = None,
         # No counts rather than substitute ones: see measure.py.
         doc["counts"] = None
         doc["counts_unavailable"] = str(e)
-        breakdowns = None
-        # stderr: `--json` owns stdout, and the document records the failure.
+        # stderr: the document owns stdout, and it records the failure too.
         print(f"[ffimap] no counts: {e}".rstrip(), file=stderr)
-    doc["ffibox"] = _ffibox_record(breakdowns)
     if wanted is not None:
         doc["sites"] = {k: all_sites.get(k, []) for k in wanted}
     doc["derived"] = _derive(doc["counts"])
     return doc
-
-
-def _ffibox_record(breakdowns: dict | None) -> dict | None:
-    """``{"counts": {counter: total}, "by": {counter: {key: N}}}``, every
-    counter present; ``None`` when the build produced no counts."""
-    if breakdowns is None:
-        return None
-    by = {k: dict(sorted(breakdowns.get(k, {}).items())) for k in measure.FFIBOX_COUNTERS}
-    flat = {k: sum(v.values()) for k, v in by.items()}
-    # `counts` is the tree; `by` stays keyed by the flat leaf name, since a
-    # breakdown belongs to one leaf (as a site list does).
-    return {"counts": measure.nest_ffibox(flat), "by": by}
 
 
 def _at(tree: dict | None, path: str) -> int:

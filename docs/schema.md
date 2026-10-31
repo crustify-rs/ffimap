@@ -281,14 +281,30 @@ Three of them were not equivalents, and the tree's reading is the one kept:
   included, so it was not comparable with the `code_lines` denominator.
   `code.loc.unsafe` applies the same filter to both.
 
-The C-reachability pass that fed the `c_type_*` family is not a dependency of
-the tree: the peel set is membership in the scanned crate or the named `-sys`
-crates and asks it nothing, and `structural_wrapper` consults the `-sys` names
-rather than supplying them. Its retired-counter half is gone; its core
-(`compute_c_visible`, `is_c_accessible`, `structural_wrapper`, `embedded_c`,
-`is_type_wrapper`, about 300 lines) is held alive by `holds_c_pointer` and so
-by the legacy owner / handle block alone. Retiring that block is what deletes
-the pass.
+Last, the owner / handle record: the second emission line and its 24 counters
+(`fn_sig_{ffibox,non_ffibox}_{owner,handle}_*`, the `ty_*` variants,
+`ffibox_impl_*`, `ffibox_define_ctype_*`, `ffibox_ccell_not_layout`,
+`ffibox_layout_not_ccell`). `ty.field.ffibox`, `ty.impl.ffibox` and
+`fn.ffibox` cover the vocabulary it measured, by primitive and by trait rather
+than by the owner / handle pair, and they split an impl by whether a macro
+wrote it.
+
+Two of its readings have no replacement, and go rather than being kept:
+
+- the `non_ffibox` half, the owners and handles the crate wrote itself, found
+  by shape rather than by type. `ty.storing_raw_ptr` and its shares answer the
+  question the shape test was standing in for -- which types manage a pointer,
+  and what they declare about it -- without a wrapper taxonomy.
+- `ffibox_ccell_not_layout` and `ffibox_layout_not_ccell`, which checked a
+  declared `CCell` against the structural layout test. That is a consistency
+  check on ffibox's own use, not a measure of the crate's unsafety, and it was
+  the last reader of the reachability pass.
+
+With it goes the pass itself: `compute_c_visible`, `is_c_accessible`,
+`structural_wrapper`, `embedded_c`, `is_type_wrapper`, `holds_c_pointer`,
+`CastCollector` and the erased-type machinery. The peel set never used it --
+membership is the scanned crate or the named `-sys` crates -- so the tree is
+unchanged by its removal.
 
 ## 8. Sites
 

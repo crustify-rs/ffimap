@@ -36,11 +36,10 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--sites", nargs="+", action="extend", default=None, metavar="COUNTER",
         help="Also report where these counters' increments are in the source: "
-             "a `sites` record beside `counts` with one list per counter. Takes "
-             "counters that count source locations (e.g. "
-             "raw_ptr_fn_pub_safe, raw_ptr_ty_pub_fields_pub, "
-             "unsafe_fns_pub, c_type_borrow_non_sanctioned), or `all`. Line and statement totals have "
-             "no sites.")
+             "a `sites` record beside `counts` with one list per counter. "
+             "Takes a counter's dotted path (e.g. raw_ptr.taken.safe.pub, "
+             "ty.storing_raw_ptr.of_which.none.pub, code.unsafe_call.ffi). "
+             "Line totals have no sites.")
     p.add_argument(
         "--sys-crates", type=lambda v: [c for c in v.split(",") if c], default=None,
         metavar="CRATE[,CRATE...]",
@@ -63,12 +62,11 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "of the safe API actually faces. ffimap never guesses the names.")
     p.add_argument(
         "--ffibox", action="store_true",
-        help="The crate is built on ffibox. Sanctions the convention's "
-             "`as_ref(&self)` / `as_mut(&mut self)` layout accessors, which "
-             "are matched by name and so hold only where that convention "
-             "does. The owner / handle record is measured either way: its "
-             "`non_ffibox` half counts what the crate wrote itself, and for a "
-             "crate with no ffibox the other half is zero.")
+        help="The crate is built on ffibox. Turns on the vocabulary's arms "
+             "-- ty.field.ffibox, ty.impl.ffibox, fn.ffibox -- and sanctions "
+             "the convention's `as_ref(&self)` / `as_mut(&mut self)` layout "
+             "accessors, which are matched by name and so hold only where "
+             "that convention does.")
 
 
 def run(workspace: Path, args: argparse.Namespace) -> int:

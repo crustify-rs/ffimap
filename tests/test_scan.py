@@ -13,7 +13,7 @@ class ComposeTests(unittest.TestCase):
             (workspace / "Cargo.toml").write_text("[workspace]\n")
             counts = {"code": {"loc": {"total": 1}}}
             with mock.patch("ffimap.scan.measure.measure",
-                            return_value=({}, None, counts)) as measure, \
+                            return_value=({}, counts)) as measure, \
                  mock.patch("ffimap.scan.measure.sys_crates",
                             return_value=["foo_sys"]):
                 document = scan.compose(workspace)
@@ -35,7 +35,7 @@ class ComposeTests(unittest.TestCase):
 
             self.assertIsNone(document["counts"])
             self.assertEqual(document["counts_unavailable"], "no build")
-            self.assertIsNone(document["ffibox"])
+            self.assertNotIn("ffibox", document)
             self.assertEqual(document["derived"], {})
 
 

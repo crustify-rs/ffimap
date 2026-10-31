@@ -1,5 +1,10 @@
 # Raw and `void` pointers
 
+> **Historical.** This describes the flat counters, which the counter tree
+> of [`schema.md`](schema.md) replaced. It is kept for the reasoning behind
+> each rule for raw and `void` pointers -- including the rules that were
+> tried and rejected -- not as a description of what ffimap emits today.
+
 Where the crate still works in raw pointers: in the types it declares, in the
 signatures it exposes, and in the dereferences its bodies perform.
 

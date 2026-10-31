@@ -1,5 +1,10 @@
 # C types
 
+> **Historical.** This describes the flat counters, which the counter tree
+> of [`schema.md`](schema.md) replaced. It is kept for the reasoning behind
+> each rule for C types, wrappers and borrows into C memory -- including the rules that were
+> tried and rejected -- not as a description of what ffimap emits today.
+
 Which types the crate shares with C, the wrappers it puts over them, the
 references it forms into C memory, and the C values it holds by value.
 
@@ -122,8 +127,7 @@ holding a C-reachable type by value (local `#[repr(C)]` fields C does not
 reach are searched through). `c_type_layout_wrapper` counts the layout newtypes.
 A local C type C reaches itself -- a hand-written mirror, a callback payload --
 is not a wrapper of anything, but its references are checked like a layout
-newtype's. How the layout newtypes relate to ffibox's `CCell` is in
-[`ffibox.md`](ffibox.md).
+newtype's.
 
 The handle test is narrower than the idea it stands for: it requires
 `#[repr(transparent)]` with a single non-zero-sized pointer field, so a handle

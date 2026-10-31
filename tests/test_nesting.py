@@ -66,20 +66,5 @@ class NestPtrTests(unittest.TestCase):
             measure.nest_ptr({"code.unsafe_block.of_which.x": 1, "code.unsafe_block": 1})
 
 
-class NestFfiboxTests(unittest.TestCase):
-    def test_round_trip_is_exact_over_every_counter(self) -> None:
-        flat = {name: i + 1 for i, name in enumerate(measure.FFIBOX_COUNTERS)}
-        self.assertEqual(measure.flatten_ffibox(measure.nest_ffibox(flat)), flat)
-
-    def test_handles_and_owners_split_by_framework_then_visibility(self) -> None:
-        tree = measure.nest_ffibox({
-            "fn_sig_ffibox_handle_pub": 1, "fn_sig_ffibox_handle_priv": 2,
-            "fn_sig_non_ffibox_handle_pub": 4, "fn_sig_non_ffibox_handle_priv": 8,
-        })
-        self.assertEqual(tree["fn_sig"]["ffibox"]["handle"], {"pub": 1, "priv": 2, "total": 3})
-        self.assertEqual(tree["fn_sig"]["non_ffibox"]["handle"]["total"], 12)
-        self.assertEqual(tree["fn_sig"]["total"], 15)
-
-
 if __name__ == "__main__":
     unittest.main()

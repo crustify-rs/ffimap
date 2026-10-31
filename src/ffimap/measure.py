@@ -59,28 +59,6 @@ def is_tree_counter(name: str) -> bool:
     return bool(rest) and family in TREE_SITE_FAMILIES.get(head, ())
 
 
-#: The owner and handle counters, in the driver's order. Each is a breakdown
-#: `{type, handle kind or trait: N}` rather than a number, and each counts
-#: source locations, so all of them take `--sites`. Always measured: the
-#: `non_ffibox` half counts what the crate wrote itself, which holds with or
-#: without ffibox.
-FFIBOX_COUNTERS = (
-    "fn_sig_ffibox_owner_pub", "fn_sig_ffibox_owner_priv",
-    "fn_sig_ffibox_handle_pub", "fn_sig_ffibox_handle_priv",
-    "fn_sig_non_ffibox_owner_pub", "fn_sig_non_ffibox_owner_priv",
-    "fn_sig_non_ffibox_handle_pub", "fn_sig_non_ffibox_handle_priv",
-    "ty_pub_fields_pub_ffibox_owner", "ty_pub_fields_priv_ffibox_owner",
-    "ty_priv_ffibox_owner", "ty_pub_fields_pub_ffibox_handle",
-    "ty_pub_fields_priv_ffibox_handle", "ty_priv_ffibox_handle",
-    "ty_pub_fields_pub_non_ffibox_owner", "ty_pub_fields_priv_non_ffibox_owner",
-    "ty_priv_non_ffibox_owner", "ty_pub_fields_pub_non_ffibox_handle",
-    "ty_pub_fields_priv_non_ffibox_handle", "ty_priv_non_ffibox_handle",
-    "ffibox_impl_macro", "ffibox_impl_manual", "ffibox_define_ctype_macro",
-    "ffibox_define_ctype_manual", "ffibox_ccell_not_layout",
-    "ffibox_layout_not_ccell",
-)
-
-
 class DriverUnavailable(Exception):
     """The driver could not measure this tree. Carries the reason to report."""
 
@@ -101,86 +79,9 @@ class DriverUnavailable(Exception):
 #     `code.unsafe_block.of_which.ffi_export` is a subset of the blocks
 #     `code.unsafe_block.total` counted.
 #
-# `sites` and the `--ffibox` `by` breakdowns stay keyed by the leaf's dotted
-# name: a site list and a breakdown belong to one leaf, not to a parent.
+# `sites` stays keyed by the leaf's dotted name: a site list belongs to one
+# leaf, not to a parent.
 
-
-def _set(tree: dict, path: tuple[str, ...], value) -> None:
-    node = tree
-    for k in path[:-1]:
-        node = node.setdefault(k, {})
-        if not isinstance(node, dict):
-            raise AssertionError(f"nesting conflict at {path}")
-    node[path[-1]] = value
-
-
-def _totals(node: dict) -> int:
-    """Depth-first: give every internal node a `total` that sums its PARTITION
-    children, ignoring `of_which`, and return it."""
-    if "of_which" in node and not isinstance(node["of_which"], dict):
-        raise AssertionError("of_which must be a record")
-    if isinstance(node.get("total"), int):
-        for k, v in node.items():
-            if k not in ("total", "of_which") and isinstance(v, dict):
-                _totals(v)
-        return node["total"]
-    total = 0
-    for k, v in node.items():
-        if k in ("total", "of_which"):
-            continue
-        total += _totals(v) if isinstance(v, dict) else int(v)
-    node["total"] = total
-    return total
-
-
-_FFIBOX_PARTITION: dict[str, tuple[str, ...]] = {}
-for _box in ("ffibox", "non_ffibox"):
-    for _kind in ("owner", "handle"):
-        for _v in ("pub", "priv"):
-            _FFIBOX_PARTITION[f"fn_sig_{_box}_{_kind}_{_v}"] = ("fn_sig", _box, _kind, _v)
-        _FFIBOX_PARTITION[f"ty_pub_fields_pub_{_box}_{_kind}"] = ("ty", _box, _kind, "pub", "fields", "pub")
-        _FFIBOX_PARTITION[f"ty_pub_fields_priv_{_box}_{_kind}"] = ("ty", _box, _kind, "pub", "fields", "priv")
-        _FFIBOX_PARTITION[f"ty_priv_{_box}_{_kind}"] = ("ty", _box, _kind, "priv")
-
-
-def nest_ffibox(flat: dict) -> dict:
-    """Fold the `--ffibox` counter totals into the same tree shape. The
-    remaining counters (`ffibox_impl_*`, `ffibox_define_ctype_*`,
-    `ffibox_ccell_not_layout`, `ffibox_layout_not_ccell`) have no visibility
-    split and stay scalars."""
-    tree: dict = {}
-    for name, value in flat.items():
-        if name in _FFIBOX_PARTITION:
-            _set(tree, _FFIBOX_PARTITION[name], int(value))
-        else:
-            tree[name] = int(value)
-    for node in tree.values():
-        if isinstance(node, dict):
-            _totals(node)
-    return tree
-
-
-
-def _at(tree: dict, path: tuple[str, ...]):
-    node = tree
-    for k in path:
-        if not isinstance(node, dict) or k not in node:
-            return None
-        node = node[k]
-    return node
-
-
-def flatten_ffibox(tree: dict) -> dict:
-    """The inverse of :func:`nest_ffibox`."""
-    flat: dict = {}
-    for name, path in _FFIBOX_PARTITION.items():
-        v = _at(tree, path)
-        if v is not None:
-            flat[name] = v
-    for name, v in tree.items():
-        if not isinstance(v, dict):
-            flat[name] = v
-    return flat
 
 def sys_crates(named: list[str] | None = None) -> list[str]:
     """The crates whose `#[repr(C)]` types are C's and whose types the field
@@ -197,39 +98,12 @@ def sys_crates(named: list[str] | None = None) -> list[str]:
     return sorted({n.replace("-", "_") for n in named or ()})
 
 
-#: The `ptr` axis. The driver emits dotted leaves (`ptr_borrowed_c_layout.pub`,
-#: `ptr_borrowed.from.ffibox`, `ptr_raw_c_layout.of_which.seam.pub`); this
-#: assembles one record per counter and derives every `total`, so a sum is
-#: never written by the driver and never disagrees with its parts.
-#:
-#: A counter's record is `{pub, priv, total}` plus the share groups it has:
-#: `in` where the slot was (a signature or a field), `from` what the carrier
-#: is, `as` its hazard shape, and `of_which` the named subsets, each of those
-#: carrying `{pub, priv, total}` of its own because the public share is
-#: usually the finding.
-def _ptr_totals(node: dict) -> int:
-    """Give every interior node of a `ptr` group its own `total`."""
-    n = 0
-    for k, v in list(node.items()):
-        if k in ("total", "of_which"):
-            continue
-        n += _ptr_totals(v) if isinstance(v, dict) else v
-    if any(isinstance(v, dict) for v in node.values()) or len(node) > 1:
-        node["total"] = n
-    for share in node.get("of_which", {}).values():
-        if isinstance(share, dict):
-            share["total"] = share.get("pub", 0) + share.get("priv", 0)
-    return n
-
-
 def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
-                       ) -> tuple[dict, dict, int, dict, dict]:
-    """Merge driver JSON lines; return sites, crate count, the `--ffibox`
-    breakdowns (empty unless the driver emitted them) and the flat counter
-    keys. Sys crates -- named `*_sys`, or in ``sys`` -- are bindings, never the
-    subject."""
+                       ) -> tuple[dict, int, dict]:
+    """Merge driver JSON lines; return the sites, the crate count and the flat
+    counter keys. Sys crates -- named `*_sys`, or in ``sys`` -- are bindings,
+    never the subject."""
     sites: dict[str, list] = {}
-    ffibox: dict[str, dict[str, int]] = {}
     ptr: dict[str, int] = {}
     seen = 0
     for line in stdout.splitlines():
@@ -243,15 +117,6 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
         crate = d.get("crate", "")
         if crate.endswith("_sys") or crate in sys:
             continue
-        if "ffibox" in d:
-            for k in FFIBOX_COUNTERS:
-                by = ffibox.setdefault(k, {})
-                for name, n in d["ffibox"].get(k, {}).items():
-                    by[name] = by.get(name, 0) + int(n)
-            for k, rows in d.get("sites", {}).items():
-                sites.setdefault(k, []).extend(rows)
-            continue
-        # The metrics line, as opposed to the owner / handle one above.
         if "counts" not in d:
             continue
         seen += 1
@@ -259,7 +124,7 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
             ptr[k] = ptr.get(k, 0) + int(n)
         for k, rows in d.get("sites", {}).items():
             sites.setdefault(k, []).extend(rows)
-    return sites, seen, ffibox, ptr
+    return sites, seen, ptr
 
 
 def nest_ptr(flat: dict[str, int]) -> dict:
@@ -380,9 +245,11 @@ def _bust_cache(ws: Path) -> None:
 
 
 def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
-            seams: list[str] | None = None) -> tuple[dict, dict, dict | None]:
-    """Return ``(tree-wide counts, sites per counter, ffibox breakdowns)`` for
-    ``ws``. The breakdowns are ``None`` unless ``ffibox`` asked for them.
+            seams: list[str] | None = None) -> tuple[dict, dict]:
+    """Return ``(sites per counter, the counter tree)`` for ``ws``.
+
+    ``ffibox`` asserts the crate is built on ffibox, which turns on the
+    vocabulary's arms (`ty.field.ffibox`, `ty.impl.ffibox`, `fn.ffibox`).
     ``sys`` are the sys crates (``sys_crates``): their `#[repr(C)]` types are
     C's, and their emissions are skipped."""
     driver = _driver_bin()
@@ -413,9 +280,9 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
             f"{r.stderr[-1200:]}")
 
     # `-sys` crates are generated bindings, never the audit subject.
-    sites, seen, ffibox_counts, ptr = _collect_emissions(r.stdout, set(sys or ()))
+    sites, seen, ptr = _collect_emissions(r.stdout, set(sys or ()))
     if not seen:
         raise DriverUnavailable(
             "no crate emitted metrics — the build was served from cache, so "
             "nothing was measured")
-    return sites, ffibox_counts, nest_ptr(ptr)
+    return sites, nest_ptr(ptr)
