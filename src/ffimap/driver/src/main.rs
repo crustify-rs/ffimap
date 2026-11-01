@@ -1267,8 +1267,12 @@ fn walk_shapes<'tcx>(
                 walk_shapes(tcx, a, at, out);
             }
         }
-        // A ZST marker names its parameter without holding one.
-        ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "PhantomData" => {}
+        // A ZST marker names its parameter without holding one. Gated on the
+        // crate like the arm below: a local type that happens to carry the
+        // name holds whatever it holds.
+        ty::TyKind::Adt(d, _)
+            if is_std_crate(tcx, d.did())
+                && tcx.item_name(d.did()).as_str() == "PhantomData" => {}
         // `NonNull<Foo>` and `AtomicPtr<Foo>` are raw pointers to the cell,
         // not storage holding one: `c_drop(&self, ptr: NonNull<Commit>)` is
         // ffibox's lifecycle strategy, and `raw_ptr` counts the position.
