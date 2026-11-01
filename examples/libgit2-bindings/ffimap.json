@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "ae42e2eea60b9bf23ce601a83166f20f9e9b4e6c",
+    "ffimap": "524c1dd0f540c2b633a88b7407ee5bffa61c6b8f",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -31,7 +31,7 @@
           "priv": 80
         }
       },
-      "taken": {
+      "fn_sig_arg": {
         "total": 131,
         "unsafe": {
           "total": 131,
@@ -72,7 +72,7 @@
           }
         }
       },
-      "returned": {
+      "fn_sig_ret": {
         "total": 86,
         "unsafe": {
           "total": 6,
@@ -113,7 +113,7 @@
           }
         }
       },
-      "in_impl": {
+      "fn_sig_trait_impl": {
         "total": 64,
         "unsafe": {
           "total": 57,

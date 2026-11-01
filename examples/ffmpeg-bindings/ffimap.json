@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "ae42e2eea60b9bf23ce601a83166f20f9e9b4e6c",
+    "ffimap": "524c1dd0f540c2b633a88b7407ee5bffa61c6b8f",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -37,7 +37,7 @@
           "priv": 64
         }
       },
-      "taken": {
+      "fn_sig_arg": {
         "total": 56,
         "unsafe": {
           "total": 38,
@@ -78,7 +78,7 @@
           }
         }
       },
-      "returned": {
+      "fn_sig_ret": {
         "total": 50,
         "unsafe": {
           "total": 2,
@@ -119,7 +119,7 @@
           }
         }
       },
-      "in_impl": {
+      "fn_sig_trait_impl": {
         "total": 93,
         "unsafe": {
           "total": 54,
