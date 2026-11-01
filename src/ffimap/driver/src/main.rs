@@ -1280,10 +1280,10 @@ impl Callbacks for MetricsCallbacks {
                     let f = facts.get(&did).copied().unwrap_or_default();
                     if f.ffibox_shape == Some("layout") {
                         tree_bump(&mut ptr, &mut sites, tcx, did,
-                                  &format!("ty.ffibox.cell.{vis}"));
+                                  &format!("ty.ffibox.ccell.{vis}"));
                         if f.cell_no_seam {
                             tree_bump(&mut ptr, &mut sites, tcx, did, &format!(
-                                "ty.ffibox.cell.of_which.no_seam.{vis}"));
+                                "ty.ffibox.ccell.of_which.no_seam_trait.{vis}"));
                         }
                     }
                     for f in tcx.adt_def(did).all_fields() {

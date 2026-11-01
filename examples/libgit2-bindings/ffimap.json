@@ -7,7 +7,7 @@
   "counts": {
     "code": {
       "loc": {
-        "total": 15953,
+        "total": 16081,
         "unsafe": 2654
       },
       "unsafe_block": {
@@ -209,13 +209,7 @@
     },
     "ty": {
       "ffibox": {
-        "cell": {
-          "of_which": {
-            "no_seam": {
-              "pub": 32,
-              "total": 32
-            }
-          },
+        "ccell": {
           "priv": 2,
           "pub": 63,
           "total": 65
@@ -337,8 +331,9 @@
                 "total": 1
               },
               "CMutSeam": {
+                "handwritten": 32,
                 "macro": 33,
-                "total": 33
+                "total": 65
               },
               "CNew": {
                 "handwritten": 5,
@@ -349,8 +344,9 @@
                 "total": 5
               },
               "CRefSeam": {
+                "handwritten": 32,
                 "macro": 33,
-                "total": 33
+                "total": 65
               },
               "CZeroable": {
                 "handwritten": 3,
@@ -358,8 +354,8 @@
               }
             },
             "priv": 8,
-            "pub": 185,
-            "total": 193
+            "pub": 249,
+            "total": 257
           },
           "local": {
             "priv": 2,
@@ -384,8 +380,8 @@
           "unsafe": 271
         },
         "priv": 77,
-        "pub": 1883,
-        "total": 1960
+        "pub": 1947,
+        "total": 2024
       },
       "storing_raw_ptr": {
         "of_which": {

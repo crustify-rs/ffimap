@@ -28,8 +28,8 @@ ty.
     ffibox                                           --ffibox
     pub_field · none
   field.ffibox.<primitive>.{pub,priv}                --ffibox
-  ffibox.cell.{pub,priv}                             --ffibox
-  ffibox.cell.of_which.no_seam.{pub,priv}            --ffibox
+  ffibox.ccell.{pub,priv}                            --ffibox
+  ffibox.ccell.of_which.no_seam_trait.{pub,priv}     --ffibox
 
   impl_block.{pub,priv}
   impl_block.of_which.other.{pub,priv}
@@ -114,7 +114,7 @@ handles, 103 on exclusive ones, 119 on everything else -- the handles
 outnumbering the layout types, which is what a convention routing every field
 access through them implies.
 
-`ty.ffibox.cell` is the layout types, and `of_which.no_seam` those whose
+`ty.ffibox.ccell` is the layout types, and `of_which.no_seam_trait` those whose
 handles implement neither `CRefSeam` nor `CMutSeam`. Those handles sit outside
 the generic seam -- `from_ptr`, `from_void_ptr`, `as_ptr`, `as_void_ptr` on the
 handle type -- so code generic over a handle has to special-case them. On
