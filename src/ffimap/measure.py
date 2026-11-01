@@ -44,8 +44,8 @@ _TOOLCHAIN = tomllib.loads(
 # exhaustive list would be a second copy of the schema that drifts from the
 # driver's. The two segments checked are the ones a typo lands in.
 TREE_SITE_FAMILIES = {
-    "raw_ptr": ("taken", "returned", "in_impl", "field", "total", "deref",
-                "casted_to"),
+    "raw_ptr": ("fn_sig_arg", "fn_sig_ret", "fn_sig_trait_impl", "field",
+                "total", "deref", "casted_to"),
     "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic",
            "ffibox", "wrapping_unsafe_cell", "total"),
     "fn": ("safe", "unsafe", "ffibox", "total"),
@@ -78,7 +78,7 @@ class DriverUnavailable(Exception):
 
 # ---------------------------------------------------------------- nesting
 #
-# The counters are a TREE: the driver emits dotted keys (`raw_ptr.taken.safe.pub`)
+# The counters are a TREE: the driver emits dotted keys (`raw_ptr.fn_sig_arg.safe.pub`)
 # and `nest_ptr` folds them into records, so a parent total is in the document
 # rather than reconstructed by a consumer who has to know which leaves belong
 # together.
@@ -209,7 +209,7 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
 #
 # ONE table for every level. A name that wants an early rank in one record
 # wants it in the others too: `unsafe` is early as `fn.unsafe`, as
-# `code.loc.unsafe`, as `raw_ptr.taken.unsafe` and as the unsafe trait impls,
+# `code.loc.unsafe`, as `raw_ptr.fn_sig_arg.unsafe` and as the unsafe trait impls,
 # and `ffibox` is late wherever the vocabulary appears. A name the table does
 # not hold sorts after every name it does, alphabetically, which is where the
 # vocabulary arms land (`CBox`, `CCell`, `CDrop`, ...) -- so a trait added to
@@ -232,7 +232,8 @@ KEY_ORDER = (
     "unsafe", "safe", "pub", "priv",
     # raw_ptr's families: the positions a signature declares, then a type's
     # fields, then what bodies do
-    "taken", "returned", "in_impl", "field", "deref", "rd", "wr", "casted_to",
+    "fn_sig_arg", "fn_sig_ret", "fn_sig_trait_impl",
+    "field", "deref", "rd", "wr", "casted_to",
     # ty's
     "storing_raw_ptr", "wrapping_unsafe_cell", "impl_block", "impl_trait",
     "generic",
@@ -250,7 +251,10 @@ KEY_ORDER = (
     "std", "local", "local_seam",
     # the cell records, and their arms
     "ccell", "no_seam_trait", "wrapper", "ffi", "rust", "intrinsic", "by_val",
-    "fn_sig", "self_in_ref_accessor", "self_in_trait_impl", "fn",
+    "fn_sig", "self_in_ref_accessor", "self_in_trait_impl",
+    # `taken` and `returned` are `fn.ffibox`'s, where the `fn.` prefix already
+    # says the position is a signature's
+    "taken", "returned", "fn",
     # the vocabulary last: an arm is read against the figure it qualifies
     "layout", "ref", "mut", "locked", "handwritten", "ffibox",
     # the shares, after the partition they cut across
@@ -285,7 +289,7 @@ def nest_ptr(flat: dict[str, int]) -> dict:
     The records come out in `KEY_ORDER`, not in the driver's sorted order.
 
     Three nodes are left without a `total`. A top-level prefix, because summing
-    across families there would mix grains -- ``raw_ptr.taken`` counts
+    across families there would mix grains -- ``raw_ptr.fn_sig_arg`` counts
     signature positions and ``raw_ptr.deref`` counts body sites, and their sum
     means nothing. A ``NAMESPACES`` node, which is the same case one level
     down. And any node that already carries a ``total``, which is how the

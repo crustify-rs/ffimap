@@ -91,8 +91,8 @@ class RegistryTests(unittest.TestCase):
         self.assertNotIn("ty.ffibox.ccell.pub", self.plain)
         self.assertNotIn("fn.ffibox.taken.CBox.pub", self.plain)
         self.assertIn("ty.ffibox.ccell.pub", self.ffibox)
-        self.assertIn("raw_ptr.taken.of_which.seam.safe.pub", self.plain)
-        self.assertNotIn("raw_ptr.taken.of_which.seam.safe.pub", self.ffibox)
+        self.assertIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.plain)
+        self.assertNotIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.ffibox)
 
     def test_a_namespace_still_carries_no_total(self) -> None:
         """Registering zeros must not give one a derived total of 0 either."""

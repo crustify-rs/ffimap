@@ -13,17 +13,17 @@ from ffimap import measure
 class NestPtrTests(unittest.TestCase):
     def test_partition_totals_sum_their_children(self) -> None:
         tree = measure.nest_ptr({
-            "raw_ptr.taken.safe.pub": 1, "raw_ptr.taken.safe.priv": 2,
-            "raw_ptr.taken.unsafe.pub": 4, "raw_ptr.taken.unsafe.priv": 8,
+            "raw_ptr.fn_sig_arg.safe.pub": 1, "raw_ptr.fn_sig_arg.safe.priv": 2,
+            "raw_ptr.fn_sig_arg.unsafe.pub": 4, "raw_ptr.fn_sig_arg.unsafe.priv": 8,
         })
-        self.assertEqual(tree["raw_ptr"]["taken"]["safe"]["total"], 3)
-        self.assertEqual(tree["raw_ptr"]["taken"]["unsafe"]["total"], 12)
-        self.assertEqual(tree["raw_ptr"]["taken"]["total"], 15)
+        self.assertEqual(tree["raw_ptr"]["fn_sig_arg"]["safe"]["total"], 3)
+        self.assertEqual(tree["raw_ptr"]["fn_sig_arg"]["unsafe"]["total"], 12)
+        self.assertEqual(tree["raw_ptr"]["fn_sig_arg"]["total"], 15)
 
     def test_a_top_level_prefix_gets_no_total(self) -> None:
-        """`raw_ptr.taken` counts signature positions and `raw_ptr.deref`
+        """`raw_ptr.fn_sig_arg` counts signature positions and `raw_ptr.deref`
         counts body sites; their sum is not a quantity."""
-        tree = measure.nest_ptr({"raw_ptr.taken.safe.pub": 1, "raw_ptr.deref.rd": 2})
+        tree = measure.nest_ptr({"raw_ptr.fn_sig_arg.safe.pub": 1, "raw_ptr.deref.rd": 2})
         self.assertNotIn("total", tree["raw_ptr"])
         self.assertNotIn("total", tree)
 

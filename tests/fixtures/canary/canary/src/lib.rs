@@ -16,37 +16,37 @@ use canary_vendor::VendorHolder;
 
 // ---------------------------------------------------------------- signatures
 
-/// raw_ptr.taken.safe.pub
+/// raw_ptr.fn_sig_arg.safe.pub
 pub fn taken_safe_pub(_p: *mut u8) {}
 
-/// raw_ptr.taken.unsafe.pub
+/// raw_ptr.fn_sig_arg.unsafe.pub
 pub unsafe fn taken_unsafe_pub(_p: *const u8) {}
 
-/// raw_ptr.taken.safe.priv
+/// raw_ptr.fn_sig_arg.safe.priv
 fn taken_safe_priv(_p: *mut u8) {}
 
-/// raw_ptr.returned.safe.pub
+/// raw_ptr.fn_sig_ret.safe.pub
 #[must_use]
 pub fn returned_safe_pub() -> *mut u8 {
     std::ptr::null_mut()
 }
 
-/// raw_ptr.returned.unsafe.priv
+/// raw_ptr.fn_sig_ret.unsafe.priv
 unsafe fn returned_unsafe_priv() -> *const u8 {
     std::ptr::null()
 }
 
-/// raw_ptr.taken.safe.pub -- NonNull is a pointer carrier, so it peels.
+/// raw_ptr.fn_sig_arg.safe.pub -- NonNull is a pointer carrier, so it peels.
 pub fn taken_nonnull(_p: NonNull<u8>) {}
 
-/// raw_ptr.taken.safe.pub x2 -- both arguments count, independently.
+/// raw_ptr.fn_sig_arg.safe.pub x2 -- both arguments count, independently.
 pub fn taken_twice(_a: *mut u8, _b: *const u16) {}
 
-/// raw_ptr.taken.safe.pub, and its `of_which.void` share -- a `*c_void` is a
+/// raw_ptr.fn_sig_arg.safe.pub, and its `of_which.void` share -- a `*c_void` is a
 /// raw pointer whose pointee is erased, counted once and labelled.
 pub fn taken_void(_p: *mut c_void) {}
 
-/// raw_ptr.returned.unsafe.pub, and its `of_which.void` share
+/// raw_ptr.fn_sig_ret.unsafe.pub, and its `of_which.void` share
 #[must_use]
 pub unsafe fn returned_void() -> *const c_void {
     std::ptr::null()
@@ -280,7 +280,7 @@ impl_stub_display!(Owned);
 
 /// A trait whose shape puts a raw pointer in every impl's signature: one
 /// declaration, a position per implementing type. Its positions go to
-/// `raw_ptr.in_impl`, not to `raw_ptr.{taken,returned}` -- the crate did not
+/// `raw_ptr.fn_sig_trait_impl`, not to `raw_ptr.{taken,returned}` -- the crate did not
 /// choose the position here, and no consumer of the safe API is routed to it.
 /// This is git2-rs's `Binding` and ffibox's `CDrop` in miniature.
 pub trait RawSeam {

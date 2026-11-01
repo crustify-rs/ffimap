@@ -70,14 +70,14 @@ class CanaryTests(unittest.TestCase):
         # carrier, both arguments of taken_twice count independently, and
         # `taken_void`'s `*c_void` is a raw pointer here with the `void` share
         # recording that its pointee is erased.
-        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
-        self.assertEqual(self.at("raw_ptr.taken.safe.priv"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.safe.pub"), 8)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.safe.priv"), 1)
         # 11 unsafe public: taken_unsafe_pub, the four conversion helpers
         # (std_strings takes two), Undeclared::from_raw, calls, calls_seam,
         # unsafe_with_unsafe.
-        self.assertEqual(self.at("raw_ptr.taken.unsafe.pub"), 11)
-        self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
-        self.assertEqual(self.at("raw_ptr.returned.unsafe.priv"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.unsafe.pub"), 11)
+        self.assertEqual(self.at("raw_ptr.fn_sig_ret.safe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_ret.unsafe.priv"), 1)
 
     def test_void_pointers_are_a_share_of_the_raw_position(self) -> None:
         """`taken_void` and `returned_void` are counted in the position they
@@ -88,16 +88,16 @@ class CanaryTests(unittest.TestCase):
         pointers a signature carries -- and the flat counters it replaced
         counted such a position in both, so adding them double-counted.
         """
-        self.assertEqual(self.at("raw_ptr.taken.of_which.void.safe.pub"), 1)
-        self.assertEqual(self.at("raw_ptr.returned.of_which.void.unsafe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.of_which.void.safe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_ret.of_which.void.unsafe.pub"), 1)
         # ...and the share is inside the position's own total, never beside it:
         # one of the 8 above is `taken_void`.
-        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.safe.pub"), 8)
 
     def test_total_is_the_positions_the_crate_chose(self) -> None:
-        """`raw_ptr.total.safe.pub` = 8 taken + 1 returned + 1 public field.
+        """`raw_ptr.total.safe.pub` = 8 args + 1 return + 1 public field.
 
-        `in_impl` is outside it -- the 4 positions of `RawSeam`'s two impls do
+        `fn_sig_trait_impl` is outside it -- the 4 positions of `RawSeam`'s two impls do
         not appear -- because a trait fixed those, so a reader comparing
         crates would be reading how often the trait is implemented. A field
         counts on the SAFE arm: reading one takes no `unsafe`, so a public
@@ -105,8 +105,8 @@ class CanaryTests(unittest.TestCase):
         """
         self.assertEqual(self.at("raw_ptr.total.safe.pub"), 10)
         self.assertEqual(self.at("raw_ptr.total.unsafe.pub"), 12)
-        # The same cells with `in_impl` added would be 14 and 12; it is not.
-        self.assertEqual(self.at("raw_ptr.in_impl.safe.pub"), 4)
+        # The same cells with `fn_sig_trait_impl` added would be 14 and 12.
+        self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.safe.pub"), 4)
 
     def test_references_and_embedded_pointers_are_not_positions(self) -> None:
         """`taken_ref` and `taken_holder` must move nothing.
@@ -117,14 +117,14 @@ class CanaryTests(unittest.TestCase):
         counts above already pin.
         """
         self.assertEqual(
-            self.at("raw_ptr.taken.safe.pub") + self.at("raw_ptr.taken.safe.priv"), 9)
+            self.at("raw_ptr.fn_sig_arg.safe.pub") + self.at("raw_ptr.fn_sig_arg.safe.priv"), 9)
 
     def test_seam_share_carries_safety_and_visibility(self) -> None:
         # Undeclared::from_raw is the only declared seam, and it is unsafe and
         # public. The share living under the direction is what lets it be
         # subtracted from the total it is a share of.
-        self.assertEqual(self.at("raw_ptr.taken.of_which.seam.unsafe.pub"), 1)
-        self.assertEqual(self.at("raw_ptr.taken.of_which.seam.safe.pub"), 0)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.of_which.seam.unsafe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.of_which.seam.safe.pub"), 0)
 
     # ----------------------------------------------------------- conversions
 
@@ -289,22 +289,22 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(self.at("raw_ptr.deref.rd"), 4)
         self.assertEqual(self.at("raw_ptr.deref.wr"), 3)
 
-    def test_a_trait_impls_pointer_positions_go_to_in_impl(self) -> None:
+    def test_a_trait_impls_pointer_positions_go_to_their_own_family(self) -> None:
         """`RawSeam::round_trip` takes one and returns one, implemented for
         two types: 4 positions, both directions in one counter.
 
-        None of them reaches `taken` or `returned`. The crate did not choose
+        None reaches `fn_sig_arg` or `fn_sig_ret`. The crate did not choose
         the position -- one trait declaration dictates it in every impl -- so
         counting them there makes the hazard move with how many types
         implement the trait. That is what read 63 of git2-rs' 66 "raw pointers
         returned by a public safe fn": its `Binding` trait, once.
         """
-        self.assertEqual(self.at("raw_ptr.in_impl.safe.pub"), 4)
-        self.assertEqual(self.at("raw_ptr.in_impl.unsafe.pub"), 0)
-        # `taken.safe.pub` is the free and inherent fns only, unchanged by the
+        self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.safe.pub"), 4)
+        self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.unsafe.pub"), 0)
+        # `fn_sig_arg.safe.pub` is the free and inherent fns only, unchanged by the
         # two impls above.
-        self.assertEqual(self.at("raw_ptr.taken.safe.pub"), 8)
-        self.assertEqual(self.at("raw_ptr.returned.safe.pub"), 1)
+        self.assertEqual(self.at("raw_ptr.fn_sig_arg.safe.pub"), 8)
+        self.assertEqual(self.at("raw_ptr.fn_sig_ret.safe.pub"), 1)
 
     # ------------------------------------------------------------ type views
 

@@ -323,9 +323,9 @@ fn register_counters(ptr: &mut PtrTally) {
         at(format!("code.unsafe_call.{arm}"));
     }
 
-    // raw_ptr: the positions, their shares, and the denominator. `in_impl` is
-    // a position of its own, outside `raw_ptr.total`.
-    for pos in ["taken", "returned", "in_impl"] {
+    // raw_ptr: the positions, their shares, and the denominator.
+    // `fn_sig_trait_impl` is a position of its own, outside `raw_ptr.total`.
+    for pos in ["fn_sig_arg", "fn_sig_ret", "fn_sig_trait_impl"] {
         for safety in SAFETY {
             for vis in VIS {
                 at(format!("raw_ptr.{pos}.{safety}.{vis}"));
@@ -2078,14 +2078,15 @@ impl Callbacks for MetricsCallbacks {
                     // forces the caller to write `unsafe` before it means
                     // anything.
                     //
-                    // A position in a trait impl's method goes to `in_impl`
+                    // A position in a trait impl's method goes to
+                    // `fn_sig_trait_impl`
                     // instead, both directions in one counter. The crate did
                     // not choose to put a raw pointer there: the trait fixed
                     // the signature, one declaration dictating the position in
                     // every impl of it, and no consumer of the safe API is
                     // routed to it -- ffibox's `CDrop::c_drop(NonNull<T>)` is
                     // the strategy that exists so that a consumer never holds
-                    // a pointer. Mixing those into `taken` makes the hazard
+                    // a pointer. Mixing those into `fn_sig_arg` makes the hazard
                     // count move with how many types a lifecycle trait is
                     // implemented for. The direction is dropped because it
                     // says nothing once the signature is not the crate's:
@@ -2101,13 +2102,14 @@ impl Callbacks for MetricsCallbacks {
                     }
                     let mut outs = Vec::new();
                     raw_pointees(tcx, sig.output(), &mut outs);
-                    for (found, pos) in [(ins, "taken"), (outs, "returned")] {
-                        let pos = if in_trait_impl { "in_impl" } else { pos };
+                    for (found, pos) in [(ins, "fn_sig_arg"), (outs, "fn_sig_ret")] {
+                        let pos = if in_trait_impl { "fn_sig_trait_impl" } else { pos };
                         for pointee in found {
                             bump(&mut ptr, &mut sites,
                                  format!("raw_ptr.{pos}.{safety}.{vis}"));
                             // The denominator, emitted rather than derived:
-                            // the positions the crate CHOSE, so `in_impl` is
+                            // the positions the crate CHOSE, so
+                            // `fn_sig_trait_impl` is
                             // outside it for the reason it exists -- a trait
                             // fixed those, and a reader comparing crates would
                             // be reading how often a trait is implemented.

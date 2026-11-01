@@ -241,7 +241,7 @@ class CellCounterTests(unittest.TestCase):
         Both halves are the point. The families are spelled from a variable in
         the driver (`ty.{tree}.{vis}`), so `test_counters`'s source scrape
         cannot see them and a missing entry in `TREE_SITE_FAMILIES` would make
-        them silently unreachable -- how `raw_ptr.field` and `raw_ptr.in_impl`
+        them silently unreachable -- how `raw_ptr.field` and `raw_ptr.fn_sig_trait_impl`
         were each unreachable when added. And the sum is what makes the
         remainder readable: the unsanctioned borrows are recovered by taking
         the share's places out of the arm's.

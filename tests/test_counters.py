@@ -42,13 +42,13 @@ class EmissionTests(unittest.TestCase):
 class MergeTests(unittest.TestCase):
     def test_tree_counters_sum_across_crates(self) -> None:
         line = lambda crate, n: json.dumps(
-            {"crate": crate, "counts": {"fn.safe.pub": n, "raw_ptr.taken.safe.pub": n},
+            {"crate": crate, "counts": {"fn.safe.pub": n, "raw_ptr.fn_sig_arg.safe.pub": n},
              "sites": {}})
         _, seen, counts = measure._collect_emissions(
             "\n".join([line("a", 2), line("b", 3), line("c_sys", 100)]))
         self.assertEqual(seen, 2)
         self.assertEqual(counts["fn.safe.pub"], 5)
-        self.assertEqual(counts["raw_ptr.taken.safe.pub"], 5)
+        self.assertEqual(counts["raw_ptr.fn_sig_arg.safe.pub"], 5)
 
 
 
@@ -132,7 +132,7 @@ class SiteFamilyTests(unittest.TestCase):
     def test_every_counter_family_the_driver_emits_takes_sites(self) -> None:
         """`--sites` validates a dotted path against the prefix and the family
         under it. A family the driver emits but the table omits is rejected,
-        which is how `raw_ptr.field` and `raw_ptr.in_impl` were unreachable
+        which is how `raw_ptr.field` and `raw_ptr.fn_sig_trait_impl` were unreachable
         when each was added.
         """
         src = MAIN_RS.read_text()
@@ -228,12 +228,12 @@ class PartitionTests(unittest.TestCase):
         two must never be summed: the document hangs them off `of_which`."""
         src = MAIN_RS.read_text()
         self.assertIn('format!("raw_ptr.{pos}.of_which.seam.{safety}.{vis}")', src)
-        tree = measure.nest_ptr({"raw_ptr.taken.safe.pub": 10,
-                                 "raw_ptr.taken.of_which.seam.safe.pub": 7})
-        taken = tree["raw_ptr"]["taken"]
-        self.assertEqual(taken["safe"], {"pub": 10, "total": 10})
-        self.assertEqual(taken["of_which"]["seam"]["safe"], {"pub": 7, "total": 7})
-        self.assertEqual(taken["total"], 10)   # not 17
+        tree = measure.nest_ptr({"raw_ptr.fn_sig_arg.safe.pub": 10,
+                                 "raw_ptr.fn_sig_arg.of_which.seam.safe.pub": 7})
+        arg = tree["raw_ptr"]["fn_sig_arg"]
+        self.assertEqual(arg["safe"], {"pub": 10, "total": 10})
+        self.assertEqual(arg["of_which"]["seam"]["safe"], {"pub": 7, "total": 7})
+        self.assertEqual(arg["total"], 10)   # not 17
 
 
 if __name__ == "__main__":

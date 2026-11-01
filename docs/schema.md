@@ -11,12 +11,12 @@ How a scan runs and what it requires is [`scanning.md`](scanning.md); the
 
 ```
 raw_ptr.
-  taken.{safe,unsafe}.{pub,priv}
-  taken.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
-  returned.{safe,unsafe}.{pub,priv}
-  returned.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
-  in_impl.{safe,unsafe}.{pub,priv}
-  in_impl.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
+  fn_sig_arg.{safe,unsafe}.{pub,priv}
+  fn_sig_arg.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
+  fn_sig_ret.{safe,unsafe}.{pub,priv}
+  fn_sig_ret.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
+  fn_sig_trait_impl.{safe,unsafe}.{pub,priv}
+  fn_sig_trait_impl.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
   field.{pub,priv}
   field.of_which.void.{pub,priv}
   total.{safe,unsafe}.{pub,priv}
@@ -85,8 +85,8 @@ flat counter block beside them, and no prose rendering of them: a reader who
 wants a rate divides the leaves it names.
 
 `raw_ptr.total` is the denominator, emitted rather than derived: the positions
-the crate CHOSE, by safety and visibility. `taken` and `returned` are in it,
-`in_impl` is not -- for the reason that family exists, since a reader comparing
+the crate CHOSE, by safety and visibility. `fn_sig_arg` and `fn_sig_ret` are
+in it, `fn_sig_trait_impl` is not -- for the reason that family exists, since a reader comparing
 crates would otherwise be reading how often a trait is implemented -- and a
 `field` counts on the `safe` arm, because reading a field that holds a pointer
 takes no `unsafe`, so a public one on a public type is a pointer the interface
@@ -104,12 +104,16 @@ many raw pointers a signature carries does not have to add two trees, and one
 asking how many are typed subtracts the share. The former top-level
 `void_ptr.*` is gone.
 
-`raw_ptr.in_impl` holds the positions in a trait impl's method, both
-directions in one counter. The crate did not choose the position there: the
+`raw_ptr.fn_sig_trait_impl` holds the positions in a trait impl's method, both
+directions in one counter. The three names say where the position IS -- an
+argument of a signature, its return, or a signature a trait fixed -- rather
+than what the fn does with the pointer, which `taken` and `returned` read as
+until they were renamed: a reader had to know that the two were signature
+positions while `field` was a type's and `deref` a body's. The crate did not choose the position there: the
 trait fixed the signature, one declaration dictating a position in every impl
 of it, and no consumer of the safe API is routed to it -- ffibox's
 `CDrop::c_drop(NonNull<T>)` is the strategy that exists so a consumer never
-holds a pointer. Mixing them into `taken` or `returned` makes the hazard count
+holds a pointer. Mixing them into `fn_sig_arg` or `fn_sig_ret` makes the hazard count
 move with how many types a trait is implemented for, which is what read 61 of
 git2-rs' 66 pointers "returned by a public safe fn": its `Binding` trait,
 once. The direction is dropped with the choice: what is left to say is that
@@ -279,7 +283,7 @@ node that already carries an emitted one, which is how the denominators
 would otherwise take their name; and a NAMESPACE, a node whose children are
 families rather than the parts of one quantity.
 
-A top-level prefix is always a namespace -- `raw_ptr.taken` counts signature
+A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts signature
 positions and `raw_ptr.deref` counts body sites, so their sum means nothing --
 and two are namespaces a level down. `ty.ffibox` holds a type population
 (`ccell` counts types) beside three records of mentions (`wrapper`, `ffi` and
@@ -290,7 +294,7 @@ them -- its unsafe blocks and its fns; their sum read 103840 on
 libgit2-bindings, a figure with no unit at all.
 
 `nest_ptr` declares them in `NAMESPACES` rather than inferring them, since no
-shape distinguishes a namespace from a partition: `raw_ptr.taken`'s
+shape distinguishes a namespace from a partition: `raw_ptr.fn_sig_arg`'s
 `{safe,unsafe}` children are records with their own totals too, and summing
 those is exactly right.
 

@@ -60,7 +60,7 @@ ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]] [--json]
 | Option | Effect |
 |---|---|
 | `--json` | Accepted and ignored: the document is the only output. Kept so existing invocations keep working. |
-| `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). Each is a counter's dotted path, such as `raw_ptr.taken.safe.pub`. |
+| `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). Each is a counter's dotted path, such as `raw_ptr.fn_sig_arg.safe.pub`. |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, and descend through their types when deciding which types store a raw pointer. Name the crate's own bindings and anything else it reaches C through, such as `libc`. Nothing is discovered — a Cargo `links` key and a `*-sys` name both over-report — so unnamed means the scanned crate alone. |
 | `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |
 | `--ffibox` | The crate is built on [ffibox](https://github.com/crustify-rs/ffibox). Turns on the vocabulary's arms, which [docs/ffibox.md](docs/ffibox.md) describes, and sanctions the conventions' `as_ref` / `as_mut` layout accessors, which are matched by name and so hold only where that convention does. |

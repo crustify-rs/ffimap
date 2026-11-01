@@ -43,7 +43,7 @@ own commit; these were scanned against ffibox `55e5f8ace6`.
 Without them the three are not comparable. git2-rs reaches every raw pointer
 through one trait it declares itself:
 
-| | `in_impl` | of which `seam` |
+| | `fn_sig_trait_impl` | of which `seam` |
 |---|---|---|
 | git2-rs | 134 | **125** |
 | libgit2-bindings | 64 | 0 |
@@ -51,13 +51,17 @@ through one trait it declares itself:
 
 git2-rs' trait-impl pointer surface is `Binding::raw` and `Binding::from_raw`,
 implemented for 91 types -- plumbing a consumer of the safe API never
-performs. The crustify campaigns' `in_impl` is ffibox's lifecycle strategies
-(`c_drop`, `c_new`, `c_up_ref`), which take a `NonNull` but are not in either
-crate's declared seam list, because nothing local defines them: the seam
-traits' `as_ptr` and `from_ptr` are ffibox's provided methods, so no local fn
-carries the name.
+performs. The crustify campaigns' `fn_sig_trait_impl` is ffibox's lifecycle
+strategies, every one of libgit2-bindings' 64: `c_drop` and `c_dispose`,
+`c_dup` and `c_up_ref`, `c_new`, `c_alloc` and `c_alloc_zeroed`, each taking
+or returning a `NonNull<T>`. None is in either crate's declared seam list,
+because nothing local defines a seam there: the seam traits are implemented
+empty, naming only their `type Cell`, and `as_ptr` and `from_ptr` are
+ffibox's provided methods, so no local fn carries the name. The campaigns'
+seams are all on inherent methods, which is why they land in `fn_sig_ret` and
+`fn_sig_arg` instead.
 
-The same reading applies to `returned`: 66 of libgit2-bindings' 86 and 14 of
+The same reading applies to `fn_sig_ret`: 66 of libgit2-bindings' 86 and 14 of
 git2-rs' 19 are seams.
 
 ## Keeping to ffibox's convention
