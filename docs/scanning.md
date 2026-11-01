@@ -103,6 +103,14 @@ Paths are validated against the prefix and the family under it, not against a
 list of leaves, because the ffibox arms are generated from a vocabulary. There
 is no `all`: enumerating every leaf is a different request.
 
+Every counter that counts a PLACE has sites, keyed by the same dotted path
+`--sites` names. The line and statement counters have none -- `code.loc`,
+`code.loc.unsafe` and the `code.tests` figures, whose increment is a line, so
+their sites would be the file's own lines. Nothing else reads empty: a counter
+whose places went in under another name would be indistinguishable from one
+that has none, which is what `code.unsafe_block` and `raw_ptr.deref` did while
+their sites carried the `Counts` field name they are tallied in.
+
 A site for a macro-generated item reports the macro's **call site**, since that
 is where the item's span points. A `define_ctype!(` or `impl_cdrop!(` line
 among the sites of a type or impl counter is that, not a miscount.

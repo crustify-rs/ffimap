@@ -585,8 +585,14 @@ struct Counts {
 
 
 /// Source sites `(file, 1-based line)` per counter, keyed by the counter's
-/// output name: every increment of a location-counting counter records where it
-/// happened. Line and statement totals have none. Aggregated by `Sites::json`.
+/// output name -- its dotted path in the tree, which is what `--sites` names,
+/// and NOT the `Counts` field a mirrored counter is tallied in: a key that is
+/// no counter's path is a site list nothing can ask for.
+///
+/// Every increment of a location-counting counter records where it happened.
+/// The line and statement counters (`code.loc`, `code.tests`) have none: their
+/// increment is a line, so their sites would be the file's own lines.
+/// Aggregated by `Sites::json`.
 #[derive(Default)]
 struct Sites(std::collections::BTreeMap<String, Vec<(String, usize)>>);
 
@@ -845,10 +851,11 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
                 if matches!(b.rules, hir::BlockCheckMode::UnsafeBlock(_)) =>
             {
                 self.c.unsafe_blocks += 1;
-                self.sites.add("unsafe_blocks", counter_site(self.tcx, e.span));
+                self.sites.add("code.unsafe_block.total", counter_site(self.tcx, e.span));
                 if self.in_ffi {
                     self.c.unsafe_blocks_ffi_export += 1;
-                    self.sites.add("unsafe_blocks_ffi_export", counter_site(self.tcx, e.span));
+                    self.sites.add("code.unsafe_block.of_which.ffi_export",
+                        counter_site(self.tcx, e.span));
                 }
                 // Line metrics: outermost blocks only (nested ones would
                 // double-count). EVERY outermost block counts, macro-expanded
@@ -888,9 +895,9 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
             hir::ExprKind::Unary(hir::UnOp::Deref, inner) => {
                 if self.typeck.expr_ty(inner).is_raw_ptr() {
                     let (k, slot) = if self.place_written(e) {
-                        ("raw_ptr_derefs_wr", &mut self.c.raw_ptr_derefs_wr)
+                        ("raw_ptr.deref.wr", &mut self.c.raw_ptr_derefs_wr)
                     } else {
-                        ("raw_ptr_derefs_rd", &mut self.c.raw_ptr_derefs_rd)
+                        ("raw_ptr.deref.rd", &mut self.c.raw_ptr_derefs_rd)
                     };
                     *slot += 1;
                     self.sites.add(k, counter_site(self.tcx, e.span));

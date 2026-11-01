@@ -388,5 +388,78 @@ class CanaryTests(unittest.TestCase):
                     self.tree["fn"]["total"][vis])
 
 
+@unittest.skipUnless(_driver_available(), "needs cargo and the dated nightly")
+class SiteTests(unittest.TestCase):
+    """Every site list is reachable through `--sites`, and sums to its counter.
+
+    This is the direction that matters. `compose` looks a requested counter up
+    by its dotted path, so a counter whose places the driver records under some
+    OTHER name reads as an empty list -- indistinguishable from a counter that
+    has no places at all. The four mirrored counters did exactly that: their
+    places went in under the `Counts` field they are tallied in
+    (`unsafe_blocks`, `raw_ptr_derefs_rd`) rather than their path in the tree.
+
+    Scanned separately from `CanaryTests` because `scan.compose` hands back
+    only the counters that were asked for, and the point here is the ones
+    nobody thought to ask for.
+    """
+
+    sites: dict
+    tree: dict
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.sites, cls.tree = measure.measure(
+            FIXTURE, seams=["from_raw"],
+            sys=measure.sys_crates(["canary-sys"]))
+
+    def value(self, path: str) -> int | None:
+        """The counter at `path`, or None where the tree has no such leaf."""
+        node = self.tree
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        return node if isinstance(node, int) else None
+
+    def test_every_site_list_is_addressable_and_sums_to_its_counter(self) -> None:
+        self.assertTrue(self.sites, "the canary recorded no sites at all")
+        for counter, rows in sorted(self.sites.items()):
+            with self.subTest(counter=counter):
+                self.assertTrue(
+                    measure.is_tree_counter(counter),
+                    f"--sites would reject {counter}, so its places are "
+                    "unreachable")
+                self.assertEqual(
+                    sum(r["count"] for r in rows), self.value(counter),
+                    f"{counter}: per-file counts do not sum to the counter")
+
+    def test_a_mirrored_counter_carries_its_places(self) -> None:
+        """A mirrored counter has places exactly when it fired.
+
+        Stated as the equivalence rather than as four `assertIn`s, because the
+        canary has no `ffi_export` region: a counter that never incremented has
+        nothing to point at, and demanding places for it would be a test of the
+        fixture. `moved` keeps the equivalence from passing vacuously.
+        """
+        mirrored = ("code.unsafe_block.total",
+                    "code.unsafe_block.of_which.ffi_export",
+                    "raw_ptr.deref.rd", "raw_ptr.deref.wr")
+        moved = 0
+        for counter in mirrored:
+            with self.subTest(counter=counter):
+                fired = bool(self.value(counter))
+                moved += fired
+                self.assertEqual(fired, counter in self.sites)
+        self.assertGreaterEqual(moved, 3)
+
+    def test_a_line_counter_has_no_places(self) -> None:
+        """Their increment IS a line, so sites would be the file's own lines."""
+        for counter in ("code.loc.total", "code.loc.unsafe",
+                        "code.tests.loc.total", "code.tests.unsafe_block"):
+            with self.subTest(counter=counter):
+                self.assertNotIn(counter, self.sites)
+
+
 if __name__ == "__main__":
     unittest.main()

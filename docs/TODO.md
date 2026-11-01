@@ -67,6 +67,11 @@ there are no places rather than that the name is incomplete. Either the
 lookup should aggregate every leaf under the requested path, which is what the
 name reads like, or the validation should reject a path that is not a leaf.
 
+The sibling case, a leaf whose places the driver recorded under a name that is
+no counter's path, is fixed: the four mirrored counters carried their `Counts`
+field name, and `test_canary.SiteTests` now holds every site list to a path
+`--sites` accepts.
+
 ## A path dependency can break a shipped campaign
 
 Not ffimap's to fix, but ffimap is what found it. `ffmpeg-bindings` pinned

@@ -486,9 +486,12 @@ unchanged by its removal.
 
 ## 7. Sites
 
-`--sites` reports where a counter's increments are, by its dotted path. The
-validation, and why a macro-generated item reports its macro's call site, are
-[`scanning.md`](scanning.md)'s.
+`--sites` reports where a counter's increments are, by its dotted path, down
+to its LEAF: a path that stops at a family or an `of_which` arm validates and
+then reads empty, since the lookup is keyed by leaf. Every counter of a place
+has sites; the line and statement counters (`code.loc`, `code.tests`) have
+none. The validation, why a macro-generated item reports its macro's call
+site, and the per-file shape of a site list are [`scanning.md`](scanning.md)'s.
 
 ## 8. Limitations
 
