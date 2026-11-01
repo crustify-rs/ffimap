@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "4b418773b9c838bd813020890f13b4613bb67944",
+    "ffimap": "ae42e2eea60b9bf23ce601a83166f20f9e9b4e6c",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -17,797 +17,797 @@
     ]
   },
   "counts": {
+    "raw_ptr": {
+      "total": {
+        "total": 222,
+        "unsafe": {
+          "total": 137,
+          "pub": 6,
+          "priv": 131
+        },
+        "safe": {
+          "total": 85,
+          "pub": 5,
+          "priv": 80
+        }
+      },
+      "taken": {
+        "total": 131,
+        "unsafe": {
+          "total": 131,
+          "pub": 6,
+          "priv": 125
+        },
+        "safe": {
+          "total": 0,
+          "pub": 0,
+          "priv": 0
+        },
+        "of_which": {
+          "void": {
+            "total": 17,
+            "unsafe": {
+              "total": 17,
+              "pub": 4,
+              "priv": 13
+            },
+            "safe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          },
+          "seam": {
+            "total": 35,
+            "unsafe": {
+              "total": 35,
+              "pub": 0,
+              "priv": 35
+            },
+            "safe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          }
+        }
+      },
+      "returned": {
+        "total": 86,
+        "unsafe": {
+          "total": 6,
+          "pub": 0,
+          "priv": 6
+        },
+        "safe": {
+          "total": 80,
+          "pub": 5,
+          "priv": 75
+        },
+        "of_which": {
+          "void": {
+            "total": 6,
+            "unsafe": {
+              "total": 2,
+              "pub": 0,
+              "priv": 2
+            },
+            "safe": {
+              "total": 4,
+              "pub": 3,
+              "priv": 1
+            }
+          },
+          "seam": {
+            "total": 66,
+            "unsafe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "safe": {
+              "total": 66,
+              "pub": 1,
+              "priv": 65
+            }
+          }
+        }
+      },
+      "in_impl": {
+        "total": 64,
+        "unsafe": {
+          "total": 57,
+          "pub": 55,
+          "priv": 2
+        },
+        "safe": {
+          "total": 7,
+          "pub": 7,
+          "priv": 0
+        },
+        "of_which": {
+          "void": {
+            "total": 0,
+            "unsafe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "safe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          },
+          "seam": {
+            "total": 0,
+            "unsafe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "safe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          }
+        }
+      },
+      "field": {
+        "total": 5,
+        "pub": 0,
+        "priv": 5,
+        "of_which": {
+          "void": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          }
+        }
+      },
+      "deref": {
+        "total": 349,
+        "rd": 195,
+        "wr": 154
+      },
+      "casted_to": {
+        "total": 532,
+        "std": {
+          "total": 114,
+          "owner": 9,
+          "string": 84,
+          "borrow": 13,
+          "slice": 8,
+          "other": 0
+        },
+        "local_seam": {
+          "total": 272,
+          "owner": 0,
+          "string": 0,
+          "borrow": 0,
+          "slice": 0,
+          "other": 272
+        },
+        "ffibox": {
+          "total": 146,
+          "owner": 142,
+          "string": 4,
+          "borrow": 0,
+          "slice": 0
+        }
+      }
+    },
+    "ty": {
+      "total": {
+        "total": 374,
+        "pub": 347,
+        "priv": 27,
+        "of_which": {
+          "no_trait": {
+            "total": 13,
+            "pub": 2,
+            "priv": 11
+          },
+          "std_trait": {
+            "total": 317,
+            "pub": 305,
+            "priv": 12
+          },
+          "local_trait": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "ffibox_trait": {
+            "total": 236,
+            "pub": 228,
+            "priv": 8
+          }
+        }
+      },
+      "field": {
+        "total": 8,
+        "ffibox": {
+          "total": 8,
+          "CArc": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CBorrowedPtr": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CBox": {
+            "total": 6,
+            "pub": 3,
+            "priv": 3
+          },
+          "CGuard": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CGuardedRef": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CSlice": {
+            "total": 1,
+            "pub": 0,
+            "priv": 1
+          },
+          "CSliceMut": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CStrBox": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CVal": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CVec": {
+            "total": 1,
+            "pub": 1,
+            "priv": 0
+          }
+        }
+      },
+      "storing_raw_ptr": {
+        "total": 41,
+        "pub": 33,
+        "priv": 8,
+        "of_which": {
+          "impl_drop": {
+            "total": 3,
+            "pub": 2,
+            "priv": 1
+          },
+          "impl_clone": {
+            "total": 12,
+            "pub": 11,
+            "priv": 1
+          },
+          "impl_deref": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "impl_deref_mut": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "impl_send_sync": {
+            "total": 17,
+            "pub": 17,
+            "priv": 0
+          },
+          "has_lifetime": {
+            "total": 20,
+            "pub": 16,
+            "priv": 4
+          },
+          "pub_field": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "none": {
+            "total": 4,
+            "pub": 0,
+            "priv": 4
+          },
+          "ffibox": {
+            "total": 28,
+            "pub": 28,
+            "priv": 0
+          }
+        }
+      },
+      "wrapping_unsafe_cell": {
+        "total": 0,
+        "pub": 0,
+        "priv": 0
+      },
+      "impl_block": {
+        "total": 408,
+        "pub": 395,
+        "priv": 13,
+        "of_which": {
+          "other": {
+            "total": 119,
+            "pub": 110,
+            "priv": 9
+          },
+          "ffibox": {
+            "total": 289,
+            "layout": {
+              "total": 100,
+              "pub": 98,
+              "priv": 2
+            },
+            "ref": {
+              "total": 86,
+              "pub": 86,
+              "priv": 0
+            },
+            "mut": {
+              "total": 103,
+              "pub": 101,
+              "priv": 2
+            },
+            "locked": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          }
+        }
+      },
+      "impl_trait": {
+        "total": 2024,
+        "pub": 1947,
+        "priv": 77,
+        "of_which": {
+          "unsafe": 271,
+          "derived": {
+            "total": 1171,
+            "pub": 1142,
+            "priv": 29
+          },
+          "send_sync": {
+            "total": 144,
+            "send": {
+              "total": 73,
+              "pub": 73,
+              "priv": 0
+            },
+            "sync": {
+              "total": 71,
+              "pub": 71,
+              "priv": 0
+            }
+          },
+          "std": {
+            "total": 1765,
+            "pub": 1698,
+            "priv": 67
+          },
+          "local": {
+            "total": 2,
+            "pub": 0,
+            "priv": 2
+          },
+          "ffibox": {
+            "total": 257,
+            "pub": 249,
+            "priv": 8,
+            "of_which": {
+              "CAlloc": {
+                "total": 1,
+                "macro": 0,
+                "handwritten": 1
+              },
+              "CAllocZeroed": {
+                "total": 1,
+                "macro": 0,
+                "handwritten": 1
+              },
+              "CCell": {
+                "total": 65,
+                "macro": 33,
+                "handwritten": 32
+              },
+              "CDispose": {
+                "total": 5,
+                "macro": 0,
+                "handwritten": 5
+              },
+              "CDrop": {
+                "total": 36,
+                "macro": 14,
+                "handwritten": 22
+              },
+              "CDupClone": {
+                "total": 4,
+                "macro": 2,
+                "handwritten": 2
+              },
+              "CGuarded": {
+                "total": 0,
+                "macro": 0,
+                "handwritten": 0
+              },
+              "CGuardedAll": {
+                "total": 0,
+                "macro": 0,
+                "handwritten": 0
+              },
+              "CLenClone": {
+                "total": 1,
+                "macro": 1,
+                "handwritten": 0
+              },
+              "CLenDrop": {
+                "total": 1,
+                "macro": 1,
+                "handwritten": 0
+              },
+              "CLockedSeam": {
+                "total": 0,
+                "macro": 0,
+                "handwritten": 0
+              },
+              "CMutSeam": {
+                "total": 65,
+                "macro": 33,
+                "handwritten": 32
+              },
+              "CNew": {
+                "total": 5,
+                "macro": 0,
+                "handwritten": 5
+              },
+              "CPlainElem": {
+                "total": 0,
+                "macro": 0,
+                "handwritten": 0
+              },
+              "CRefClone": {
+                "total": 5,
+                "macro": 0,
+                "handwritten": 5
+              },
+              "CRefSeam": {
+                "total": 65,
+                "macro": 33,
+                "handwritten": 32
+              },
+              "CZeroable": {
+                "total": 3,
+                "macro": 0,
+                "handwritten": 3
+              },
+              "LockScope": {
+                "total": 0,
+                "macro": 0,
+                "handwritten": 0
+              }
+            }
+          }
+        }
+      },
+      "generic": {
+        "total": 199,
+        "pub": 182,
+        "priv": 17,
+        "of_which": {
+          "storing_raw_ptr": {
+            "total": 23,
+            "pub": 17,
+            "priv": 6
+          },
+          "lifetime": {
+            "total": 195,
+            "pub": 181,
+            "priv": 14
+          },
+          "type": {
+            "total": 5,
+            "pub": 1,
+            "priv": 4
+          }
+        }
+      },
+      "ffibox": {
+        "ccell": {
+          "total": 65,
+          "pub": 63,
+          "priv": 2,
+          "of_which": {
+            "no_seam_trait": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          }
+        },
+        "wrapper": {
+          "total": 169,
+          "pub": 161,
+          "priv": 8,
+          "of_which": {
+            "field": {
+              "total": 4,
+              "pub": 0,
+              "priv": 4
+            },
+            "borrow": {
+              "total": 165,
+              "pub": 161,
+              "priv": 4,
+              "of_which": {
+                "self_in_ref_accessor": {
+                  "total": 94,
+                  "pub": 90,
+                  "priv": 4
+                },
+                "self_in_trait_impl": {
+                  "total": 54,
+                  "pub": 54,
+                  "priv": 0
+                }
+              }
+            },
+            "std_owner": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "slice": {
+              "total": 6,
+              "pub": 6,
+              "priv": 0
+            }
+          }
+        },
+        "ffi": {
+          "total": 73,
+          "pub": 0,
+          "priv": 73,
+          "of_which": {
+            "field": {
+              "total": 73,
+              "pub": 0,
+              "priv": 73
+            },
+            "borrow": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0,
+              "of_which": {
+                "self_in_ref_accessor": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "self_in_trait_impl": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                }
+              }
+            },
+            "std_owner": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "slice": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          }
+        },
+        "by_val": {
+          "total": 119,
+          "pub": 109,
+          "priv": 10,
+          "of_which": {
+            "field": {
+              "total": 4,
+              "pub": 0,
+              "priv": 4
+            },
+            "std_owner": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "fn_sig": {
+              "total": 115,
+              "pub": 109,
+              "priv": 6
+            }
+          }
+        }
+      }
+    },
+    "fn": {
+      "total": {
+        "total": 2755,
+        "pub": 2403,
+        "priv": 352,
+        "of_which": {
+          "macro": {
+            "total": 802,
+            "pub": 779,
+            "priv": 23
+          }
+        }
+      },
+      "unsafe": {
+        "total": 190,
+        "pub": 98,
+        "priv": 92
+      },
+      "safe": {
+        "total": 2565,
+        "pub": 2305,
+        "priv": 260,
+        "of_which": {
+          "with_unsafe": {
+            "total": 858,
+            "pub": 804,
+            "priv": 54
+          }
+        }
+      },
+      "ffibox": {
+        "total": 70,
+        "taken": {
+          "total": 29,
+          "CArc": {
+            "total": 14,
+            "pub": 13,
+            "priv": 1
+          },
+          "CBorrowedPtr": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CBox": {
+            "total": 5,
+            "pub": 3,
+            "priv": 2
+          },
+          "CGuard": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CGuardedRef": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CSlice": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CSliceMut": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CStrBox": {
+            "total": 6,
+            "pub": 5,
+            "priv": 1
+          },
+          "CVal": {
+            "total": 2,
+            "pub": 2,
+            "priv": 0
+          },
+          "CVec": {
+            "total": 2,
+            "pub": 2,
+            "priv": 0
+          }
+        },
+        "returned": {
+          "total": 41,
+          "CArc": {
+            "total": 14,
+            "pub": 12,
+            "priv": 2
+          },
+          "CBorrowedPtr": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CBox": {
+            "total": 4,
+            "pub": 1,
+            "priv": 3
+          },
+          "CGuard": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CGuardedRef": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CSlice": {
+            "total": 6,
+            "pub": 6,
+            "priv": 0
+          },
+          "CSliceMut": {
+            "total": 2,
+            "pub": 2,
+            "priv": 0
+          },
+          "CStrBox": {
+            "total": 0,
+            "pub": 0,
+            "priv": 0
+          },
+          "CVal": {
+            "total": 12,
+            "pub": 12,
+            "priv": 0
+          },
+          "CVec": {
+            "total": 3,
+            "pub": 2,
+            "priv": 1
+          }
+        }
+      }
+    },
     "code": {
       "loc": {
         "total": 16081,
         "unsafe": 2654
       },
+      "unsafe_block": {
+        "total": 1894,
+        "of_which": {
+          "ffi_export": 88
+        }
+      },
+      "unsafe_call": {
+        "total": 1545,
+        "ffi": 557,
+        "rust": 988,
+        "intrinsic": 0
+      },
       "tests": {
-        "fn": 4909,
         "loc": {
           "total": 92693,
           "unsafe": 7838
         },
-        "unsafe_block": 6238
-      },
-      "unsafe_block": {
-        "of_which": {
-          "ffi_export": 88
-        },
-        "total": 1894
-      },
-      "unsafe_call": {
-        "ffi": 557,
-        "intrinsic": 0,
-        "rust": 988,
-        "total": 1545
-      }
-    },
-    "fn": {
-      "ffibox": {
-        "returned": {
-          "CArc": {
-            "priv": 2,
-            "pub": 12,
-            "total": 14
-          },
-          "CBorrowedPtr": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CBox": {
-            "priv": 3,
-            "pub": 1,
-            "total": 4
-          },
-          "CGuard": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CGuardedRef": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CSlice": {
-            "priv": 0,
-            "pub": 6,
-            "total": 6
-          },
-          "CSliceMut": {
-            "priv": 0,
-            "pub": 2,
-            "total": 2
-          },
-          "CStrBox": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CVal": {
-            "priv": 0,
-            "pub": 12,
-            "total": 12
-          },
-          "CVec": {
-            "priv": 1,
-            "pub": 2,
-            "total": 3
-          },
-          "total": 41
-        },
-        "taken": {
-          "CArc": {
-            "priv": 1,
-            "pub": 13,
-            "total": 14
-          },
-          "CBorrowedPtr": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CBox": {
-            "priv": 2,
-            "pub": 3,
-            "total": 5
-          },
-          "CGuard": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CGuardedRef": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CSlice": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CSliceMut": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CStrBox": {
-            "priv": 1,
-            "pub": 5,
-            "total": 6
-          },
-          "CVal": {
-            "priv": 0,
-            "pub": 2,
-            "total": 2
-          },
-          "CVec": {
-            "priv": 0,
-            "pub": 2,
-            "total": 2
-          },
-          "total": 29
-        },
-        "total": 70
-      },
-      "safe": {
-        "of_which": {
-          "with_unsafe": {
-            "priv": 54,
-            "pub": 804,
-            "total": 858
-          }
-        },
-        "priv": 260,
-        "pub": 2305,
-        "total": 2565
-      },
-      "total": {
-        "of_which": {
-          "macro": {
-            "priv": 23,
-            "pub": 779,
-            "total": 802
-          }
-        },
-        "priv": 352,
-        "pub": 2403,
-        "total": 2755
-      },
-      "unsafe": {
-        "priv": 92,
-        "pub": 98,
-        "total": 190
-      }
-    },
-    "raw_ptr": {
-      "casted_to": {
-        "ffibox": {
-          "borrow": 0,
-          "owner": 142,
-          "slice": 0,
-          "string": 4,
-          "total": 146
-        },
-        "local_seam": {
-          "borrow": 0,
-          "other": 272,
-          "owner": 0,
-          "slice": 0,
-          "string": 0,
-          "total": 272
-        },
-        "std": {
-          "borrow": 13,
-          "other": 0,
-          "owner": 9,
-          "slice": 8,
-          "string": 84,
-          "total": 114
-        },
-        "total": 532
-      },
-      "deref": {
-        "rd": 195,
-        "wr": 154,
-        "total": 349
-      },
-      "field": {
-        "of_which": {
-          "void": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          }
-        },
-        "priv": 5,
-        "pub": 0,
-        "total": 5
-      },
-      "in_impl": {
-        "of_which": {
-          "seam": {
-            "safe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "unsafe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "total": 0
-          },
-          "void": {
-            "safe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "unsafe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "total": 0
-          }
-        },
-        "safe": {
-          "priv": 0,
-          "pub": 7,
-          "total": 7
-        },
-        "unsafe": {
-          "priv": 2,
-          "pub": 55,
-          "total": 57
-        },
-        "total": 64
-      },
-      "returned": {
-        "of_which": {
-          "seam": {
-            "safe": {
-              "priv": 65,
-              "pub": 1,
-              "total": 66
-            },
-            "unsafe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "total": 66
-          },
-          "void": {
-            "safe": {
-              "priv": 1,
-              "pub": 3,
-              "total": 4
-            },
-            "unsafe": {
-              "priv": 2,
-              "pub": 0,
-              "total": 2
-            },
-            "total": 6
-          }
-        },
-        "safe": {
-          "priv": 75,
-          "pub": 5,
-          "total": 80
-        },
-        "unsafe": {
-          "priv": 6,
-          "pub": 0,
-          "total": 6
-        },
-        "total": 86
-      },
-      "taken": {
-        "of_which": {
-          "seam": {
-            "safe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "unsafe": {
-              "priv": 35,
-              "pub": 0,
-              "total": 35
-            },
-            "total": 35
-          },
-          "void": {
-            "safe": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "unsafe": {
-              "priv": 13,
-              "pub": 4,
-              "total": 17
-            },
-            "total": 17
-          }
-        },
-        "safe": {
-          "priv": 0,
-          "pub": 0,
-          "total": 0
-        },
-        "unsafe": {
-          "priv": 125,
-          "pub": 6,
-          "total": 131
-        },
-        "total": 131
-      },
-      "total": {
-        "safe": {
-          "priv": 80,
-          "pub": 5,
-          "total": 85
-        },
-        "unsafe": {
-          "priv": 131,
-          "pub": 6,
-          "total": 137
-        },
-        "total": 222
-      }
-    },
-    "ty": {
-      "ffibox": {
-        "by_val": {
-          "of_which": {
-            "field": {
-              "priv": 4,
-              "pub": 0,
-              "total": 4
-            },
-            "fn_sig": {
-              "priv": 6,
-              "pub": 109,
-              "total": 115
-            },
-            "std_owner": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            }
-          },
-          "priv": 10,
-          "pub": 109,
-          "total": 119
-        },
-        "ccell": {
-          "of_which": {
-            "no_seam_trait": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            }
-          },
-          "priv": 2,
-          "pub": 63,
-          "total": 65
-        },
-        "ffi": {
-          "of_which": {
-            "borrow": {
-              "of_which": {
-                "self_in_ref_accessor": {
-                  "priv": 0,
-                  "pub": 0,
-                  "total": 0
-                },
-                "self_in_trait_impl": {
-                  "priv": 0,
-                  "pub": 0,
-                  "total": 0
-                }
-              },
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "field": {
-              "priv": 73,
-              "pub": 0,
-              "total": 73
-            },
-            "slice": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "std_owner": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            }
-          },
-          "priv": 73,
-          "pub": 0,
-          "total": 73
-        },
-        "wrapper": {
-          "of_which": {
-            "borrow": {
-              "of_which": {
-                "self_in_ref_accessor": {
-                  "priv": 4,
-                  "pub": 90,
-                  "total": 94
-                },
-                "self_in_trait_impl": {
-                  "priv": 0,
-                  "pub": 54,
-                  "total": 54
-                }
-              },
-              "priv": 4,
-              "pub": 161,
-              "total": 165
-            },
-            "field": {
-              "priv": 4,
-              "pub": 0,
-              "total": 4
-            },
-            "slice": {
-              "priv": 0,
-              "pub": 6,
-              "total": 6
-            },
-            "std_owner": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            }
-          },
-          "priv": 8,
-          "pub": 161,
-          "total": 169
-        }
-      },
-      "field": {
-        "ffibox": {
-          "CArc": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CBorrowedPtr": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CBox": {
-            "priv": 3,
-            "pub": 3,
-            "total": 6
-          },
-          "CGuard": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CGuardedRef": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CSlice": {
-            "priv": 1,
-            "pub": 0,
-            "total": 1
-          },
-          "CSliceMut": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CStrBox": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CVal": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "CVec": {
-            "priv": 0,
-            "pub": 1,
-            "total": 1
-          },
-          "total": 8
-        },
-        "total": 8
-      },
-      "generic": {
-        "of_which": {
-          "lifetime": {
-            "priv": 14,
-            "pub": 181,
-            "total": 195
-          },
-          "storing_raw_ptr": {
-            "priv": 6,
-            "pub": 17,
-            "total": 23
-          },
-          "type": {
-            "priv": 4,
-            "pub": 1,
-            "total": 5
-          }
-        },
-        "priv": 17,
-        "pub": 182,
-        "total": 199
-      },
-      "impl_block": {
-        "of_which": {
-          "ffibox": {
-            "layout": {
-              "priv": 2,
-              "pub": 98,
-              "total": 100
-            },
-            "locked": {
-              "priv": 0,
-              "pub": 0,
-              "total": 0
-            },
-            "mut": {
-              "priv": 2,
-              "pub": 101,
-              "total": 103
-            },
-            "ref": {
-              "priv": 0,
-              "pub": 86,
-              "total": 86
-            },
-            "total": 289
-          },
-          "other": {
-            "priv": 9,
-            "pub": 110,
-            "total": 119
-          }
-        },
-        "priv": 13,
-        "pub": 395,
-        "total": 408
-      },
-      "impl_trait": {
-        "of_which": {
-          "derived": {
-            "priv": 29,
-            "pub": 1142,
-            "total": 1171
-          },
-          "ffibox": {
-            "of_which": {
-              "CAlloc": {
-                "handwritten": 1,
-                "macro": 0,
-                "total": 1
-              },
-              "CAllocZeroed": {
-                "handwritten": 1,
-                "macro": 0,
-                "total": 1
-              },
-              "CCell": {
-                "handwritten": 32,
-                "macro": 33,
-                "total": 65
-              },
-              "CDispose": {
-                "handwritten": 5,
-                "macro": 0,
-                "total": 5
-              },
-              "CDrop": {
-                "handwritten": 22,
-                "macro": 14,
-                "total": 36
-              },
-              "CDupClone": {
-                "handwritten": 2,
-                "macro": 2,
-                "total": 4
-              },
-              "CGuarded": {
-                "handwritten": 0,
-                "macro": 0,
-                "total": 0
-              },
-              "CGuardedAll": {
-                "handwritten": 0,
-                "macro": 0,
-                "total": 0
-              },
-              "CLenClone": {
-                "handwritten": 0,
-                "macro": 1,
-                "total": 1
-              },
-              "CLenDrop": {
-                "handwritten": 0,
-                "macro": 1,
-                "total": 1
-              },
-              "CLockedSeam": {
-                "handwritten": 0,
-                "macro": 0,
-                "total": 0
-              },
-              "CMutSeam": {
-                "handwritten": 32,
-                "macro": 33,
-                "total": 65
-              },
-              "CNew": {
-                "handwritten": 5,
-                "macro": 0,
-                "total": 5
-              },
-              "CPlainElem": {
-                "handwritten": 0,
-                "macro": 0,
-                "total": 0
-              },
-              "CRefClone": {
-                "handwritten": 5,
-                "macro": 0,
-                "total": 5
-              },
-              "CRefSeam": {
-                "handwritten": 32,
-                "macro": 33,
-                "total": 65
-              },
-              "CZeroable": {
-                "handwritten": 3,
-                "macro": 0,
-                "total": 3
-              },
-              "LockScope": {
-                "handwritten": 0,
-                "macro": 0,
-                "total": 0
-              }
-            },
-            "priv": 8,
-            "pub": 249,
-            "total": 257
-          },
-          "local": {
-            "priv": 2,
-            "pub": 0,
-            "total": 2
-          },
-          "send_sync": {
-            "send": {
-              "priv": 0,
-              "pub": 73,
-              "total": 73
-            },
-            "sync": {
-              "priv": 0,
-              "pub": 71,
-              "total": 71
-            },
-            "total": 144
-          },
-          "std": {
-            "priv": 67,
-            "pub": 1698,
-            "total": 1765
-          },
-          "unsafe": 271
-        },
-        "priv": 77,
-        "pub": 1947,
-        "total": 2024
-      },
-      "storing_raw_ptr": {
-        "of_which": {
-          "ffibox": {
-            "priv": 0,
-            "pub": 28,
-            "total": 28
-          },
-          "has_lifetime": {
-            "priv": 4,
-            "pub": 16,
-            "total": 20
-          },
-          "impl_clone": {
-            "priv": 1,
-            "pub": 11,
-            "total": 12
-          },
-          "impl_deref": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "impl_deref_mut": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "impl_drop": {
-            "priv": 1,
-            "pub": 2,
-            "total": 3
-          },
-          "impl_send_sync": {
-            "priv": 0,
-            "pub": 17,
-            "total": 17
-          },
-          "none": {
-            "priv": 4,
-            "pub": 0,
-            "total": 4
-          },
-          "pub_field": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          }
-        },
-        "priv": 8,
-        "pub": 33,
-        "total": 41
-      },
-      "total": {
-        "of_which": {
-          "ffibox_trait": {
-            "priv": 8,
-            "pub": 228,
-            "total": 236
-          },
-          "local_trait": {
-            "priv": 0,
-            "pub": 0,
-            "total": 0
-          },
-          "no_trait": {
-            "priv": 11,
-            "pub": 2,
-            "total": 13
-          },
-          "std_trait": {
-            "priv": 12,
-            "pub": 305,
-            "total": 317
-          }
-        },
-        "priv": 27,
-        "pub": 347,
-        "total": 374
-      },
-      "wrapping_unsafe_cell": {
-        "priv": 0,
-        "pub": 0,
-        "total": 0
+        "unsafe_block": 6238,
+        "fn": 4909
       }
     }
   },
