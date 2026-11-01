@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "524c1dd0f540c2b633a88b7407ee5bffa61c6b8f",
+    "ffimap": "00842721048b944292e1a00acd32b873ad89e7f7",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -156,6 +156,65 @@
               "total": 0,
               "pub": 0,
               "priv": 0
+            }
+          },
+          "std": {
+            "total": 0,
+            "unsafe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "safe": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            }
+          },
+          "local": {
+            "total": 26,
+            "unsafe": {
+              "total": 2,
+              "pub": 0,
+              "priv": 2
+            },
+            "safe": {
+              "total": 24,
+              "pub": 0,
+              "priv": 24
+            }
+          },
+          "ffibox": {
+            "total": 67,
+            "unsafe": {
+              "total": 52,
+              "pub": 52,
+              "priv": 0
+            },
+            "safe": {
+              "total": 15,
+              "pub": 15,
+              "priv": 0
+            },
+            "of_which": {
+              "CCell": 0,
+              "CPlainElem": 0,
+              "CZeroable": 0,
+              "CAlloc": 4,
+              "CAllocZeroed": 2,
+              "CNew": 9,
+              "CDrop": 31,
+              "CDispose": 1,
+              "CLenDrop": 2,
+              "CDupClone": 12,
+              "CRefClone": 4,
+              "CLenClone": 2,
+              "CRefSeam": 0,
+              "CMutSeam": 0,
+              "CLockedSeam": 0,
+              "CGuarded": 0,
+              "CGuardedAll": 0,
+              "LockScope": 0
             }
           }
         }
@@ -419,6 +478,21 @@
             "pub": 276,
             "priv": 0,
             "of_which": {
+              "CCell": {
+                "total": 58,
+                "macro": 58,
+                "handwritten": 0
+              },
+              "CPlainElem": {
+                "total": 17,
+                "macro": 0,
+                "handwritten": 17
+              },
+              "CZeroable": {
+                "total": 26,
+                "macro": 0,
+                "handwritten": 26
+              },
               "CAlloc": {
                 "total": 4,
                 "macro": 0,
@@ -429,25 +503,55 @@
                 "macro": 0,
                 "handwritten": 2
               },
-              "CCell": {
-                "total": 58,
-                "macro": 58,
-                "handwritten": 0
-              },
-              "CDispose": {
-                "total": 1,
-                "macro": 1,
-                "handwritten": 0
+              "CNew": {
+                "total": 9,
+                "macro": 0,
+                "handwritten": 9
               },
               "CDrop": {
                 "total": 31,
                 "macro": 6,
                 "handwritten": 25
               },
+              "CDispose": {
+                "total": 1,
+                "macro": 1,
+                "handwritten": 0
+              },
+              "CLenDrop": {
+                "total": 2,
+                "macro": 2,
+                "handwritten": 0
+              },
               "CDupClone": {
                 "total": 6,
                 "macro": 1,
                 "handwritten": 5
+              },
+              "CRefClone": {
+                "total": 3,
+                "macro": 0,
+                "handwritten": 3
+              },
+              "CLenClone": {
+                "total": 1,
+                "macro": 1,
+                "handwritten": 0
+              },
+              "CRefSeam": {
+                "total": 58,
+                "macro": 58,
+                "handwritten": 0
+              },
+              "CMutSeam": {
+                "total": 58,
+                "macro": 58,
+                "handwritten": 0
+              },
+              "CLockedSeam": {
+                "total": 0,
+                "macro": 0,
+                "handwritten": 0
               },
               "CGuarded": {
                 "total": 0,
@@ -458,51 +562,6 @@
                 "total": 0,
                 "macro": 0,
                 "handwritten": 0
-              },
-              "CLenClone": {
-                "total": 1,
-                "macro": 1,
-                "handwritten": 0
-              },
-              "CLenDrop": {
-                "total": 2,
-                "macro": 2,
-                "handwritten": 0
-              },
-              "CLockedSeam": {
-                "total": 0,
-                "macro": 0,
-                "handwritten": 0
-              },
-              "CMutSeam": {
-                "total": 58,
-                "macro": 58,
-                "handwritten": 0
-              },
-              "CNew": {
-                "total": 9,
-                "macro": 0,
-                "handwritten": 9
-              },
-              "CPlainElem": {
-                "total": 17,
-                "macro": 0,
-                "handwritten": 17
-              },
-              "CRefClone": {
-                "total": 3,
-                "macro": 0,
-                "handwritten": 3
-              },
-              "CRefSeam": {
-                "total": 58,
-                "macro": 58,
-                "handwritten": 0
-              },
-              "CZeroable": {
-                "total": 26,
-                "macro": 0,
-                "handwritten": 26
               },
               "LockScope": {
                 "total": 0,
@@ -680,112 +739,116 @@
           }
         }
       },
-      "ffibox": {
-        "total": 62,
-        "taken": {
-          "total": 34,
-          "CArc": {
-            "total": 1,
-            "pub": 1,
-            "priv": 0
-          },
-          "CBorrowedPtr": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CBox": {
-            "total": 18,
-            "pub": 14,
-            "priv": 4
-          },
-          "CGuard": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CGuardedRef": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CSlice": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CSliceMut": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CStrBox": {
-            "total": 2,
-            "pub": 2,
-            "priv": 0
-          },
-          "CVal": {
-            "total": 5,
-            "pub": 4,
-            "priv": 1
-          },
-          "CVec": {
-            "total": 8,
-            "pub": 8,
-            "priv": 0
-          }
-        },
-        "returned": {
-          "total": 28,
-          "CArc": {
-            "total": 2,
-            "pub": 2,
-            "priv": 0
-          },
-          "CBorrowedPtr": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CBox": {
-            "total": 6,
-            "pub": 6,
-            "priv": 0
-          },
-          "CGuard": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CGuardedRef": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CSlice": {
-            "total": 5,
-            "pub": 4,
-            "priv": 1
-          },
-          "CSliceMut": {
-            "total": 4,
-            "pub": 4,
-            "priv": 0
-          },
-          "CStrBox": {
-            "total": 0,
-            "pub": 0,
-            "priv": 0
-          },
-          "CVal": {
-            "total": 7,
-            "pub": 5,
-            "priv": 2
-          },
-          "CVec": {
-            "total": 4,
-            "pub": 3,
-            "priv": 1
+      "sig": {
+        "of_which": {
+          "ffibox": {
+            "total": 62,
+            "arg": {
+              "total": 34,
+              "CArc": {
+                "total": 1,
+                "pub": 1,
+                "priv": 0
+              },
+              "CBorrowedPtr": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CBox": {
+                "total": 18,
+                "pub": 14,
+                "priv": 4
+              },
+              "CGuard": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CGuardedRef": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CSlice": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CSliceMut": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CStrBox": {
+                "total": 2,
+                "pub": 2,
+                "priv": 0
+              },
+              "CVal": {
+                "total": 5,
+                "pub": 4,
+                "priv": 1
+              },
+              "CVec": {
+                "total": 8,
+                "pub": 8,
+                "priv": 0
+              }
+            },
+            "ret": {
+              "total": 28,
+              "CArc": {
+                "total": 2,
+                "pub": 2,
+                "priv": 0
+              },
+              "CBorrowedPtr": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CBox": {
+                "total": 6,
+                "pub": 6,
+                "priv": 0
+              },
+              "CGuard": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CGuardedRef": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CSlice": {
+                "total": 5,
+                "pub": 4,
+                "priv": 1
+              },
+              "CSliceMut": {
+                "total": 4,
+                "pub": 4,
+                "priv": 0
+              },
+              "CStrBox": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CVal": {
+                "total": 7,
+                "pub": 5,
+                "priv": 2
+              },
+              "CVec": {
+                "total": 4,
+                "pub": 3,
+                "priv": 1
+              }
+            }
           }
         }
       }
