@@ -105,11 +105,20 @@ the trait's shape reaches a pointer here.
 counters were already asking either side of: a trait impl satisfies someone
 else's shape, an inherent block is the API the crate wrote for its own type.
 Under `--ffibox` an inherent block is also split by the self type's role in
-the convention, read from the seam trait it implements -- `CCell` the layout
-type, `CRefSeam` its shared handle, `CMutSeam` its exclusive one,
-`CLockedSeam` its locked one -- since those are three different surfaces. On
-libgit2-bindings: 408 blocks, 100 on layout types, 37 on shared handles, 63 on
-exclusive ones, 208 on everything else.
+the convention, since those are different surfaces: the layout type carries
+the constructors, its shared handle the getters, its exclusive handle the
+setters. On libgit2-bindings: 408 blocks, 100 on layout types, 86 on shared
+handles, 103 on exclusive ones, 119 on everything else -- the handles
+outnumbering the layout types, which is what a convention routing every field
+access through them implies.
+
+The role is read from `CCell`'s own `Ref<'a>` and `Mut<'a>` associated types,
+not from the seam trait a type implements. `define_ctype!` generates
+`CRefSeam` and `CMutSeam` only for a cell with no parameters of its own; a
+lifetime-carrying cell such as `Blob<'r>` hand-writes `CCell` and no seam at
+all, so reading the seams missed every hand-written cell's handles -- 49 `*Ref`
+and 40 `*Mut` blocks, which landed under `other`. The associated types name
+the handles whatever wrote the impl.
 
 `ty.impl_trait.of_which.{std,local,ffibox}` is whose trait it is. A local one
 is a shape the crate chose; a std or framework one it adopted. On

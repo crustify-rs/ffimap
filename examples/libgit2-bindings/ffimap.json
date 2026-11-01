@@ -259,19 +259,19 @@
             },
             "mut": {
               "priv": 2,
-              "pub": 61,
-              "total": 63
+              "pub": 101,
+              "total": 103
             },
             "ref": {
-              "pub": 37,
-              "total": 37
+              "pub": 86,
+              "total": 86
             },
-            "total": 200
+            "total": 289
           },
           "other": {
             "priv": 9,
-            "pub": 199,
-            "total": 208
+            "pub": 110,
+            "total": 119
           }
         },
         "priv": 13,
@@ -411,13 +411,13 @@
         "of_which": {
           "ffibox_trait": {
             "priv": 8,
-            "pub": 164,
-            "total": 172
+            "pub": 228,
+            "total": 236
           },
           "no_trait": {
             "priv": 11,
-            "pub": 5,
-            "total": 16
+            "pub": 2,
+            "total": 13
           },
           "std_trait": {
             "priv": 12,

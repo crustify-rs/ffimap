@@ -385,9 +385,17 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
             e.local_trait = true;
         } else if is_ffibox_crate(tcx, tr) {
             e.ffibox_trait = true;
-            // The seam traits are implemented ON the handle, with `type Cell`
-            // naming the wrapped type, so a type's role in the convention is
-            // simply which of the four it implements.
+            // A type's role in the convention. The seam traits are
+            // implemented ON the handle, so implementing one names the role
+            // directly -- but `define_ctype!` only generates them for a cell
+            // with no parameters of its own, and a lifetime-carrying one
+            // (`Blob<'r>`) hand-writes `CCell` and no seam at all. Reading
+            // only the seams therefore missed every hand-written cell's
+            // handles: on libgit2-bindings 49 `*Ref` and 40 `*Mut` blocks
+            // landed under `other`.
+            //
+            // `CCell`'s own `Ref<'a>` and `Mut<'a>` associated types name the
+            // handles whatever wrote the impl, so they are the authority.
             e.ffibox_shape = match name.as_str() {
                 "CCell" => Some("layout"),
                 "CRefSeam" => Some("ref"),
@@ -395,6 +403,25 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
                 "CLockedSeam" => Some("locked"),
                 _ => e.ffibox_shape,
             };
+            if name.as_str() == "CCell" {
+                for assoc in tcx.associated_items(did).in_definition_order() {
+                    let role = match tcx.item_name(assoc.def_id).as_str() {
+                        "Ref" => "ref",
+                        "Mut" => "mut",
+                        _ => continue,
+                    };
+                    let handle = tcx.type_of(assoc.def_id).instantiate_identity();
+                    if let ty::TyKind::Adt(h, _) = handle.skip_norm_wip().kind() {
+                        if h.did().is_local() {
+                            let he = out.entry(h.did()).or_default();
+                            he.ffibox_trait = true;
+                            if he.ffibox_shape.is_none() {
+                                he.ffibox_shape = Some(role);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     out
