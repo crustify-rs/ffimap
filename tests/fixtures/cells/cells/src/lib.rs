@@ -66,10 +66,31 @@ impl Widget {
 }
 
 impl PartialEq for Widget {
-    /// Two borrows, both ty.ffibox.wrapper.of_which.borrow.of_which.in_trait_impl.pub:
-    /// the receiver and `other`. The trait fixed both positions.
+    /// Two borrows; only the receiver is sanctioned.
+    ///
+    /// ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.pub,
+    /// ty.ffibox.wrapper.of_which.borrow.pub x2 -- `other` is a published
+    /// `&Widget` like any other, and `PartialEq` compelled none of it.
     fn eq(&self, other: &Self) -> bool {
         self.0.n == other.0.n
+    }
+}
+
+/// A local trait, to put a borrow in a trait method's argument AND its return.
+pub trait Widest {
+    /// Not a mention: a trait's own declaration is not an impl's signature.
+    fn widest<'a>(&'a self, other: &'a Widget) -> &'a Widget;
+}
+
+impl Widest for Widget {
+    /// Three borrows, one sanctioned: the receiver. The returned `&Widget` is
+    /// the case the receiver rule exists to keep visible -- a trait method
+    /// handing out a reference to C-owned memory.
+    ///
+    /// ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.pub,
+    /// ty.ffibox.wrapper.of_which.borrow.pub x3
+    fn widest<'a>(&'a self, other: &'a Widget) -> &'a Widget {
+        if other.0.n > self.0.n { other } else { self }
     }
 }
 
@@ -118,7 +139,8 @@ pub fn raw_borrow(c: &raw_widget) -> i32 {
 }
 
 /// NOT counted. An ffibox primitive holds the cell behind its own pointer and
-/// manages it, so the walk stops there; `fn.ffibox` counts the delegation.
+/// manages it; `fn.ffibox` counts the delegation. The walk goes THROUGH the
+/// primitive, but nothing below claims the storage, so the mention is dropped.
 pub fn in_ffibox_owner(_w: CBox<Widget>) {}
 
 /// NOT counted, for the same reason.
@@ -130,6 +152,42 @@ pub fn via_non_null(_p: NonNull<Widget>) {}
 
 /// NOT counted: a raw pointer, likewise.
 pub fn via_raw(_p: *mut Widget) {}
+
+/// NOT counted either, although the walk now enters the pointer: `raw_widget`
+/// arrives behind it with nothing below claiming it. The handles' own fields
+/// are the same case, which is why `ty.ffibox.ffi.field` stays the newtype's
+/// one inline mention.
+pub fn via_raw_c(_p: *const raw_widget) {}
+
+/// A std owner of BORROWS owns no cell: the inner qualifier wins, so this is
+/// one borrow and no owner.
+///
+/// ty.ffibox.wrapper.of_which.borrow.pub
+pub fn borrowed_in_vec(ws: Vec<&Widget>) -> usize {
+    ws.len()
+}
+
+/// By value, and NOT an owner: an `Option` allocates nothing and owns no run
+/// of elements, so the cell sits in the mention's own place exactly as a bare
+/// `Widget` would. `by_val` says that already.
+///
+/// ty.ffibox.by_val.of_which.fn_sig.pub
+pub fn maybe(w: Option<Widget>) -> bool {
+    w.is_some()
+}
+
+/// NESTED below a primitive: whatever manages the vector, the vector holds its
+/// cells by value, and a C pointer into one dangles when it reallocates. The
+/// walk goes through `CBox` and the `Vec` below it claims the storage.
+///
+/// ty.ffibox.by_val.of_which.fn_sig.pub, ty.ffibox.by_val.of_which.std_owner.pub,
+/// ty.ffibox.wrapper.of_which.std_owner.pub
+pub fn nested_owner(_w: CBox<Vec<Widget>>) {}
+
+/// NOT counted, the other way round: the vector holds owners ffibox manages,
+/// so the innermost qualifier is the primitive and nothing is this crate's
+/// storage.
+pub fn owners_in_vec(_w: Vec<CBox<Widget>>) {}
 
 /// A public field holding a cell inline.
 ///
@@ -154,6 +212,16 @@ impl PrivateHolder {
     /// ty.ffibox.by_val.of_which.fn_sig.priv
     fn take(self) -> Widget {
         self.w
+    }
+}
+
+impl Holder {
+    /// An `as_ref` by name with no receiver, so NOT sanctioned: the borrow is
+    /// one the author chose, and `Holder` is not even the cell.
+    ///
+    /// ty.ffibox.wrapper.of_which.borrow.pub
+    pub fn as_ref(w: &Widget) -> WidgetRef<'_> {
+        w.as_ref()
     }
 }
 

@@ -38,7 +38,7 @@ ty.
   ffibox.{wrapper,ffi}.of_which.{pub,priv}           --ffibox
     borrow · std_owner · slice · field
   ffibox.{wrapper,ffi}.of_which.borrow.of_which.{pub,priv}         --ffibox
-    in_ref_accessor · in_trait_impl
+    self_in_ref_accessor · self_in_trait_impl
   ffibox.by_val.{pub,priv}                           --ffibox
   ffibox.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}       --ffibox
 

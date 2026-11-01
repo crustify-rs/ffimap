@@ -72,6 +72,17 @@ no counter's path, is fixed: the four mirrored counters carried their `Counts`
 field name, and `test_canary.SiteTests` now holds every site list to a path
 `--sites` accepts.
 
+## A signature's mentions share one place
+
+Every position of a signature records the signature's own line, so the cell
+counters cannot point at a position: on a `fn eq(&self, other: &Self)` the
+sanctioned receiver and the unsanctioned argument are one place, and the
+unsanctioned mentions are recoverable as a count but not as a list. The
+driver has the per-position spans -- `FnDecl.inputs[i].span` and the return's
+-- and could record those instead of `def_span`. A one-line signature would
+still collapse to one line, since a site is `(file, line)`, so the fix is
+worth only as much as the multi-line signatures in a tree.
+
 ## A path dependency can break a shipped campaign
 
 Not ffimap's to fix, but ffimap is what found it. `ffmpeg-bindings` pinned

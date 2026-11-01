@@ -65,16 +65,20 @@ git2-rs' 19 are seams.
 The cell mentions, which only the two crustify campaigns have, since git2-rs
 is built on no ffibox. ffibox's convention is that a consumer reaches a cell's
 bytes through the `Ref` and `Mut` handles, so a `&Foo` that is neither an
-accessor's receiver nor a trait method's is the layout published directly:
+accessor's receiver nor a trait method's receiver is the layout published
+directly:
 
-| | `borrow.pub` | `in_ref_accessor` | `in_trait_impl` | rest |
+| | `borrow.pub` | `self_in_ref_accessor` | `self_in_trait_impl` | rest |
 |---|---|---|---|---|
-| libgit2-bindings | 161 | 90 | 65 | 6 |
-| ffmpeg-bindings | 215 | 116 | 97 | 2 |
+| libgit2-bindings | 161 | 90 | 54 | 17 |
+| ffmpeg-bindings | 215 | 116 | 77 | 22 |
 
-libgit2-bindings' six are all `&[Foo]`, so it publishes no bare `&Foo`;
-ffmpeg-bindings' two are a `&[Self]` and an `as_c_ptr(&self)`, the same
-conversion as an accessor under a name the convention did not give it.
+The shares are the receiver only: a trait fixes the shape of `&self` and not
+that of its other arguments or its return, and 11 of libgit2-bindings' trait
+mentions and 20 of ffmpeg-bindings' are those. Six of libgit2-bindings'
+remainder are distinct signatures, all `&[Foo]`, so it publishes no bare
+`&Foo`; ffmpeg-bindings' include a `&[Self]` and an `as_c_ptr(&self)`, the
+same conversion as an accessor under a name the convention did not give it.
 [`docs/ffibox.md`](../docs/ffibox.md) section 8 describes the arms.
 
 ## Reading them
