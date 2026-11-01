@@ -302,11 +302,17 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
     env["UM_SYS_CRATES"] = ",".join(sys or ())
     env["UM_SEAM_FNS"] = ",".join(seams or ())
 
-    # `--all-targets`, not `--tests`: the latter builds the test targets
-    # INSTEAD of the plain library, and the library's own emission is the
-    # scan. Each test target is its own rustc invocation, which the driver
-    # tells apart by `--test` and reports under `code.tests`.
-    r = subprocess.run(["cargo", f"+{_TOOLCHAIN}", "build", "--all-targets"],
+    # `check`, not `build`: the driver reports from `after_analysis`, so HIR
+    # and typeck are all it needs, and `--emit=metadata` does not LINK. A
+    # wrapper's test binaries link the C library, and the canary's `extern`
+    # declarations have no implementation at all, so linking them would make
+    # the scan fail where it used to succeed.
+    #
+    # `--all-targets`, not `--tests`: the latter checks the test targets
+    # INSTEAD of the plain library, whose emission is the scan. Each test
+    # target is its own rustc invocation, which the driver tells apart by the
+    # `--test` cargo passes it and reports under `code.tests`.
+    r = subprocess.run(["cargo", f"+{_TOOLCHAIN}", "check", "--all-targets"],
                        cwd=ws, env=env,
                        capture_output=True, text=True)
     if r.returncode != 0:

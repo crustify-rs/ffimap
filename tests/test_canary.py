@@ -354,19 +354,30 @@ class CanaryTests(unittest.TestCase):
             + self.at("ty.total.of_which.no_trait.pub"),
             self.at("ty.total.pub"))
 
-    def test_test_code_is_counted_apart_from_the_library(self) -> None:
-        """The fixture has no `#[cfg(test)]` code and no `tests/`, so the only
-        thing under `code.tests` is the harness `main` rustc generates for
-        each test binary -- `canary` and `canary_vendor`, two.
+    def test_test_code_reaches_code_tests_and_nothing_else(self) -> None:
+        """`unit_tests` holds a pointer-holding struct, a `#[test]` fn that
+        takes a raw pointer, an unsafe block and an FFI call -- one of every
+        shape a library counter pins. None of them moves.
 
-        `code.tests.loc` is 0 because each lib test target recompiles the same
-        library and its figures are subtracted, which is what keeps the
-        library's own counters where they were when the scan built only `--lib`.
+        Two mechanisms, worth telling apart. In the library build `cfg(test)`
+        is off, so rustc strips the module during expansion and the items
+        never reach HIR: there is nothing to traverse, rather than a rule that
+        skips it. In the `--test` build they are there and the driver does
+        walk them -- along with the whole library, which that target
+        recompiles -- but only `code.tests.*` is emitted and the rest is
+        discarded.
         """
-        self.assertEqual(self.at("code.tests.fn"), 2)
-        self.assertEqual(self.at("code.tests.loc.total"), 0)
-        self.assertEqual(self.at("code.tests.unsafe_block"), 0)
-        # ...and the library's are untouched by the wider build.
+        self.assertEqual(self.at("code.tests.loc.total"), 9)
+        # the `#[test]` fn, plus one generated harness `main` per test binary
+        # (`canary` and `canary_vendor`).
+        self.assertEqual(self.at("code.tests.fn"), 3)
+        self.assertEqual(self.at("code.tests.unsafe_block"), 1)
+        # `TestHolder` holds a raw pointer and is in neither population.
+        self.assertEqual(self.at("ty.total.pub"), 15)
+        self.assertEqual(self.at("ty.storing_raw_ptr.pub"), 9)
+        # its unsafe block and FFI call are in neither total.
+        self.assertEqual(self.at("code.unsafe_block"), 25)
+        self.assertEqual(self.at("code.unsafe_call.ffi"), 4)
         self.assertEqual(self.at("code.loc.total"), 136)
 
     def test_fn_partition_sums_to_total(self) -> None:

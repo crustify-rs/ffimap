@@ -299,3 +299,26 @@ impl RawSeam for Borrowed<'_> {
         p
     }
 }
+
+/// Test code: `cfg(test)` is off in the library build, so rustc strips this
+/// whole module before HIR and no library counter can see it. It reappears in
+/// the `--test` build, where only `code.tests.*` is emitted.
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    /// A raw pointer taken by a safe public fn, a holder type, an unsafe
+    /// block and an FFI call -- every shape the library counters pin. None of
+    /// them may move.
+    pub struct TestHolder {
+        p: *mut u8,
+    }
+
+    #[test]
+    fn takes_a_pointer_and_calls_c() {
+        let mut n = 0u8;
+        let h = TestHolder { p: &raw mut n };
+        // SAFETY: canary fixture -- `c_fn` is a no-op stub.
+        let _ = unsafe { c_fn(h.p) };
+    }
+}

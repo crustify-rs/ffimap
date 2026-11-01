@@ -182,9 +182,22 @@ being exported, rather than two levels a reader has to combine.
 it. `cargo build` enables no `cfg(test)` and builds nothing under `tests/`, so
 the test code was invisible rather than excluded by a rule -- on
 libgit2-bindings 92693 lines against the library's 16081, and 4909 fns against
-2755. The scan builds `--all-targets` and the driver tells a test target apart
-by the `--test` cargo passes it, reporting it under `code.tests` so that no
-library counter moves.
+2755. The scan runs `cargo check --all-targets` and the driver tells a test target
+apart by the `--test` cargo passes it, reporting it under `code.tests` so that
+no library counter moves. `check` rather than `build`: the driver reports from
+`after_analysis`, so HIR and typeck are all it needs, and `--emit=metadata`
+does not link -- a test binary links the C library, and declarations with no
+implementation at all would make the scan fail where it used to succeed.
+
+The exclusion is two mechanisms, not one rule. In the library build `cfg(test)`
+is off, so rustc strips those items during expansion and they never reach HIR:
+there is nothing to traverse. In the `--test` build they are there and the
+driver does walk them -- along with the whole library, which a lib test target
+recompiles -- but only `code.tests.*` is emitted and the library-shaped
+counters are computed and discarded. So a test's own types, signatures and
+conversions are nowhere: a type that holds a raw pointer inside
+`#[cfg(test)]` is in no `ty` population, and its unsafe blocks and FFI calls
+are in no `code` total.
 
 Only the quantities that mean the same thing for a test as for a library are
 there: its size, its fns and its unsafe. The rest of the tree asks what a
