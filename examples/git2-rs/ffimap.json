@@ -8,7 +8,7 @@
     "openssl_sys"
   ],
   "scanner": {
-    "ffimap": "f661513426ca3c37a493eabbf85d589ec9a30f6b",
+    "ffimap": "4b418773b9c838bd813020890f13b4613bb67944",
     "toolchain": "nightly-2026-10-07",
     "ffibox": false,
     "seams": [
@@ -26,6 +26,14 @@
         "total": 15434,
         "unsafe": 3497
       },
+      "tests": {
+        "fn": 250,
+        "loc": {
+          "total": 5032,
+          "unsafe": 132
+        },
+        "unsafe_block": 358
+      },
       "unsafe_block": {
         "of_which": {
           "ffi_export": 49
@@ -37,15 +45,6 @@
         "intrinsic": 12,
         "rust": 633,
         "total": 1319
-      },
-      "tests": {
-        "loc": {
-          "total": 5032,
-          "unsafe": 132
-        },
-        "unsafe_block": 358,
-        "fn": 250,
-        "total": 5640
       }
     },
     "fn": {
@@ -82,11 +81,16 @@
     "raw_ptr": {
       "casted_to": {
         "local_seam": {
+          "borrow": 0,
           "other": 268,
+          "owner": 0,
+          "slice": 0,
+          "string": 0,
           "total": 268
         },
         "std": {
           "borrow": 146,
+          "other": 0,
           "owner": 2,
           "slice": 18,
           "string": 26,
@@ -100,7 +104,15 @@
         "total": 291
       },
       "field": {
+        "of_which": {
+          "void": {
+            "priv": 0,
+            "pub": 0,
+            "total": 0
+          }
+        },
         "priv": 74,
+        "pub": 0,
         "total": 74
       },
       "in_impl": {
@@ -117,6 +129,19 @@
               "total": 63
             },
             "total": 125
+          },
+          "void": {
+            "safe": {
+              "priv": 0,
+              "pub": 0,
+              "total": 0
+            },
+            "unsafe": {
+              "priv": 0,
+              "pub": 0,
+              "total": 0
+            },
+            "total": 0
           }
         },
         "safe": {
@@ -135,6 +160,7 @@
         "of_which": {
           "seam": {
             "safe": {
+              "priv": 0,
               "pub": 5,
               "total": 5
             },
@@ -144,6 +170,19 @@
               "total": 9
             },
             "total": 14
+          },
+          "void": {
+            "safe": {
+              "priv": 0,
+              "pub": 0,
+              "total": 0
+            },
+            "unsafe": {
+              "priv": 0,
+              "pub": 0,
+              "total": 0
+            },
+            "total": 0
           }
         },
         "safe": {
@@ -161,6 +200,11 @@
       "taken": {
         "of_which": {
           "seam": {
+            "safe": {
+              "priv": 0,
+              "pub": 0,
+              "total": 0
+            },
             "unsafe": {
               "priv": 3,
               "pub": 1,
@@ -171,13 +215,20 @@
           "void": {
             "safe": {
               "priv": 36,
+              "pub": 0,
               "total": 36
+            },
+            "unsafe": {
+              "priv": 0,
+              "pub": 0,
+              "total": 0
             },
             "total": 36
           }
         },
         "safe": {
           "priv": 105,
+          "pub": 0,
           "total": 105
         },
         "unsafe": {
@@ -216,6 +267,7 @@
           },
           "type": {
             "priv": 2,
+            "pub": 0,
             "total": 2
           }
         },
@@ -249,10 +301,12 @@
           },
           "send_sync": {
             "send": {
+              "priv": 0,
               "pub": 7,
               "total": 7
             },
             "sync": {
+              "priv": 0,
               "pub": 1,
               "total": 1
             },
@@ -277,14 +331,17 @@
             "total": 67
           },
           "impl_clone": {
+            "priv": 0,
             "pub": 9,
             "total": 9
           },
           "impl_deref": {
+            "priv": 0,
             "pub": 2,
             "total": 2
           },
           "impl_deref_mut": {
+            "priv": 0,
             "pub": 1,
             "total": 1
           },
@@ -294,6 +351,7 @@
             "total": 52
           },
           "impl_send_sync": {
+            "priv": 0,
             "pub": 6,
             "total": 6
           },
@@ -301,6 +359,11 @@
             "priv": 4,
             "pub": 11,
             "total": 15
+          },
+          "pub_field": {
+            "priv": 0,
+            "pub": 0,
+            "total": 0
           }
         },
         "priv": 6,
@@ -328,6 +391,11 @@
         "priv": 55,
         "pub": 183,
         "total": 238
+      },
+      "wrapping_unsafe_cell": {
+        "priv": 0,
+        "pub": 0,
+        "total": 0
       }
     }
   },
