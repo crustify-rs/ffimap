@@ -7,6 +7,19 @@
     "libz_sys",
     "openssl_sys"
   ],
+  "scanner": {
+    "ffimap": "0ff54ff95350b2eea06fc3b9239c2e16f4e1cba6",
+    "toolchain": "nightly-2026-10-07",
+    "ffibox": false,
+    "seams": [
+      "from_raw",
+      "from_raw_const",
+      "from_raw_opt",
+      "raw",
+      "raw_mut",
+      "unwrap"
+    ]
+  },
   "counts": {
     "code": {
       "loc": {

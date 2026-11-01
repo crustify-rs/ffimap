@@ -59,7 +59,15 @@ def compose(workspace: Path, sites: list[str] | None = None,
     """
     wanted = site_counters(sites) if sites else None
     sys = measure.sys_crates(sys_crates)
-    doc: dict = {"crate_path": str(workspace), "sys_crates": sys}
+    # What scanned, beside what it found: the inputs that move the figures are
+    # the ffimap commit, the toolchain, and the two flags that decide what is
+    # counted. Recorded here so a document cannot drift from its provenance.
+    doc: dict = {
+        "crate_path": str(workspace),
+        "sys_crates": sys,
+        "scanner": {**measure.scanner(), "ffibox": ffibox,
+                    "seams": sorted(seams or ())},
+    }
     all_sites: dict = {}
     try:
         all_sites, counts = measure.measure(

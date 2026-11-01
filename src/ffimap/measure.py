@@ -83,6 +83,35 @@ class DriverUnavailable(Exception):
 # leaf, not to a parent.
 
 
+def scanner() -> dict:
+    """What scanned, for a document to carry beside what it found.
+
+    ffimap's figures are a pure function of the tree only under a fixed
+    scanner: a counter added, a rule corrected or a different framework
+    underneath all move them. A document that does not say what produced it
+    cannot be diffed against another -- a reader cannot tell a change in the
+    crate from a change in the scanner -- so the scan records itself rather
+    than relying on a file beside it that can drift from it.
+
+    The commit where ffimap is a git checkout, its version otherwise.
+    """
+    rev = None
+    try:
+        r = subprocess.run(["git", "-C", str(Path(__file__).resolve().parent),
+                            "rev-parse", "HEAD"], capture_output=True, text=True)
+        if r.returncode == 0:
+            rev = r.stdout.strip()
+    except OSError:
+        pass
+    if rev is None:
+        from importlib.metadata import PackageNotFoundError, version
+        try:
+            rev = version("ffimap")
+        except PackageNotFoundError:
+            rev = "unknown"
+    return {"ffimap": rev, "toolchain": _TOOLCHAIN}
+
+
 def sys_crates(named: list[str] | None = None) -> list[str]:
     """The crates whose `#[repr(C)]` types are C's and whose types the field
     walk descends through, by crate (lib target) name: exactly the ones

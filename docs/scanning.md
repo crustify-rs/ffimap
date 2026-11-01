@@ -113,9 +113,17 @@ among the sites of a type or impl counter is that, not a miscount.
 |---|---|
 | `crate_path` | the scanned workspace |
 | `sys_crates` | the peel set it ran with |
+| `scanner` | what scanned: `ffimap` (its commit, or its version outside a checkout), `toolchain`, `ffibox`, `seams` |
 | `counts` | the counter tree, or `null` |
 | `counts_unavailable` | why `counts` is `null`, otherwise `null` |
 | `sites` | with `--sites` only |
+
+`scanner` is section 1's determinism caveat made machine-readable. A counter
+added, a rule corrected or a different framework underneath all move the
+figures, so a document that did not say what produced it could not be diffed
+against another: a reader could not tell a change in the crate from a change
+in the scanner. The scan records itself rather than relying on a file beside
+it, which can drift from the scan it describes.
 
 The document is the only output: there is no prose rendering of the counters,
 which would be a second description of the schema in a place no test reads.

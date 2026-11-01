@@ -513,10 +513,19 @@ obvious often fails for a reason worth recording.
   declarations and containment did not already reach.
 - **A C-reachability pass behind the counters.** `compute_c_visible` and
   `structural_wrapper` classified every type by whether C reads its bytes, and
-  fed the whole `c_type_*` family. The family is retired: `c_type_borrow` read
-  660 on libgit2-bindings, which is not a discriminating signal, and the
-  hazard it was reaching for -- `&W` over memory C may write -- is a finding
-  for a reviewer rather than a census cell.
+  fed the whole `c_type_*` family. The pass is what was wrong with it, not the
+  question: deciding the population by inference over seeds and a closure took
+  some 300 lines whose own false positives were untestable, and nothing else
+  in the tree depended on it.
+
+  The question was sound and the signal was good. On libgit2-bindings
+  `c_type_borrow` split 137 sanctioned, 7 non-sanctioned, 22 opaque and 4
+  generic -- a residual of 7 out of 170, which is a finding rather than a
+  census. An earlier revision of this section cited 660 and called it
+  undiscriminating; that figure was a sum across the counter's position x kind
+  x visibility leaves with `sanctioned` included, and the claim was wrong.
+  Under `--ffibox` the population is in the type system -- a type that
+  implements `CCell` -- so it can be asked again without the pass.
 - **Layout newtypes as a counter.** `c_type_layout_wrapper` read 71 on
   libgit2-bindings and 3 on git2-rs, which separates the two crates' binding
   *styles* rather than their soundness; `ty.storing_raw_ptr` does that more
