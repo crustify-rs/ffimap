@@ -28,6 +28,8 @@ ty.
     ffibox                                           --ffibox
     pub_field · none
   field.ffibox.<primitive>.{pub,priv}                --ffibox
+  ffibox.cell.{pub,priv}                             --ffibox
+  ffibox.cell.of_which.no_seam.{pub,priv}            --ffibox
 
   impl_block.{pub,priv}
   impl_block.of_which.other.{pub,priv}
@@ -111,6 +113,15 @@ setters. On libgit2-bindings: 408 blocks, 100 on layout types, 86 on shared
 handles, 103 on exclusive ones, 119 on everything else -- the handles
 outnumbering the layout types, which is what a convention routing every field
 access through them implies.
+
+`ty.ffibox.cell` is the layout types, and `of_which.no_seam` those whose
+handles implement neither `CRefSeam` nor `CMutSeam`. Those handles sit outside
+the generic seam -- `from_ptr`, `from_void_ptr`, `as_ptr`, `as_void_ptr` on the
+handle type -- so code generic over a handle has to special-case them. On
+libgit2-bindings it reads 32 of 65, exactly the hand-written `CCell` impls: the
+macro writes both seams and a hand-written cell gets neither. The trait does
+not forbid it -- `impl<'a, 'r: 'a> CRefSeam<'a> for FooRef<'a, 'r>` with
+`type Cell = Foo<'r>` compiles -- so it is an omission, not a limit.
 
 The role is read from `CCell`'s own `Ref<'a>` and `Mut<'a>` associated types,
 not from the seam trait a type implements. `define_ctype!` generates

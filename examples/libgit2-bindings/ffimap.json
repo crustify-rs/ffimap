@@ -208,6 +208,20 @@
       }
     },
     "ty": {
+      "ffibox": {
+        "cell": {
+          "of_which": {
+            "no_seam": {
+              "pub": 32,
+              "total": 32
+            }
+          },
+          "priv": 2,
+          "pub": 63,
+          "total": 65
+        },
+        "total": 65
+      },
       "field": {
         "ffibox": {
           "CBox": {

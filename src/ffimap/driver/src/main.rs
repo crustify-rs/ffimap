@@ -334,6 +334,11 @@ struct HolderTraits {
     std_trait: bool,
     local_trait: bool,
     ffibox_trait: bool,
+    /// For a `CCell` implementor: whether NEITHER of its handles implements
+    /// its seam. `define_ctype!` writes them, but a cell with parameters of
+    /// its own cannot go through the macro and nothing else supplies them, so
+    /// its handles fall outside the generic seam unless written by hand.
+    cell_no_seam: bool,
     /// The type's role in ffibox's convention, from the seam trait it
     /// implements: `CCell` the layout type, `CRefSeam` its shared handle,
     /// `CMutSeam` its exclusive one, `CLockedSeam` its locked one.
@@ -353,6 +358,10 @@ struct HolderTraits {
 ///    pointer is thread-safe, which no type system checked.
 fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
     let mut out: HashMap<DefId, HolderTraits> = HashMap::new();
+    // The handles that implement a seam, and each cell's handles, so the cells
+    // whose handles have none can be found once every impl has been seen.
+    let mut seam_impls: HashSet<DefId> = HashSet::new();
+    let mut cell_handles: HashMap<DefId, Vec<DefId>> = HashMap::new();
     for ld in tcx.hir_crate_items(()).definitions() {
         let did = ld.to_def_id();
         if !matches!(tcx.def_kind(did), DefKind::Impl { of_trait: true }) {
@@ -403,7 +412,11 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
                 "CLockedSeam" => Some("locked"),
                 _ => e.ffibox_shape,
             };
+            if matches!(name.as_str(), "CRefSeam" | "CMutSeam") {
+                seam_impls.insert(d.did());
+            }
             if name.as_str() == "CCell" {
+                let cell = d.did();
                 for assoc in tcx.associated_items(did).in_definition_order() {
                     let role = match tcx.item_name(assoc.def_id).as_str() {
                         "Ref" => "ref",
@@ -413,6 +426,7 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
                     let handle = tcx.type_of(assoc.def_id).instantiate_identity();
                     if let ty::TyKind::Adt(h, _) = handle.skip_norm_wip().kind() {
                         if h.did().is_local() {
+                            cell_handles.entry(cell).or_default().push(h.did());
                             let he = out.entry(h.did()).or_default();
                             he.ffibox_trait = true;
                             if he.ffibox_shape.is_none() {
@@ -424,10 +438,16 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
             }
         }
     }
+    // A cell whose handles implement no seam: they sit outside the generic
+    // seam `CRefSeam::from_ptr` and `CMutSeam::as_mut_ptr` give, so code over
+    // the handle has to special-case them.
+    for (cell, handles) in cell_handles {
+        if !handles.is_empty() && !handles.iter().any(|h| seam_impls.contains(h)) {
+            out.entry(cell).or_default().cell_no_seam = true;
+        }
+    }
     out
 }
-
-
 
 thread_local! {
     /// Built once per compilation (the driver is one rustc invocation per crate).
@@ -1257,6 +1277,15 @@ impl Callbacks for MetricsCallbacks {
                 // into ffibox. A type can be in both, which is partial
                 // delegation.
                 if is_ffibox() {
+                    let f = facts.get(&did).copied().unwrap_or_default();
+                    if f.ffibox_shape == Some("layout") {
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  &format!("ty.ffibox.cell.{vis}"));
+                        if f.cell_no_seam {
+                            tree_bump(&mut ptr, &mut sites, tcx, did, &format!(
+                                "ty.ffibox.cell.of_which.no_seam.{vis}"));
+                        }
+                    }
                     for f in tcx.adt_def(did).all_fields() {
                         let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
                         if let Some(d) = field_adt(tcx, ft) {
