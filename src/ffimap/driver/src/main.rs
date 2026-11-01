@@ -336,6 +336,28 @@ fn register_counters(ptr: &mut PtrTally) {
             }
         }
     }
+    // `fn_sig_trait_impl`'s own shares: whose trait fixed the signature, and
+    // which of ffibox's it is. The whole vocabulary is registered, so a
+    // document says which traits reach a raw pointer AND which do not.
+    for whose in ["std", "local", "ffibox"] {
+        if whose == "ffibox" && !is_ffibox() {
+            continue;
+        }
+        for safety in SAFETY {
+            for vis in VIS {
+                at(format!(
+                    "raw_ptr.fn_sig_trait_impl.of_which.{whose}.{safety}.{vis}"
+                ));
+            }
+        }
+    }
+    if is_ffibox() {
+        for (name, _) in FFIBOX_TRAITS {
+            at(format!(
+                "raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.{name}"
+            ));
+        }
+    }
     for vis in VIS {
         at(format!("raw_ptr.field.{vis}"));
         at(format!("raw_ptr.field.of_which.void.{vis}"));
@@ -389,9 +411,9 @@ fn register_counters(ptr: &mut PtrTally) {
         }
 
         if is_ffibox() {
-            for pos in ["taken", "returned"] {
+            for pos in ["arg", "ret"] {
                 for (name, _) in FFIBOX_PRIMITIVES {
-                    at(format!("fn.ffibox.{pos}.{name}.{vis}"));
+                    at(format!("fn.sig.of_which.ffibox.{pos}.{name}.{vis}"));
                 }
             }
             for (name, _) in FFIBOX_PRIMITIVES {
@@ -1250,7 +1272,7 @@ const FFIBOX_TRAITS: &[(&str, &str)] = &[
 
 /// ffibox's types, by the shape a raw pointer takes once it is adopted into
 /// one. The shape names are `raw_ptr.casted_to`'s, so one list serves the
-/// conversion table, `ty.field.ffibox` and `fn.ffibox`.
+/// conversion table, `ty.field.ffibox` and `fn.sig.of_which.ffibox`.
 const FFIBOX_PRIMITIVES: &[(&str, &str)] = &[
     ("CBox", "owner"), ("CArc", "owner"), ("CVec", "owner"), ("CVal", "owner"),
     ("CStrBox", "string"),
@@ -1474,7 +1496,7 @@ fn walk_shapes<'tcx>(
         // An ffibox primitive holds the cell behind its own pointer and
         // manages it, so the cell inside is not a position the crate chose:
         // `fn to_commit(&self) -> CArc<Commit<'r>>` publishes neither the
-        // layout nor inline storage, and `ty.field.ffibox` and `fn.ffibox`
+        // layout nor inline storage, and `ty.field.ffibox` and `fn.sig`
         // count the delegation already. The rule `in_peel_set` follows, for
         // the same reason.
         //
@@ -2093,9 +2115,43 @@ impl Callbacks for MetricsCallbacks {
                     // what is left is "the trait's shape reaches a pointer
                     // here".
                     let seam = is_seam_fn(tcx, did);
-                    let in_trait_impl = tcx.opt_parent(did).is_some_and(|parent| {
+                    // The trait whose declaration fixed the signature, when
+                    // the method is in a trait impl: whose vocabulary it is
+                    // decides which share below the position joins.
+                    let impl_trait = tcx.opt_parent(did).and_then(|parent| {
                         matches!(tcx.def_kind(parent), DefKind::Impl { of_trait: true })
+                            .then(|| tcx.impl_trait_ref(parent).skip_binder().def_id)
                     });
+                    let in_trait_impl = impl_trait.is_some();
+                    // The same three arms as `ty.impl_trait.of_which`, read
+                    // the same way: a std trait the crate adopted, one it
+                    // declared itself, or the ffibox convention's. A trait
+                    // from a fourth crate joins none of them, as there.
+                    let whose = impl_trait.and_then(|tr| {
+                        if is_std_crate(tcx, tr) {
+                            Some("std")
+                        } else if tr.is_local() {
+                            Some("local")
+                        } else if is_ffibox() && is_ffibox_crate(tcx, tr) {
+                            Some("ffibox")
+                        } else {
+                            None
+                        }
+                    });
+                    // Which of ffibox's traits, named from the vocabulary so
+                    // the breakdown is a closed set the registry can carry.
+                    // A trait ffibox adds and this list does not have is in
+                    // the `ffibox` arm and in no per-trait leaf, exactly as
+                    // in `ty.impl_trait.of_which.ffibox`.
+                    let ffibox_trait = impl_trait
+                        .filter(|_| is_ffibox())
+                        .and_then(|tr| {
+                            let n = tcx.item_name(tr);
+                            FFIBOX_TRAITS
+                                .iter()
+                                .find(|(t, _)| *t == n.as_str())
+                                .map(|(t, _)| *t)
+                        });
                     let mut ins = Vec::new();
                     for t in sig.inputs() {
                         raw_pointees(tcx, *t, &mut ins);
@@ -2131,21 +2187,54 @@ impl Callbacks for MetricsCallbacks {
                                 bump(&mut ptr, &mut sites,
                                      format!("raw_ptr.{pos}.of_which.void.{safety}.{vis}"));
                             }
+                            // Whose trait put the pointer there. Only on
+                            // `fn_sig_trait_impl`: the other two positions are
+                            // the crate's own by construction, so the arm
+                            // would say nothing. It is what makes the family
+                            // readable without `--sites` -- on
+                            // libgit2-bindings every one of its positions is
+                            // an ffibox lifecycle policy, and on git2-rs they
+                            // are a local `Binding` trait's, which the bare
+                            // figure cannot tell apart.
+                            if in_trait_impl {
+                                if let Some(whose) = whose {
+                                    bump(&mut ptr, &mut sites,
+                                         format!("raw_ptr.{pos}.of_which.{whose}.{safety}.{vis}"));
+                                }
+                                // The per-trait leaf carries no safety or
+                                // visibility split: a trait method's are the
+                                // trait declaration's, one spelling dictating
+                                // every impl, so splitting them would only
+                                // restate the parent.
+                                if let Some(t) = ffibox_trait {
+                                    bump(&mut ptr, &mut sites,
+                                         format!("raw_ptr.{pos}.of_which.ffibox.of_which.{t}"));
+                                }
+                            }
                         }
                     }
 
                     // The ffibox primitives the signature carries: whether
                     // the vocabulary actually crosses the interface.
+                    //
+                    // A share of the signature rather than a family beside
+                    // the safe/unsafe partition, and `arg` and `ret` are
+                    // `raw_ptr.fn_sig_arg` and `fn_sig_ret`'s positions under
+                    // their short names: one vocabulary for where a type
+                    // sits in a signature, whether the type is a raw pointer
+                    // or the primitive that replaced one. These are MENTIONS,
+                    // so a fn taking two `CBox` bumps twice and the record is
+                    // not a share of `fn.total`.
                     if is_ffibox() {
                         for (ts, pos) in [
-                            (sig.inputs().to_vec(), "taken"),
-                            (vec![sig.output()], "returned"),
+                            (sig.inputs().to_vec(), "arg"),
+                            (vec![sig.output()], "ret"),
                         ] {
                             for t in ts {
                                 if let ty::TyKind::Adt(d, _) = t.kind() {
                                     if let Some((name, _)) = ffibox_primitive(tcx, d.did()) {
                                         bump(&mut ptr, &mut sites,
-                                             format!("fn.ffibox.{pos}.{name}.{vis}"));
+                                             format!("fn.sig.of_which.ffibox.{pos}.{name}.{vis}"));
                                     }
                                 }
                             }

@@ -42,7 +42,9 @@ ty.ffibox.wrapper.of_which.borrow.of_which.{self_in_ref_accessor,self_in_trait_i
 ty.ffibox.ffi.<the same arms as ty.ffibox.wrapper>
 ty.ffibox.by_val.{pub,priv}
 ty.ffibox.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}
-fn.ffibox.{taken,returned}.<primitive>.{pub,priv}
+fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}
+raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}
+raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>
 raw_ptr.casted_to.ffibox.{borrow,slice,string,owner,other}
 ```
 
@@ -199,7 +201,7 @@ small corrections: on libgit2-bindings they were 76 of 80 field mentions and
 
 | shape | why |
 |---|---|
-| an ffibox primitive (`CBox<Foo>`, `CSlice<Foo>`, `CVal<Foo>`) | it holds the cell behind its own pointer and manages it; `ty.field.ffibox` and `fn.ffibox` count the delegation, and `in_peel_set` follows the same rule |
+| an ffibox primitive (`CBox<Foo>`, `CSlice<Foo>`, `CVal<Foo>`) | it holds the cell behind its own pointer and manages it; `ty.field.ffibox` and `fn.sig.of_which.ffibox` count the delegation, and `in_peel_set` follows the same rule |
 | `NonNull<Foo>`, `AtomicPtr<Foo>` | a pointer to the cell, which is `raw_ptr`'s position: ffibox's lifecycle strategies take `NonNull<Cell>`, so counting it would put every `c_drop` in the by-value hazard |
 | `*const Foo`, `*mut Foo` | likewise, and the `&Foo` made from one is `raw_ptr.casted_to`'s |
 | `PhantomData<Foo>` | a ZST marker holds nothing |
@@ -271,3 +273,38 @@ reports the signature's own line, so a trait method's sanctioned receiver and
 its unsanctioned argument are one place, and subtracting the shares' places
 leaves only the signatures that have no sanctioned position at all. On
 libgit2-bindings that is 6 of the 17.
+
+## 9. The pointers the convention's traits declare
+
+`raw_ptr.fn_sig_trait_impl` holds the raw-pointer positions a trait fixed, and
+its `of_which.ffibox` arm is the share ffibox's vocabulary fixed, broken down
+by trait. Every lifecycle contract names the allocation it manages by pointer
+-- `CDrop::c_drop(NonNull<T>)`, `CNew::c_new() -> NonNull<T>` -- so a crate
+built on the convention declares one such position per implementing type, and
+the arm is where they go.
+
+That is the reading the bare family cannot give. On libgit2-bindings all 64 of
+its positions are ffibox's, `CDrop` 36 of them; on ffmpeg-bindings 67 of 93
+are, the remaining 26 private traits of its own; on git2-rs, which is built on
+no ffibox, all 134 are its own `Binding`. The arm says which of the three a
+figure is.
+
+The breakdown is keyed on the trait, not on the role
+[§1](#1-the-vocabulary) gives it, so it reads as the vocabulary rather than as
+a classification of it, and it cross-reads with
+`ty.impl_trait.of_which.ffibox.of_which.<trait>`: that one counts the types a
+trait is implemented for, this one the positions those impls declare, and for a
+one-pointer trait the two agree.
+
+The leaves are the 18 traits of the vocabulary, registered whether they fire or
+not, so a document says which contracts a crate does not use as plainly as
+which it does: a zero `CGuarded` means nothing in the crate is lock-guarded.
+A trait ffibox adds and the vocabulary has not caught up with is counted in the
+`ffibox` arm and in no leaf below it, and the arm's total exceeding the sum of
+its leaves is how that shows.
+
+An ffibox position is never a `seam` share: the seam traits are implemented
+empty -- `impl CRefSeam<'a> for FooRef<'a, 'o> { type Cell = Foo<'o>; }` -- so
+`as_ptr` and `from_ptr` are ffibox's provided methods and no local fn carries
+the name. A campaign's own seams are inherent methods, and they land in
+`fn_sig_arg` and `fn_sig_ret` with their seam shares.

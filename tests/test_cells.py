@@ -52,6 +52,36 @@ class CellCounterTests(unittest.TestCase):
             node = node[part]
         return node if isinstance(node, int) else node.get("total", 0)
 
+    # ------------------------------------------- the convention's own traits
+
+    def test_a_lifecycle_traits_pointer_position_carries_its_trait(self) -> None:
+        """`CDrop::c_drop(NonNull<raw_widget>)` and `CNew::c_new() -> NonNull<_>`.
+
+        Two positions in `raw_ptr.fn_sig_trait_impl`, and the `ffibox` arm
+        says whose shape put them there -- the whole point of the arm, since
+        the family's bare figure reads the same whether a crate's trait-impl
+        pointers are a convention's lifecycle strategies or its own plumbing.
+        """
+        self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.total"), 2)
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.ffibox.unsafe.pub"), 1)
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.ffibox.safe.pub"), 1)
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CDrop"), 1)
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CNew"), 1)
+
+    def test_a_trait_that_names_no_pointer_is_a_registered_zero(self) -> None:
+        """`CCell` is implemented for `Widget` and declares associated types
+        only, and the fixture's own `Widest` takes `&Widget`. Both leaves read
+        0 rather than going missing, so a document says which contracts reach
+        a raw pointer and which do not."""
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CCell"), 0)
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.local.total"), 0)
+
     # ----------------------------------------------------- ty.ffibox.wrapper
 
     def test_every_borrow_of_the_cell_is_counted_once_per_place(self) -> None:

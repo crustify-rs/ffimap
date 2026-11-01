@@ -43,18 +43,32 @@ own commit; these were scanned against ffibox `55e5f8ace6`.
 Without them the three are not comparable. git2-rs reaches every raw pointer
 through one trait it declares itself:
 
-| | `fn_sig_trait_impl` | of which `seam` |
-|---|---|---|
-| git2-rs | 134 | **125** |
-| libgit2-bindings | 64 | 0 |
-| ffmpeg-bindings | 93 | 0 |
+| | `fn_sig_trait_impl` | `seam` | `std` | `local` | `ffibox` |
+|---|---|---|---|---|---|
+| git2-rs | 134 | **125** | 0 | 134 | - |
+| libgit2-bindings | 64 | 0 | 0 | 0 | 64 |
+| ffmpeg-bindings | 93 | 0 | 0 | 26 | 67 |
 
-git2-rs' trait-impl pointer surface is `Binding::raw` and `Binding::from_raw`,
-implemented for 91 types -- plumbing a consumer of the safe API never
-performs. The crustify campaigns' `fn_sig_trait_impl` is ffibox's lifecycle
-strategies, every one of libgit2-bindings' 64: `c_drop` and `c_dispose`,
-`c_dup` and `c_up_ref`, `c_new`, `c_alloc` and `c_alloc_zeroed`, each taking
-or returning a `NonNull<T>`. None is in either crate's declared seam list,
+The same family, three different things, which is what whose-trait-it-was
+says. git2-rs' trait-impl pointer surface is `Binding::raw` and
+`Binding::from_raw`, one local trait implemented for 91 types -- plumbing a
+consumer of the safe API never performs. The crustify campaigns' is ffibox's
+lifecycle vocabulary, broken down by trait:
+
+| | `CDrop` | `CDupClone` | `CNew` | `CRefClone` | `CDispose` | `CAlloc` | `CAllocZeroed` | `CLenClone` | `CLenDrop` |
+|---|---|---|---|---|---|---|---|---|---|
+| libgit2-bindings | 36 | 8 | 5 | 5 | 5 | 1 | 1 | 2 | 1 |
+| ffmpeg-bindings | 31 | 12 | 9 | 4 | 1 | 4 | 2 | 2 | 2 |
+
+each taking or returning a `NonNull<T>`, which is the contract: the strategy
+names the allocation by pointer so that a consumer never holds one.
+ffmpeg-bindings' other 26 are private generic helpers of its own
+(`into_void`, `to_c`, an element-adoption pair), every one of them `priv`.
+The `std` column is zero on all three, and stays zero unless a crate writes a
+`From<*mut T>`: `Drop::drop` takes `&mut self` and `Deref::deref` returns a
+reference.
+
+None of the ffibox positions is in either campaign's declared seam list,
 because nothing local defines a seam there: the seam traits are implemented
 empty, naming only their `type Cell`, and `as_ptr` and `from_ptr` are
 ffibox's provided methods, so no local fn carries the name. The campaigns'

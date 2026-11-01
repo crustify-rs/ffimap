@@ -301,6 +301,13 @@ class CanaryTests(unittest.TestCase):
         """
         self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.safe.pub"), 4)
         self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.unsafe.pub"), 0)
+        # Whose trait fixed them, which is what makes the figure readable:
+        # `RawSeam` is the crate's own. The `std` arm is 0 and that is a
+        # reading -- `impl Display for Owned` is here, and no std trait puts a
+        # raw pointer in a signature.
+        self.assertEqual(
+            self.at("raw_ptr.fn_sig_trait_impl.of_which.local.safe.pub"), 4)
+        self.assertEqual(self.at("raw_ptr.fn_sig_trait_impl.of_which.std.total"), 0)
         # `fn_sig_arg.safe.pub` is the free and inherent fns only, unchanged by the
         # two impls above.
         self.assertEqual(self.at("raw_ptr.fn_sig_arg.safe.pub"), 8)

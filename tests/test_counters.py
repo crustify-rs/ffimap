@@ -69,8 +69,8 @@ class OrderTests(unittest.TestCase):
         """
         tree = measure.nest_ptr({"fn.total.pub": 3, "fn.safe.pub": 1,
                                  "fn.unsafe.priv": 2,
-                                 "fn.ffibox.taken.CBox.pub": 1})
-        self.assertEqual(list(tree["fn"]), ["total", "unsafe", "safe", "ffibox"])
+                                 "fn.sig.of_which.ffibox.arg.CBox.pub": 1})
+        self.assertEqual(list(tree["fn"]), ["total", "unsafe", "safe", "sig"])
         self.assertEqual(list(tree["fn"]["safe"]), ["total", "pub"])
 
     def test_the_prefixes_are_in_the_schema_s_order(self) -> None:

@@ -15,7 +15,7 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use ffibox::{CBorrowedPtr, CBox, CCell};
+use ffibox::{CBorrowedPtr, CBox, CCell, CDrop, CNew};
 
 /// Stands in for a `-sys` crate's declaration.
 #[repr(C)]
@@ -228,4 +228,31 @@ impl Holder {
 /// Keeps `take` and `Holder` from being dead code.
 pub fn consume(h: PrivateHolder, o: &Holder) -> bool {
     h.take() == o.w
+}
+
+/// The release strategy. Its `NonNull<raw_widget>` is a position in a trait
+/// impl's method, so it goes to `raw_ptr.fn_sig_trait_impl` and NOT to
+/// `fn_sig_arg` or `raw_ptr.total`: ffibox's contract dictates the position,
+/// and `c_drop` is the strategy that exists so a consumer never holds the
+/// pointer at all.
+///
+/// raw_ptr.fn_sig_trait_impl.unsafe.pub,
+/// raw_ptr.fn_sig_trait_impl.of_which.ffibox.unsafe.pub,
+/// raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CDrop
+unsafe impl CDrop for Widget {
+    unsafe fn c_drop(p: NonNull<raw_widget>) {
+        let _ = p;
+    }
+}
+
+/// The allocating strategy: the same family, returning instead of taking, and
+/// safe.
+///
+/// raw_ptr.fn_sig_trait_impl.safe.pub,
+/// raw_ptr.fn_sig_trait_impl.of_which.ffibox.safe.pub,
+/// raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CNew
+impl CNew for Widget {
+    fn c_new() -> NonNull<raw_widget> {
+        NonNull::dangling()
+    }
 }

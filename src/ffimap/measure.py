@@ -48,7 +48,7 @@ TREE_SITE_FAMILIES = {
                 "total", "deref", "casted_to"),
     "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic",
            "ffibox", "wrapping_unsafe_cell", "total"),
-    "fn": ("safe", "unsafe", "ffibox", "total"),
+    "fn": ("safe", "unsafe", "sig", "total"),
     "code": ("loc", "tests", "unsafe_block", "unsafe_call"),
 }
 
@@ -61,8 +61,11 @@ TREE_SITE_FAMILIES = {
 # of them is a quantity. `code.tests` holds four separate measurements of the
 # test build: its lines, its unsafe lines (a subset of them), its unsafe
 # blocks and its fns. Summing those read 103840 on libgit2-bindings, a figure
-# of no unit at all.
-NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests")})
+# of no unit at all. `fn.sig` holds what a signature
+# carries, in mentions -- a fn taking two `CBox` is two of them -- so it is a
+# share of no fn count, and `fn.total` beside it is the denominator a reader
+# divides by.
+NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests"), ("fn", "sig")})
 
 
 def is_tree_counter(name: str) -> bool:
@@ -234,9 +237,14 @@ KEY_ORDER = (
     # fields, then what bodies do
     "fn_sig_arg", "fn_sig_ret", "fn_sig_trait_impl",
     "field", "deref", "rd", "wr", "casted_to",
+    # the same two positions under `fn.sig`, where the `fn.` prefix already
+    # says the position is a signature's
+    "arg", "ret",
     # ty's
     "storing_raw_ptr", "wrapping_unsafe_cell", "impl_block", "impl_trait",
     "generic",
+    # fn's: what a signature carries, beside the safe/unsafe partition
+    "sig",
     # code's
     "loc", "unsafe_block", "unsafe_call", "tests",
     # the shares a position or a type carries
@@ -252,11 +260,19 @@ KEY_ORDER = (
     # the cell records, and their arms
     "ccell", "no_seam_trait", "wrapper", "ffi", "rust", "intrinsic", "by_val",
     "fn_sig", "self_in_ref_accessor", "self_in_trait_impl",
-    # `taken` and `returned` are `fn.ffibox`'s, where the `fn.` prefix already
-    # says the position is a signature's
-    "taken", "returned", "fn",
+    "fn",
     # the vocabulary last: an arm is read against the figure it qualifies
     "layout", "ref", "mut", "locked", "handwritten", "ffibox",
+    # ffibox's traits, in the order its vocabulary declares them rather than
+    # alphabetically: the layout contract, then allocation, release and
+    # cloning, then the seams and the guards. One breakdown reads as the
+    # lifecycle it describes, in `ty.impl_trait` and `raw_ptr` alike.
+    "CCell", "CPlainElem", "CZeroable",
+    "CAlloc", "CAllocZeroed", "CNew",
+    "CDrop", "CDispose", "CLenDrop",
+    "CDupClone", "CRefClone", "CLenClone",
+    "CRefSeam", "CMutSeam", "CLockedSeam",
+    "CGuarded", "CGuardedAll", "LockScope",
     # the shares, after the partition they cut across
     "of_which",
 )

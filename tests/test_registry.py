@@ -89,7 +89,7 @@ class RegistryTests(unittest.TestCase):
         looked and found none. The same holds for the seam shares, which are
         registered only when `--seams` names something."""
         self.assertNotIn("ty.ffibox.ccell.pub", self.plain)
-        self.assertNotIn("fn.ffibox.taken.CBox.pub", self.plain)
+        self.assertNotIn("fn.sig.of_which.ffibox.arg.CBox.pub", self.plain)
         self.assertIn("ty.ffibox.ccell.pub", self.ffibox)
         self.assertIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.plain)
         self.assertNotIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.ffibox)
@@ -98,6 +98,11 @@ class RegistryTests(unittest.TestCase):
         """Registering zeros must not give one a derived total of 0 either."""
         tree = scan.compose(FIXTURES / "empty", ffibox=True)["counts"]
         self.assertNotIn("total", tree["ty"]["ffibox"])
+        # `fn.sig` is one too: it counts what signatures carry, in mentions,
+        # so it is a share of no fn count and `fn.total` beside it is the
+        # denominator. Its `ffibox` arm does carry one, over its positions.
+        self.assertNotIn("total", tree["fn"]["sig"])
+        self.assertIn("total", tree["fn"]["sig"]["of_which"]["ffibox"])
         self.assertNotIn("total", tree["code"]["tests"])
 
 

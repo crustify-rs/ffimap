@@ -17,6 +17,9 @@ raw_ptr.
   fn_sig_ret.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
   fn_sig_trait_impl.{safe,unsafe}.{pub,priv}
   fn_sig_trait_impl.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
+  fn_sig_trait_impl.of_which.{std,local}.{safe,unsafe}.{pub,priv}
+  fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}        --ffibox
+  fn_sig_trait_impl.of_which.ffibox.of_which.<trait>                --ffibox
   field.{pub,priv}
   field.of_which.void.{pub,priv}
   total.{safe,unsafe}.{pub,priv}
@@ -67,7 +70,7 @@ fn.
   safe.{pub,priv}
   safe.of_which.with_unsafe.{pub,priv}
   unsafe.{pub,priv}
-  ffibox.{taken,returned}.<primitive>.{pub,priv}     --ffibox
+  sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}   --ffibox
   total.{pub,priv}
   total.of_which.macro.{pub,priv}
 
@@ -118,6 +121,28 @@ move with how many types a trait is implemented for, which is what read 61 of
 git2-rs' 66 pointers "returned by a public safe fn": its `Binding` trait,
 once. The direction is dropped with the choice: what is left to say is that
 the trait's shape reaches a pointer here.
+
+Which is why the family carries whose trait it was, in the same three arms as
+`ty.impl_trait.of_which`: `std` for one the crate adopted, `local` for one it
+declared itself, `ffibox` for the convention's, and the ffibox arm broken down
+by trait. Without them the figure is a number with no reading -- on
+libgit2-bindings all 64 of its positions are ffibox lifecycle strategies
+(`CDrop` 36, `CDupClone` 8, `CDispose` and `CNew` and `CRefClone` 5 each,
+`CLenClone` 2, `CAlloc`, `CAllocZeroed` and `CLenDrop` 1 each), on
+ffmpeg-bindings 67 of 93 are, the other 26 being private helper traits of its
+own (`into_void`, `to_c`, an element-adoption pair), and on git2-rs all 134 are
+its one local `Binding` trait, 125 of them seams. The same count, three
+different things.
+
+`std` is zero on all three, and that is a reading too: std's traits do not put
+a raw pointer in a signature -- `Drop::drop` takes `&mut self` and
+`Deref::deref` returns a reference -- so a nonzero `std` arm would be a `From<*mut
+T>`-shaped conversion worth looking at.
+
+The per-trait leaves are the closed vocabulary [`ffibox.md`](ffibox.md) lists,
+so a trait ffibox adds and the vocabulary does not have is in the `ffibox` arm
+and in no leaf below it; the three `whose` arms leave the same hole for a
+fourth crate's trait, exactly as `ty.impl_trait.of_which` does.
 
 `ty.impl_block` counts an inherent `impl T` and `ty.impl_trait` an
 `impl Tr for T`, which `ty.impl` used to merge. The split is the one the
@@ -471,6 +496,12 @@ cells for nothing.
 public type is a claim to consumers, on a private one it is internal
 bookkeeping.
 
+`raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>` splits by neither:
+a trait method's safety and visibility are the trait declaration's, one
+spelling dictating every impl, so the split would restate the parent cell by
+cell. The parent `ffibox` arm carries both, since the mix of traits a crate
+implements does move them.
+
 `fn.safe.of_which.with_unsafe` is counted on the safe arm only. With
 `unsafe_op_in_unsafe_fn` denied, every `unsafe fn` doing anything raw has a
 block by construction, so counting it there would measure the lint.
@@ -515,7 +546,7 @@ Last, the owner / handle record: the second emission line and its 24 counters
 (`fn_sig_{ffibox,non_ffibox}_{owner,handle}_*`, the `ty_*` variants,
 `ffibox_impl_*`, `ffibox_define_ctype_*`, `ffibox_ccell_not_layout`,
 `ffibox_layout_not_ccell`). `ty.field.ffibox`, `ty.impl_trait.ffibox` and
-`fn.ffibox` cover the vocabulary it measured, by primitive and by trait rather
+`fn.sig.of_which.ffibox` cover the vocabulary it measured, by primitive and by trait rather
 than by the owner / handle pair, and they split an impl by whether a macro
 wrote it.
 
