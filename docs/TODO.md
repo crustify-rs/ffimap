@@ -72,6 +72,17 @@ no counter's path, is fixed: the four mirrored counters carried their `Counts`
 field name, and `test_canary.SiteTests` now holds every site list to a path
 `--sites` accepts.
 
+## `code.tests.fn` counts the harness `main`
+
+A crate with no functions at all reads `code.tests.fn: 1`, which
+`tests/fixtures/empty/` makes plain. The figure is the test build's fn count
+less the library's own, and the test build carries the `main` that rustc
+generates for the harness, which the library has nothing to subtract against.
+It is one per test target, so a tree with many integration tests is over by
+that many. Either the generated `main` is excluded where `in_generated_file`
+already excludes macro-written items, or the figure is documented as "fns in
+the test build, harness included".
+
 ## A signature's mentions share one place
 
 Every position of a signature records the signature's own line, so the cell

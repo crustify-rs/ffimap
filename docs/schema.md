@@ -281,13 +281,38 @@ families rather than the parts of one quantity.
 
 A top-level prefix is always a namespace -- `raw_ptr.taken` counts signature
 positions and `raw_ptr.deref` counts body sites, so their sum means nothing --
-and `ty.ffibox` is one a level down: it holds a type population (`ccell`
-counts types) beside three records of mentions (`wrapper`, `ffi` and `by_val`
-count places, and overlap each other, since a cell held in a field is in
-`wrapper` and in `by_val` both). `nest_ptr` declares them in `NAMESPACES`
-rather than inferring them, since no shape distinguishes a namespace from a
-partition: `raw_ptr.taken`'s `{safe,unsafe}` children are records with their
-own totals too, and summing those is exactly right.
+and two are namespaces a level down. `ty.ffibox` holds a type population
+(`ccell` counts types) beside three records of mentions (`wrapper`, `ffi` and
+`by_val` count places, and overlap each other, since a cell held in a field is
+in `wrapper` and in `by_val` both). `code.tests` holds four separate
+measurements of the test build: its lines, its unsafe lines -- a subset of
+them -- its unsafe blocks and its fns; their sum read 103840 on
+libgit2-bindings, a figure with no unit at all.
+
+`nest_ptr` declares them in `NAMESPACES` rather than inferring them, since no
+shape distinguishes a namespace from a partition: `raw_ptr.taken`'s
+`{safe,unsafe}` children are records with their own totals too, and summing
+those is exactly right.
+
+### 1.4 Zero, and absent
+
+Every counter the invocation's flags turn on is in the document, at `0` when
+it never fired. A reader of one document cannot tell an absent counter from
+one the schema does not have -- no `std_owner` under `ty.ffibox.wrapper` could
+mean "no cell is held in a std collection" or "that arm was never written" --
+and the schema is too long to hold in the head, so the driver registers every
+path it can emit before the passes run and they count up from there.
+
+What is absent is what the flags did not turn on, which is a different
+statement and a deliberate one: the ffibox arms without `--ffibox`, and the
+`of_which.seam` shares without `--seams`. A `0` there would say the scan
+looked and found none, when it did not look.
+
+The registry is in the driver, beside the passes, and it iterates the same
+vocabulary lists they do, so the trait and primitive arms cannot drift from
+it. `RegistryTests` reads the registry off a scan of
+`tests/fixtures/empty/` -- a crate with nothing in it, whose every counter is
+therefore 0 -- and holds the other fixtures' fired counters to it.
 
 ## 2. The peel set
 

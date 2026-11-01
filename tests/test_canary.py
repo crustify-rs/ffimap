@@ -51,8 +51,9 @@ class CanaryTests(unittest.TestCase):
     def at(self, path: str) -> int:
         """A leaf by its dotted path, 0 where the counter did not fire.
 
-        Absent and zero are the same reading: the driver emits no key for a
-        counter that never incremented.
+        A counter the flags turn on is in the tree at 0 when it never fired;
+        one the flags did not turn on is absent. Both read 0 here, so a test
+        asserting an absence and one asserting a zero are the same assertion.
         """
         node = self.tree
         for part in path.split("."):

@@ -115,7 +115,13 @@ A site for a macro-generated item reports the macro's **call site**, since that
 is where the item's span points. A `define_ctype!(` or `impl_cdrop!(` line
 among the sites of a type or impl counter is that, not a miscount.
 
-## 8. The document
+## 8. Zero, and absent
+
+A counter the flags turn on is always in `counts`, at `0` when it never fired;
+what is absent is what the flags did not turn on. See
+[`schema.md`](schema.md)'s Zero, and absent section.
+
+## 9. The document
 
 | field | contents |
 |---|---|

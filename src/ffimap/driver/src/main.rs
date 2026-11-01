@@ -284,6 +284,153 @@ fn mirror_into_tree<'a>(ptr: &'a mut PtrTally, c: &Counts) -> &'a PtrTally {
     ptr
 }
 
+/// Every counter this invocation can emit, registered at zero.
+///
+/// A document is read on its own, and an ABSENT counter cannot be told from
+/// one the schema does not have: a reader who finds no `std_owner` under
+/// `ty.ffibox.wrapper` cannot tell "no cell is held in a std collection" from
+/// "that arm was never written", and the schema is too long to hold in the
+/// head. So the tally starts with every path at 0 and the passes count up
+/// from there.
+///
+/// Gated exactly as the passes are. The ffibox arms are registered only under
+/// `--ffibox` and the seam shares only with a seam list, because those are
+/// absent BY DESIGN without their flag -- a 0 there would claim the scan
+/// looked and found none, when it did not look.
+///
+/// `RegistryTests` holds this to the counters that actually fire: an arm
+/// added to a pass and not here fails there rather than going out as an
+/// absence.
+fn register_counters(ptr: &mut PtrTally) {
+    const VIS: [&str; 2] = ["pub", "priv"];
+    const SAFETY: [&str; 2] = ["safe", "unsafe"];
+    let seams = !seam_fns().is_empty();
+    let mut at = |k: String| {
+        ptr.entry(k).or_default();
+    };
+
+    for k in [
+        "code.loc.total", "code.loc.unsafe",
+        "code.unsafe_block.total", "code.unsafe_block.of_which.ffi_export",
+        "code.tests.loc.total", "code.tests.loc.unsafe",
+        "code.tests.unsafe_block", "code.tests.fn",
+        "raw_ptr.deref.rd", "raw_ptr.deref.wr",
+        "ty.impl_trait.of_which.unsafe",
+    ] {
+        at(k.to_string());
+    }
+    for arm in ["ffi", "rust", "intrinsic"] {
+        at(format!("code.unsafe_call.{arm}"));
+    }
+
+    // raw_ptr: the positions, their shares, and the denominator. `in_impl` is
+    // a position of its own, outside `raw_ptr.total`.
+    for pos in ["taken", "returned", "in_impl"] {
+        for safety in SAFETY {
+            for vis in VIS {
+                at(format!("raw_ptr.{pos}.{safety}.{vis}"));
+                at(format!("raw_ptr.{pos}.of_which.void.{safety}.{vis}"));
+                if seams {
+                    at(format!("raw_ptr.{pos}.of_which.seam.{safety}.{vis}"));
+                }
+            }
+        }
+    }
+    for vis in VIS {
+        at(format!("raw_ptr.field.{vis}"));
+        at(format!("raw_ptr.field.of_which.void.{vis}"));
+        for safety in SAFETY {
+            at(format!("raw_ptr.total.{safety}.{vis}"));
+        }
+    }
+    for shape in ["owner", "string", "slice", "borrow", "other"] {
+        at(format!("raw_ptr.casted_to.std.{shape}"));
+        if seams {
+            at(format!("raw_ptr.casted_to.local_seam.{shape}"));
+        }
+    }
+    if is_ffibox() {
+        // The shapes the vocabulary itself has, which is fewer than the five
+        // above: no ffibox primitive gives a pointer the `other` shape.
+        for (_, shape) in FFIBOX_PRIMITIVES {
+            at(format!("raw_ptr.casted_to.ffibox.{shape}"));
+        }
+    }
+
+    for vis in VIS {
+        for arm in ["safe", "unsafe", "total"] {
+            at(format!("fn.{arm}.{vis}"));
+        }
+        at(format!("fn.safe.of_which.with_unsafe.{vis}"));
+        at(format!("fn.total.of_which.macro.{vis}"));
+
+        at(format!("ty.total.{vis}"));
+        at(format!("ty.total.of_which.no_trait.{vis}"));
+        at(format!("ty.wrapping_unsafe_cell.{vis}"));
+        at(format!("ty.generic.{vis}"));
+        at(format!("ty.storing_raw_ptr.{vis}"));
+        at(format!("ty.impl_block.{vis}"));
+        at(format!("ty.impl_block.of_which.other.{vis}"));
+        at(format!("ty.impl_trait.{vis}"));
+        at(format!("ty.impl_trait.of_which.derived.{vis}"));
+        for name in ["lifetime", "type", "storing_raw_ptr"] {
+            at(format!("ty.generic.of_which.{name}.{vis}"));
+        }
+        for name in ["impl_drop", "impl_clone", "has_lifetime", "impl_deref",
+                     "impl_deref_mut", "impl_send_sync", "pub_field", "none"] {
+            at(format!("ty.storing_raw_ptr.of_which.{name}.{vis}"));
+        }
+        for name in ["send", "sync"] {
+            at(format!("ty.impl_trait.of_which.send_sync.{name}.{vis}"));
+        }
+        for whose in ["std", "local"] {
+            at(format!("ty.impl_trait.of_which.{whose}.{vis}"));
+            at(format!("ty.total.of_which.{whose}_trait.{vis}"));
+        }
+
+        if is_ffibox() {
+            for pos in ["taken", "returned"] {
+                for (name, _) in FFIBOX_PRIMITIVES {
+                    at(format!("fn.ffibox.{pos}.{name}.{vis}"));
+                }
+            }
+            for (name, _) in FFIBOX_PRIMITIVES {
+                at(format!("ty.field.ffibox.{name}.{vis}"));
+            }
+            at(format!("ty.impl_trait.of_which.ffibox.{vis}"));
+            at(format!("ty.total.of_which.ffibox_trait.{vis}"));
+            at(format!("ty.storing_raw_ptr.of_which.ffibox.{vis}"));
+            // The roles `CCell`, `CRefSeam`, `CMutSeam` and `CLockedSeam` name.
+            for shape in ["layout", "ref", "mut", "locked"] {
+                at(format!("ty.impl_block.of_which.ffibox.{shape}.{vis}"));
+            }
+            at(format!("ty.ffibox.ccell.{vis}"));
+            at(format!("ty.ffibox.ccell.of_which.no_seam_trait.{vis}"));
+            for tree in ["wrapper", "ffi"] {
+                at(format!("ty.ffibox.{tree}.{vis}"));
+                for name in ["borrow", "std_owner", "slice", "field"] {
+                    at(format!("ty.ffibox.{tree}.of_which.{name}.{vis}"));
+                }
+                for name in ["self_in_ref_accessor", "self_in_trait_impl"] {
+                    at(format!(
+                        "ty.ffibox.{tree}.of_which.borrow.of_which.{name}.{vis}"));
+                }
+            }
+            at(format!("ty.ffibox.by_val.{vis}"));
+            for name in ["field", "fn_sig", "std_owner"] {
+                at(format!("ty.ffibox.by_val.of_which.{name}.{vis}"));
+            }
+        }
+    }
+    if is_ffibox() {
+        for (name, _) in FFIBOX_TRAITS {
+            for how in ["handwritten", "macro"] {
+                at(format!("ty.impl_trait.of_which.ffibox.of_which.{name}.{how}"));
+            }
+        }
+    }
+}
+
 fn ptr_json(t: &PtrTally) -> String {
     let body = t
         .iter()
@@ -1562,6 +1709,12 @@ impl Callbacks for MetricsCallbacks {
         }
         let mut c = Counts::default();
         let mut ptr: PtrTally = PtrTally::new();
+        // A test build emits only `code.tests.*`, which `tests_into_tree`
+        // builds fresh, so the registry would be wiped: it belongs to the
+        // document the library's emission makes.
+        if !is_test_build() {
+            register_counters(&mut ptr);
+        }
         let mut sites = Sites::default();
         // Every body owner (fn, closure, const/static initializer, ...). Each is
         // a separate typeck context; intravisit does not descend into nested

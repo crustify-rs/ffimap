@@ -1,0 +1,1 @@
+//! Nothing. See `Cargo.toml`.

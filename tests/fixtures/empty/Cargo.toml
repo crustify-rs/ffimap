@@ -1,0 +1,11 @@
+# A crate with nothing in it, so that a scan of it is exactly the counters the
+# driver REGISTERS: every one its flags turn on, at zero. `RegistryTests`
+# reads the registry off this and holds the other fixtures' counters to it, so
+# a counter that fires without being registered fails there rather than going
+# out as an absence.
+[package]
+name = "empty"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]

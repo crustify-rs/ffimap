@@ -58,8 +58,11 @@ TREE_SITE_FAMILIES = {
 # is why a top-level prefix gets none either. `ty.ffibox` holds a type
 # population (`ccell`) beside three records of MENTIONS whose mentions overlap
 # -- a cell held in a field is in `wrapper` and in `by_val` both -- so no sum
-# of them is a quantity.
-NAMESPACES = frozenset({("ty", "ffibox")})
+# of them is a quantity. `code.tests` holds four separate measurements of the
+# test build: its lines, its unsafe lines (a subset of them), its unsafe
+# blocks and its fns. Summing those read 103840 on libgit2-bindings, a figure
+# of no unit at all.
+NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests")})
 
 
 def is_tree_counter(name: str) -> bool:
