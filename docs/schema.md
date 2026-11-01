@@ -314,6 +314,29 @@ it. `RegistryTests` reads the registry off a scan of
 `tests/fixtures/empty/` -- a crate with nothing in it, whose every counter is
 therefore 0 -- and holds the other fixtures' fired counters to it.
 
+### 1.5 The order of a record
+
+A record's children are written in a declared order, most salient first: the
+record's own `total`, then the splits it is cut by (`unsafe` before `safe`,
+`pub` before `priv`), then its families, then its shares and arms, and
+`of_which` last, since a share is read against the partition it cuts across.
+The prefixes come in this document's order: `raw_ptr`, `ty`, `fn`, `code`.
+
+The driver emits a sorted map, so the alternative is alphabetical: `fn` would
+read `{ffibox, safe, total, unsafe}`, with the denominator in the middle and
+the vocabulary before the figures it qualifies.
+
+A name the order does not hold comes after every name it does, alphabetically.
+That is where the vocabulary arms land -- `CArc`, `CBorrowedPtr`, `CBox`, and
+the trait arms likewise -- so a primitive or trait added to ffibox needs no
+change to the order and still reads predictably. `measure.KEY_ORDER` is one
+table for every level, since a name that earns an early rank in one record
+earns it in the others: `unsafe` is early as `fn.unsafe`, as `code.loc.unsafe`
+and as the unsafe trait impls. Two records cannot both be satisfied by it --
+`field` leads `by_val`'s shares and trails `wrapper`'s, and it is ranked with
+the positions -- and `fn` is split out, being a prefix as well as one of
+`code.tests`'s three measurements.
+
 ## 2. The peel set
 
 A type stores a raw pointer when the walk over its fields reaches one. The walk

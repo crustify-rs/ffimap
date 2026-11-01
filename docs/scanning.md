@@ -119,7 +119,9 @@ among the sites of a type or impl counter is that, not a miscount.
 
 A counter the flags turn on is always in `counts`, at `0` when it never fired;
 what is absent is what the flags did not turn on. See
-[`schema.md`](schema.md)'s Zero, and absent section.
+[`schema.md`](schema.md)'s Zero, and absent section. Within a record the
+children are written in a declared order rather than sorted, which
+[`schema.md`](schema.md)'s The order of a record section gives.
 
 ## 9. The document
 

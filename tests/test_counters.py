@@ -52,6 +52,82 @@ class MergeTests(unittest.TestCase):
 
 
 
+class OrderTests(unittest.TestCase):
+    """A record's children come out in the declared order, not sorted.
+
+    The driver emits a sorted map, so without `in_order` a record reads
+    `{ffibox, safe, total, unsafe}`: the denominator in the middle and the
+    vocabulary before the figures it qualifies.
+    """
+
+    def test_a_record_leads_with_its_own_total(self) -> None:
+        """`fn.total` is the emitted denominator, and it comes first.
+
+        A prefix is a namespace, so it has no DERIVED total; what leads here
+        is the one the driver emits, which is the figure the arms beside it
+        are read against.
+        """
+        tree = measure.nest_ptr({"fn.total.pub": 3, "fn.safe.pub": 1,
+                                 "fn.unsafe.priv": 2,
+                                 "fn.ffibox.taken.CBox.pub": 1})
+        self.assertEqual(list(tree["fn"]), ["total", "unsafe", "safe", "ffibox"])
+        self.assertEqual(list(tree["fn"]["safe"]), ["total", "pub"])
+
+    def test_the_prefixes_are_in_the_schema_s_order(self) -> None:
+        tree = measure.nest_ptr({"code.loc.total": 1, "fn.safe.pub": 1,
+                                 "ty.total.pub": 1, "raw_ptr.field.pub": 1})
+        self.assertEqual(list(tree), ["raw_ptr", "ty", "fn", "code"])
+
+    def test_fn_is_a_prefix_first_and_a_measurement_second(self) -> None:
+        """The one name that needed two ranks: `code.tests.fn` belongs after
+        the lines it is measured beside, and `fn` leads nothing there."""
+        tree = measure.nest_ptr({"code.tests.fn": 1, "code.tests.loc.total": 2,
+                                 "code.tests.unsafe_block": 3})
+        self.assertEqual(list(tree["code"]["tests"]),
+                         ["loc", "unsafe_block", "fn"])
+
+    def test_shares_come_last_and_an_unknown_name_after_them(self) -> None:
+        """`of_which` is read against the partition it cuts across, so it
+        follows it; a name the table does not hold sorts after every name it
+        does, which is where the vocabulary arms land."""
+        tree = measure.nest_ptr({
+            "ty.impl_trait.pub": 1,
+            "ty.impl_trait.of_which.std.pub": 1,
+            "ty.impl_trait.of_which.ffibox.of_which.CDrop.macro": 1,
+            "ty.impl_trait.of_which.ffibox.of_which.CCell.macro": 1})
+        self.assertEqual(list(tree["ty"]["impl_trait"]),
+                         ["total", "pub", "of_which"])
+        self.assertEqual(list(tree["ty"]["impl_trait"]["of_which"]),
+                         ["std", "ffibox"])
+        self.assertEqual(
+            list(tree["ty"]["impl_trait"]["of_which"]["ffibox"]["of_which"]),
+            ["CCell", "CDrop"])
+
+    # The names `ty.total.of_which.{name}_trait` builds from a stem, which is
+    # the only place a counter's segment is assembled rather than written.
+    COMPOSED = frozenset({"std_trait", "local_trait", "ffibox_trait"})
+
+    def test_every_declared_name_is_one_the_driver_emits(self) -> None:
+        """A name in the table that no counter carries is dead weight, and
+        reads as a decision about a record that does not exist."""
+        src = MAIN_RS.read_text()
+        for name in measure.KEY_ORDER + measure.PREFIX_ORDER:
+            with self.subTest(name=name):
+                if name in self.COMPOSED:
+                    # Composed, not spelled: the key is
+                    # `ty.total.of_which.{name}_trait` and the stem comes from
+                    # the table of whose trait it is.
+                    self.assertIn("{name}_trait", src)
+                    needle = name.removesuffix("_trait")
+                else:
+                    needle = name
+                self.assertTrue(
+                    f'"{needle}"' in src or f".{needle}." in src
+                    or f'.{needle}"' in src or f'"{needle}.' in src
+                    or f"({needle}," in src,
+                    f"{name} is in KEY_ORDER but the driver never emits it")
+
+
 class SiteFamilyTests(unittest.TestCase):
     def test_every_counter_family_the_driver_emits_takes_sites(self) -> None:
         """`--sites` validates a dotted path against the prefix and the family
