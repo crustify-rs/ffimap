@@ -224,7 +224,7 @@ class CellCounterTests(unittest.TestCase):
         their own pointer, so the walk stops at the primitive.
 
         Were they counted, every campaign's figures would be dominated by the
-        delegation `ty.field.ffibox` and `fn.ffibox` already report: on
+        delegation `ty.field.ffibox` and `fn.sig` already report: on
         libgit2-bindings the two primitives carried 76 of 80 field mentions
         and 250 of 423 signature mentions.
         """

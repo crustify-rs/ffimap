@@ -139,7 +139,7 @@ pub fn raw_borrow(c: &raw_widget) -> i32 {
 }
 
 /// NOT counted. An ffibox primitive holds the cell behind its own pointer and
-/// manages it; `fn.ffibox` counts the delegation. The walk goes THROUGH the
+/// manages it; `fn.sig` counts the delegation. The walk goes THROUGH the
 /// primitive, but nothing below claims the storage, so the mention is dropped.
 pub fn in_ffibox_owner(_w: CBox<Widget>) {}
 

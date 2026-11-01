@@ -57,6 +57,18 @@ per-kind -- so both are emitted, which is one cross-tabulation recorded twice.
 Picking a direction means either a `has_type_param` share beside
 `has_lifetime`, or nesting the holder share under each generic kind.
 
+## `fn_sig_trait_impl.of_which.local` does not name the trait
+
+The ffibox arm breaks down by trait, because its vocabulary is 18 names a
+registry can carry. A local trait's name is the crate's own, so the breakdown
+would be a counter per name discovered at scan time -- and a registry whose
+leaves depend on the crate measured cannot say which of them read 0 by
+absence. Today the names come off `--sites`: ffmpeg-bindings' 26 are
+`into_void`, `to_c`, `refusal` and an adopt/zero pair, all private, and
+git2-rs' 134 are one `Binding`. A `{one,several}` split, or the name of the
+dominant trait as a string beside the counts, would put the reading in the
+document.
+
 ## `--sites` takes a leaf, and a prefix reads empty
 
 `--sites ty.ffibox.by_val.of_which.fn_sig` validates, because `is_tree_counter`

@@ -48,7 +48,7 @@ def compose(workspace: Path, sites: list[str] | None = None,
     ``sites`` names counters whose source locations to report, as a ``sites``
     record beside ``counts`` with one list per counter. ``ffibox`` asserts the
     crate is built on ffibox, which turns on the vocabulary's arms
-    (``ty.field.ffibox``, ``ty.impl.ffibox``, ``fn.ffibox``) and sanctions the
+    (``ty.field.ffibox``, ``ty.impl.ffibox``, ``fn.sig``) and sanctions the
     conventions' ``as_ref`` / ``as_mut`` layout accessors. ``sys_crates`` names
     the crates
     whose `#[repr(C)]` types are C's and whose types the field walk descends

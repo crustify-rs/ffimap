@@ -66,7 +66,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--ffibox", action="store_true",
         help="The crate is built on ffibox. Turns on the vocabulary's arms "
-             "-- ty.field.ffibox, ty.impl.ffibox, fn.ffibox -- and sanctions "
+             "-- ty.field.ffibox, ty.impl.ffibox, fn.sig -- and sanctions "
              "the convention's `as_ref(&self)` / `as_mut(&mut self)` layout "
              "accessors, which are matched by name and so hold only where "
              "that convention does.")

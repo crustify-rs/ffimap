@@ -310,13 +310,17 @@ families rather than the parts of one quantity.
 
 A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts signature
 positions and `raw_ptr.deref` counts body sites, so their sum means nothing --
-and two are namespaces a level down. `ty.ffibox` holds a type population
+and three are namespaces a level down. `ty.ffibox` holds a type population
 (`ccell` counts types) beside three records of mentions (`wrapper`, `ffi` and
 `by_val` count places, and overlap each other, since a cell held in a field is
 in `wrapper` and in `by_val` both). `code.tests` holds four separate
 measurements of the test build: its lines, its unsafe lines -- a subset of
 them -- its unsafe blocks and its fns; their sum read 103840 on
-libgit2-bindings, a figure with no unit at all.
+libgit2-bindings, a figure with no unit at all. `fn.sig` holds what a
+signature carries, in mentions -- a fn taking two `CBox` is two of them -- so
+it is a share of no count of fns, and `fn.total` beside it is the denominator
+a reader divides by. Its own arms do carry totals: `fn.sig.of_which.ffibox` is
+`arg` plus `ret`, which are disjoint.
 
 `nest_ptr` declares them in `NAMESPACES` rather than inferring them, since no
 shape distinguishes a namespace from a partition: `raw_ptr.fn_sig_arg`'s

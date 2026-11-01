@@ -422,7 +422,7 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
     """Return ``(sites per counter, the counter tree)`` for ``ws``.
 
     ``ffibox`` asserts the crate is built on ffibox, which turns on the
-    vocabulary's arms (`ty.field.ffibox`, `ty.impl.ffibox`, `fn.ffibox`).
+    vocabulary's arms (`ty.field.ffibox`, `ty.impl.ffibox`, `fn.sig`).
     ``sys`` are the sys crates (``sys_crates``): their `#[repr(C)]` types are
     C's, and their emissions are skipped."""
     driver = _driver_bin()
