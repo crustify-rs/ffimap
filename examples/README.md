@@ -60,6 +60,23 @@ carries the name.
 The same reading applies to `returned`: 66 of libgit2-bindings' 86 and 14 of
 git2-rs' 19 are seams.
 
+## Keeping to ffibox's convention
+
+The cell mentions, which only the two crustify campaigns have, since git2-rs
+is built on no ffibox. ffibox's convention is that a consumer reaches a cell's
+bytes through the `Ref` and `Mut` handles, so a `&Foo` that is neither an
+accessor's receiver nor a trait method's is the layout published directly:
+
+| | `borrow.pub` | `in_ref_accessor` | `in_trait_impl` | rest |
+|---|---|---|---|---|
+| libgit2-bindings | 161 | 90 | 65 | 6 |
+| ffmpeg-bindings | 215 | 116 | 97 | 2 |
+
+libgit2-bindings' six are all `&[Foo]`, so it publishes no bare `&Foo`;
+ffmpeg-bindings' two are a `&[Self]` and an `as_c_ptr(&self)`, the same
+conversion as an accessor under a name the convention did not give it.
+[`docs/ffibox.md`](../docs/ffibox.md) section 8 describes the arms.
+
 ## Reading them
 
 Every counter is described in [`docs/schema.md`](../docs/schema.md), the

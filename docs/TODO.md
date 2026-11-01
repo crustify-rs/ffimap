@@ -57,6 +57,16 @@ per-kind -- so both are emitted, which is one cross-tabulation recorded twice.
 Picking a direction means either a `has_type_param` share beside
 `has_lifetime`, or nesting the holder share under each generic kind.
 
+## `--sites` takes a leaf, and a prefix reads empty
+
+`--sites ty.by_val.of_which.fn_sig` validates, because `is_tree_counter`
+checks the prefix and family, and then reports an empty list: `compose` looks
+the name up in the driver's emissions, which are keyed by the leaf
+(`...fn_sig.pub`). So a reader who asks for an arm rather than a leaf is told
+there are no places rather than that the name is incomplete. Either the
+lookup should aggregate every leaf under the requested path, which is what the
+name reads like, or the validation should reject a path that is not a leaf.
+
 ## A path dependency can break a shipped campaign
 
 Not ffimap's to fix, but ffimap is what found it. `ffmpeg-bindings` pinned

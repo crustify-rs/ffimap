@@ -46,7 +46,9 @@ _TOOLCHAIN = tomllib.loads(
 TREE_SITE_FAMILIES = {
     "raw_ptr": ("taken", "returned", "in_impl", "field", "total", "deref",
                 "casted_to"),
-    "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic", "ffibox", "wrapping_unsafe_cell", "total"),
+    "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic",
+           "ffibox", "wrapper", "ffi", "by_val", "wrapping_unsafe_cell",
+           "total"),
     "fn": ("safe", "unsafe", "ffibox", "total"),
     "code": ("loc", "tests", "unsafe_block", "unsafe_call"),
 }

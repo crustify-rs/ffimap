@@ -1,0 +1,7 @@
+[package]
+name = "cells"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ffibox = { path = "../ffibox-stub" }

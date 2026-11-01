@@ -1174,6 +1174,297 @@ fn from_ffibox_macro(tcx: TyCtxt<'_>, span: Span) -> bool {
     false
 }
 
+/// The `CCell` types the crate declares, and the raw C types they cover.
+///
+/// `CCell` is the authority on both, as it is on the handles: its `type C`
+/// names the raw struct a cell is a `#[repr(transparent)]` newtype over, and
+/// its `Ref` and `Mut` name the two handles a consumer is meant to reach that
+/// struct's bytes through. So a `&Foo` written anywhere other than one of
+/// those mints is the layout published directly, and a `&Foo::C` is the raw C
+/// struct published with no convention over it at all.
+#[derive(Default)]
+struct CellTypes {
+    /// The layout newtypes: `Foo` in `impl CCell for Foo`.
+    cells: HashSet<DefId>,
+    /// Their `type C`: the raw struct each cell covers.
+    cs: HashSet<DefId>,
+}
+
+fn cell_types(tcx: TyCtxt<'_>) -> CellTypes {
+    let mut out = CellTypes::default();
+    for ld in tcx.hir_crate_items(()).definitions() {
+        let did = ld.to_def_id();
+        if !matches!(tcx.def_kind(did), DefKind::Impl { of_trait: true }) {
+            continue;
+        }
+        let tr = tcx.impl_trait_ref(did).skip_binder().def_id;
+        if !is_ffibox_crate(tcx, tr) || tcx.item_name(tr).as_str() != "CCell" {
+            continue;
+        }
+        if let ty::TyKind::Adt(d, _) =
+            tcx.type_of(did).instantiate_identity().skip_norm_wip().kind()
+        {
+            out.cells.insert(d.did());
+        }
+        for assoc in tcx.associated_items(did).in_definition_order() {
+            if tcx.item_name(assoc.def_id).as_str() != "C" {
+                continue;
+            }
+            if let ty::TyKind::Adt(d, _) =
+                tcx.type_of(assoc.def_id).instantiate_identity().skip_norm_wip().kind()
+            {
+                out.cs.insert(d.did());
+            }
+        }
+    }
+    out
+}
+
+/// What stands between one mention of a type and an owner of it. A
+/// `&Vec<Foo>` is a borrow and a std owner at once, so these are flags over
+/// the one mention rather than a choice between arms.
+#[derive(Clone, Copy, Default)]
+struct Shape {
+    borrow: bool,
+    std_owner: bool,
+    slice: bool,
+}
+
+/// The std containers that own what they hold, so that a `Foo` inside one is
+/// still held by value: `Box<Foo>` is an owned cell on the heap. `Cow` is left
+/// out, since whether it owns is its discriminant's answer and no type rule
+/// settles it.
+const STD_OWNERS: &[&str] = &["Box", "Rc", "Arc", "Vec", "VecDeque"];
+
+/// Every ADT `t` mentions, each with the shape it is mentioned in.
+///
+/// Raw pointers are not entered: `*mut Foo` is `raw_ptr`'s position, and the
+/// `&Foo` made from one is `raw_ptr.casted_to`'s. Neither are fn pointers,
+/// whose parameters are a callback's interface rather than this position's --
+/// the rule `raw_pointees` follows, for the same reason.
+fn walk_shapes<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    t: Ty<'tcx>,
+    at: Shape,
+    out: &mut Vec<(DefId, Shape)>,
+) {
+    match t.kind() {
+        ty::TyKind::Ref(_, inner, _) => {
+            walk_shapes(tcx, *inner, Shape { borrow: true, ..at }, out);
+        }
+        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => {
+            walk_shapes(tcx, *e, Shape { slice: true, ..at }, out);
+        }
+        ty::TyKind::Tuple(ts) => {
+            for a in ts.iter() {
+                walk_shapes(tcx, a, at, out);
+            }
+        }
+        // A ZST marker names its parameter without holding one.
+        ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "PhantomData" => {}
+        // `NonNull<Foo>` and `AtomicPtr<Foo>` are raw pointers to the cell,
+        // not storage holding one: `c_drop(&self, ptr: NonNull<Commit>)` is
+        // ffibox's lifecycle strategy, and `raw_ptr` counts the position.
+        ty::TyKind::Adt(d, _)
+            if is_std_crate(tcx, d.did())
+                && matches!(tcx.item_name(d.did()).as_str(), "NonNull" | "AtomicPtr") => {}
+        // An ffibox primitive holds the cell behind its own pointer and
+        // manages it, so the walk stops there rather than reporting the cell
+        // inside as a position the crate chose: `fn to_commit(&self) ->
+        // CArc<Commit<'r>>` publishes neither the layout nor inline storage,
+        // and `ty.field.ffibox` and `fn.ffibox` count the delegation already.
+        // The rule `in_peel_set` follows, for the same reason.
+        //
+        // `CVal` stops with them. It IS inline storage, but it is ffibox's,
+        // which is the answer to the by-value hazard rather than a case of
+        // it.
+        ty::TyKind::Adt(d, _) if ffibox_primitive(tcx, d.did()).is_some() => {}
+        ty::TyKind::Adt(d, args) => {
+            out.push((d.did(), at));
+            let at = if is_std_crate(tcx, d.did())
+                && STD_OWNERS.contains(&tcx.item_name(d.did()).as_str())
+            {
+                Shape { std_owner: true, ..at }
+            } else {
+                at
+            };
+            for a in args.types() {
+                walk_shapes(tcx, a, at, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// One mention of a type in the crate's own declarations.
+struct Mention {
+    did: DefId,
+    shape: Shape,
+    /// The mention is a field's type rather than a signature's.
+    field: bool,
+    /// A consumer of the crate reaches the mention: the fn is exported, or
+    /// both the field and the type that declares it are.
+    reachable: bool,
+    /// The first input of an inherent `as_ref` / `as_mut`: the handle mint
+    /// `define_ctype!` writes, which ffibox's own contract licenses, since a
+    /// cell value is Rust-owned inline storage.
+    ref_accessor: bool,
+    /// In a trait impl's method, whose signature the trait fixed rather than
+    /// the crate: one declaration dictates the position in every impl of it.
+    trait_impl: bool,
+    site: (String, usize),
+}
+
+/// Where the crate's declarations mention a `CCell` layout newtype
+/// (`ty.wrapper`), the raw C type it covers (`ty.ffi`), or hold either by
+/// value (`ty.by_val`).
+///
+/// MENTIONS, not types. One cell is named in many places and it is the places
+/// that are actionable, so a cell named in twenty signatures counts twenty
+/// times and `--sites` lists them. The alternative, a type population, washes
+/// the signal out: nearly every cell has an `as_ref`, so `in_ref_accessor`
+/// would cover nearly the whole `borrow` population and the mentions that are
+/// NOT sanctioned -- the ones worth reading -- would not be recoverable by
+/// subtracting it.
+///
+/// `by_val` is the cell held as a value: nothing above the mention is a
+/// reference, so the bytes are Rust-owned storage that moves with whatever
+/// holds it. A C pointer retained into it dangles, and no owner runs the C
+/// destructor -- the cases ffibox's `CBox` and `CVal` exist for.
+fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
+    let types = cell_types(tcx);
+    if types.cells.is_empty() {
+        return;
+    }
+    let evis = tcx.effective_visibilities(());
+    let mut mentions: Vec<Mention> = Vec::new();
+
+    for ld in tcx.hir_crate_items(()).definitions() {
+        let did = ld.to_def_id();
+        if !matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union)
+            || in_generated_file(tcx, tcx.def_span(did))
+        {
+            continue;
+        }
+        let exported = did.as_local().is_some_and(|l| evis.is_exported(l));
+        for f in tcx.adt_def(did).all_fields() {
+            let ft = tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+            let mut found = Vec::new();
+            walk_shapes(tcx, ft, Shape::default(), &mut found);
+            let reachable =
+                exported && f.did.as_local().is_some_and(|l| evis.is_exported(l));
+            let site = counter_site(tcx, tcx.def_span(f.did));
+            for (did, shape) in found {
+                mentions.push(Mention {
+                    did,
+                    shape,
+                    field: true,
+                    reachable,
+                    ref_accessor: false,
+                    trait_impl: false,
+                    site: site.clone(),
+                });
+            }
+        }
+    }
+
+    // Signatures, over the same population `fn.*` counts: a foreign
+    // declaration has no body, so it never reaches `hir_body_owners`, and the
+    // C declarations in a `-sys` crate are not this crate's choices.
+    for owner in tcx.hir_body_owners() {
+        let did = owner.to_def_id();
+        if !matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn) {
+            continue;
+        }
+        let parent_kind = tcx.opt_parent(did).map(|p| tcx.def_kind(p));
+        let trait_impl = matches!(parent_kind, Some(DefKind::Impl { of_trait: true }));
+        // An `as_ref` / `as_mut` in an INHERENT impl. The first input is the
+        // receiver for a method, and for the rare free-standing one it is the
+        // cell it reads, which is the same mint.
+        let accessor = matches!(parent_kind, Some(DefKind::Impl { of_trait: false }))
+            && tcx
+                .opt_item_name(did)
+                .is_some_and(|n| matches!(n.as_str(), "as_ref" | "as_mut"));
+        let reachable = did.as_local().is_some_and(|l| evis.is_exported(l));
+        let site = counter_site(tcx, tcx.def_span(did));
+        let sig = tcx.fn_sig(did).skip_binder().skip_binder();
+        let mut positions: Vec<Ty<'_>> = sig.inputs().to_vec();
+        positions.push(sig.output());
+        for (i, t) in positions.iter().enumerate() {
+            let mut found = Vec::new();
+            walk_shapes(tcx, *t, Shape::default(), &mut found);
+            for (did, shape) in found {
+                mentions.push(Mention {
+                    did,
+                    shape,
+                    field: false,
+                    reachable,
+                    ref_accessor: accessor && i == 0,
+                    trait_impl,
+                    site: site.clone(),
+                });
+            }
+        }
+    }
+
+    for m in &mentions {
+        let tree = if types.cells.contains(&m.did) {
+            "wrapper"
+        } else if types.cs.contains(&m.did) {
+            "ffi"
+        } else {
+            continue;
+        };
+        let vis = if m.reachable { "pub" } else { "priv" };
+        let mut bump = |k: String| {
+            *ptr.entry(k.clone()).or_default() += 1;
+            sites.add(k, m.site.clone());
+        };
+        // Shares, not a partition: a mention is several of these at once, and
+        // `field` cuts across the other three.
+        let arms = [
+            (m.shape.borrow, "borrow"),
+            (m.shape.std_owner, "std_owner"),
+            (m.shape.slice, "slice"),
+            (m.field, "field"),
+        ];
+        if arms.iter().any(|(yes, _)| *yes) {
+            bump(format!("ty.{tree}.{vis}"));
+            for (yes, name) in arms {
+                if yes {
+                    bump(format!("ty.{tree}.of_which.{name}.{vis}"));
+                }
+            }
+            // The two sanctioned borrows, so the rest subtracts: `&self` on
+            // an accessor and `&self` on a trait method stand on the same
+            // contract, that nothing hands out a `&Foo` over C-owned memory.
+            // Which is what the unsanctioned mentions would do, so the
+            // counter audits the premise its own shares rest on.
+            if m.shape.borrow {
+                for (yes, name) in
+                    [(m.ref_accessor, "in_ref_accessor"), (m.trait_impl, "in_trait_impl")]
+                {
+                    if yes {
+                        bump(format!("ty.{tree}.of_which.borrow.of_which.{name}.{vis}"));
+                    }
+                }
+            }
+        }
+        if tree == "wrapper" && !m.shape.borrow {
+            bump(format!("ty.by_val.{vis}"));
+            // `field` and `fn_sig` partition these; `std_owner` cuts across
+            // both, so all three are shares.
+            for (yes, name) in
+                [(m.field, "field"), (!m.field, "fn_sig"), (m.shape.std_owner, "std_owner")]
+            {
+                if yes {
+                    bump(format!("ty.by_val.of_which.{name}.{vis}"));
+                }
+            }
+        }
+    }
+}
+
 struct MetricsCallbacks;
 
 impl Callbacks for MetricsCallbacks {
@@ -1468,6 +1759,10 @@ impl Callbacks for MetricsCallbacks {
                 }
                 _ => {}
             }
+        }
+
+        if is_ffibox() {
+            count_cell_mentions(tcx, &mut ptr, &mut sites);
         }
 
         for owner in tcx.hir_body_owners() {

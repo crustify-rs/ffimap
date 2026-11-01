@@ -36,6 +36,12 @@ ty.impl_block.of_which.ffibox.{layout,ref,mut,locked}.{pub,priv}
 ty.impl_trait.of_which.ffibox.{pub,priv}
 ty.impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}
 ty.total.of_which.ffibox_trait.{pub,priv}
+ty.wrapper.{pub,priv}
+ty.wrapper.of_which.{borrow,std_owner,slice,field}.{pub,priv}
+ty.wrapper.of_which.borrow.of_which.{in_ref_accessor,in_trait_impl}.{pub,priv}
+ty.ffi.<the same arms as ty.wrapper>
+ty.by_val.{pub,priv}
+ty.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}
 fn.ffibox.{taken,returned}.<primitive>.{pub,priv}
 raw_ptr.casted_to.ffibox.{borrow,slice,string,owner,other}
 ```
@@ -118,3 +124,101 @@ On libgit2-bindings `none` read 12 of 41 while 8 of those 12 were
 `define_ctype!` layout newtypes whose release and clone sit on ffibox traits
 and whose lifetimes sit on their handles. With the share it reads 4, against
 git2-rs' 15 of 97 -- the direction `impl_drop` 3 against 52 already pointed.
+
+## 8. Where the declarations mention a cell
+
+`ty.wrapper`, `ty.ffi` and `ty.by_val` read how far the crate's own
+declarations keep to the convention section 3 describes. `CCell` is the
+authority on all three: its `type C` names the raw struct a cell covers, as
+its `Ref` and `Mut` name the handles a consumer is meant to reach that
+struct's bytes through. So a `&Foo` written anywhere other than one of those
+mints is the layout published directly, and a `&Foo::C` is the raw C struct
+published with no convention over it at all.
+
+`ty.wrapper` is keyed on the cell, `ty.ffi` on its `type C`, and `ty.by_val`
+on the cell held as a value.
+
+### 8.1 Mentions, not types
+
+These count places, not types: a cell named in twenty signatures counts
+twenty times, and `--sites` lists them. A type population washes the signal
+out, because nearly every cell has an `as_ref`: `in_ref_accessor` would cover
+nearly the whole `borrow` population, and the mentions that are *not*
+sanctioned -- the ones worth reading -- would not be recoverable by
+subtracting it.
+
+### 8.2 The sanctioned borrows
+
+`define_ctype!`'s own safety comment licenses `&self` on a cell on the
+premise that *nothing hands out a `&$name` over C-owned memory*. The two
+shares are where that premise holds:
+
+| share | what it is |
+|---|---|
+| `in_ref_accessor` | the first input of an inherent `as_ref` / `as_mut`: the handle mint the macro writes |
+| `in_trait_impl` | a mention in a trait impl's method, whose signature the trait fixed rather than the crate |
+
+Both stand on the same contract, so the remainder is the surface worth
+reading -- and the remainder is exactly what could break the premise the
+shares rest on, so the counter audits its own exemption. On the campaigns it
+is short:
+
+| | `borrow.pub` | `in_ref_accessor` | `in_trait_impl` | rest |
+|---|---|---|---|---|
+| libgit2-bindings | 161 | 90 | 65 | 6 |
+| ffmpeg-bindings | 215 | 116 | 97 | 2 |
+
+libgit2-bindings' six are all `&[Foo]`, so it publishes no bare `&Foo` at all.
+ffmpeg-bindings' two are a `&[Self]` and an `as_c_ptr(&self)`, which is the
+same conversion as an accessor under a name the convention did not give it.
+
+The share is a name rule deliberately: `as_ref` and `as_mut` are the mints
+the convention names, and a conversion spelled otherwise stays in the
+remainder rather than being inferred into the exemption.
+
+### 8.3 What is not a mention
+
+Four shapes name a cell without the crate publishing its layout, and the walk
+stops at each. They are not small corrections: on libgit2-bindings they were
+76 of 80 field mentions and 308 of 423 signature mentions.
+
+| shape | why |
+|---|---|
+| an ffibox primitive (`CBox<Foo>`, `CSlice<Foo>`, `CVal<Foo>`) | it holds the cell behind its own pointer and manages it; `ty.field.ffibox` and `fn.ffibox` count the delegation, and `in_peel_set` follows the same rule |
+| `NonNull<Foo>`, `AtomicPtr<Foo>` | a pointer to the cell, which is `raw_ptr`'s position: ffibox's lifecycle strategies take `NonNull<Cell>`, so counting it would put every `c_drop` in the by-value hazard |
+| `*const Foo`, `*mut Foo` | likewise, and the `&Foo` made from one is `raw_ptr.casted_to`'s |
+| `PhantomData<Foo>` | a ZST marker holds nothing |
+
+`CVal` stops with the other primitives. It *is* inline storage, but it is
+ffibox's inline storage, which is the answer to the by-value hazard rather
+than a case of it.
+
+### 8.4 `ty.by_val`
+
+A cell with nothing above the mention is held as a value: Rust-owned storage
+that moves with whatever holds it, so a C pointer retained into it dangles
+and no owner runs the C destructor. Those are the cases `CBox` and `CVal`
+exist for.
+
+`field` and `fn_sig` partition the population; `std_owner` cuts across both,
+since `Box<Foo>` holds its cell inline on the heap. The field arm is the
+discriminating one: libgit2-bindings reads 4 fields against 115 signature
+mentions, most of the latter being `Oid`, a value type with no pointers for
+which by-value is the whole point.
+
+`{pub,priv}` carries field reachability already -- the type exported and the
+field exported, as `raw_ptr.field` keys it -- so the arm is `field` rather
+than `pub_field`, whose `.priv` leaf would be a contradiction.
+
+### 8.5 Limitations
+
+`ty.ffi` is keyed on `CCell::C`, so a raw `-sys` struct that no cell covers is
+invisible to it. libgit2-bindings names `Option<&ffi::git_filter_options>` in
+three signatures, two of them public -- a reference to C layout with no
+wrapper at all -- and the counter reads nothing, since nothing declares
+`CCell` for that struct. The wider keying, any `-sys` type, is a different
+counter.
+
+An autoref through a raw pointer forms a reference without a cast expression
+or a signature to carry it: `(*p).field`, or a method call on `*p`. Neither
+`ty.wrapper` nor `raw_ptr.casted_to.*.borrow` sees it.

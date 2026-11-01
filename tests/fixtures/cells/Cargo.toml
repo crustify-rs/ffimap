@@ -1,0 +1,6 @@
+[workspace]
+members = ["cells"]
+# Not a member: a member is a primary package, and the stub's own counters
+# would merge into the scan. It is reached as a path dependency instead.
+exclude = ["ffibox-stub"]
+resolver = "2"
