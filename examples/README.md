@@ -1,44 +1,71 @@
 # Examples
 
-`ffimap --json` documents for three safe Rust wrappers over C libraries: two
-that [crustify](https://github.com/crustify-rs/crustify) generated, scanned at
-the tip of their campaigns, and the hand-written
+ffimap documents for three safe Rust wrappers over C libraries: two that
+[crustify](https://github.com/crustify-rs/crustify) generated, scanned at the
+tip of their campaigns, and the hand-written
 [git2-rs](https://github.com/rust-lang/git2-rs), scanned as its crustify audit
 campaign found it.
 
 | Example | Wraps | Written by | Branch | Scanned commit |
 |---|---|---|---|---|
-| [`ffmpeg-bindings/ffimap.json`](ffmpeg-bindings/ffimap.json) | FFmpeg (`libavutil`) | crustify | `crustify/campaigns/20261005` | `164ee2717c` |
-| [`libgit2-bindings/ffimap.json`](libgit2-bindings/ffimap.json) | libgit2 | crustify | `crustify/devel` | `2236cf82ef` |
+| [`libgit2-bindings/ffimap.json`](libgit2-bindings/ffimap.json) | libgit2 | crustify | `crustify/devel` | `4f053ad7ba` |
+| [`ffmpeg-bindings/ffimap.json`](ffmpeg-bindings/ffimap.json) | FFmpeg | crustify | `crustify/devel` | `d410346821` |
 | [`git2-rs/ffimap.json`](git2-rs/ffimap.json) | libgit2 | hand-written (git2 0.21.0) | upstream `main` | `f6f11169de` |
 
-`crate_path` is the workspace's path in the campaign's container. git2-rs
-uses no ffibox, so its `ffibox` record counts only the owners and handles it
-wrote itself (`*_non_ffibox_*`).
+`crate_path` is the workspace's path in the campaign's container.
 
-libgit2-bindings builds against a path dependency on ffibox, so its numbers
-move with that checkout as well as with its own commit; this document was
-scanned against ffibox `55e5f8ace6`. A handful of counters shifted between
-`203b1a0` and that commit, so a rescan that does not match will not reproduce
-it exactly.
+## How they were scanned
 
-The libgit2 and git2-rs documents are on the current schema -- `counts` as a
-tree, `c_type_borrow` split by position -- and were scanned with each crate's
-own seam names declared, and `--ffibox` only where it is true:
+Both inputs that change the figures are recorded, as
+[`docs/scanning.md`](../docs/scanning.md)'s flags section explains: the peel
+set is named rather than discovered, and the seam names are declared per
+crate.
 
-    libgit2-bindings  --ffibox --seams "from_ptr as_ptr as_mut_ptr from_void_ptr as_void_ptr"
-    git2-rs                    --seams "raw from_raw raw_mut from_raw_opt from_raw_const unwrap"
+    libgit2-bindings  --ffibox --sys-crates libgit2-sys,pcre2-sys
+                      --seams "from_ptr as_ptr as_mut_ptr from_void_ptr as_void_ptr"
 
-git2-rs is built on no ffibox, so it is scanned without the flag; it still
-carries the owner and handle record, whose `non_ffibox` half counts what it
-wrote itself.
+    ffmpeg-bindings   --ffibox --sys-crates libavutil-sys,libswresample-sys,libswscale-sys,
+                                            libavcodec-sys,libavformat-sys,libavfilter-sys,
+                                            libavdevice-sys,libc-sys
+                      --seams "from_ptr as_ptr as_mut_ptr from_void_ptr as_void_ptr"
 
-so the fn and raw-pointer counters carry an `of_which.seam` share. Without it
-the two crates are not comparable: git2-rs's entire public raw-pointer surface
-is its `Binding` seam. See [docs/raw.md](../docs/raw.md)'s Seams section.
+    git2-rs                    --sys-crates libgit2-sys,libssh2-sys,libz-sys,
+                                            openssl-sys,curl-sys
+                      --seams "raw from_raw raw_mut from_raw_opt from_raw_const unwrap"
 
-The FFmpeg document predates the schema and has not been regenerated; see
-[docs/TODO.md](../docs/TODO.md).
+git2-rs is built on no ffibox, so it is scanned without the flag and its
+`--ffibox` arms are absent rather than zero. The crustify campaigns depend on
+ffibox by path, so their numbers move with that checkout as well as with their
+own commit; these were scanned against ffibox `55e5f8ace6`.
 
-Every field is described in [docs/output.md](../docs/output.md) and the
-per-area counter documents it indexes.
+## Why the seam names matter
+
+Without them the three are not comparable. git2-rs reaches every raw pointer
+through one trait it declares itself:
+
+| | `in_impl` | of which `seam` |
+|---|---|---|
+| git2-rs | 134 | **125** |
+| libgit2-bindings | 64 | 0 |
+| ffmpeg-bindings | 93 | 0 |
+
+git2-rs' trait-impl pointer surface is `Binding::raw` and `Binding::from_raw`,
+implemented for 91 types -- plumbing a consumer of the safe API never
+performs. The crustify campaigns' `in_impl` is ffibox's lifecycle strategies
+(`c_drop`, `c_new`, `c_up_ref`), which take a `NonNull` but are not in either
+crate's declared seam list, because nothing local defines them: the seam
+traits' `as_ptr` and `from_ptr` are ffibox's provided methods, so no local fn
+carries the name.
+
+The same reading applies to `returned`: 66 of libgit2-bindings' 86 and 14 of
+git2-rs' 19 are seams.
+
+## Reading them
+
+Every counter is described in [`docs/schema.md`](../docs/schema.md), the
+`--ffibox` arms in [`docs/ffibox.md`](../docs/ffibox.md), and how a scan is
+produced in [`docs/scanning.md`](../docs/scanning.md).
+
+A figure is comparable with another only under the same ffimap commit, peel
+set and seam list. These three are not comparable with any document scanned
+before the counter tree replaced the flat block.

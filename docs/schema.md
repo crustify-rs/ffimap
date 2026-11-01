@@ -4,6 +4,9 @@ The counters ffimap reports, what each one counts, and how it is decided. Every
 counter is determined from declarations and single expression nodes: no value is
 followed, no cast chain is composed, and no dataflow is performed.
 
+How a scan runs and what it requires is [`scanning.md`](scanning.md); the
+`--ffibox` arms and the conventions they read are [`ffibox.md`](ffibox.md).
+
 ## 1. The tree
 
 ```
@@ -228,18 +231,9 @@ after the hand-written total subtracts it.
 
 ### 1.1 Vocabularies
 
-```
-<trait>      layout    CCell · CPlainElem · CZeroable
-             allocate  CAlloc · CAllocZeroed · CNew
-             release   CDrop · CDispose · CLenDrop
-             clone     CDupClone · CRefClone · CLenClone
-             seam      CRefSeam · CMutSeam · CLockedSeam
-             guard     CGuarded · CGuardedAll · LockScope
-
-<primitive>  owner     CBox · CArc · CStrBox · CVec · CVal
-             borrow    CBorrowedPtr · CSlice · CSliceMut
-             guard     CGuardedRef · CGuard
-```
+The `<trait>` and `<primitive>` arms are generated from ffibox's vocabulary,
+which [`ffibox.md`](ffibox.md) lists. They are present only under `--ffibox`,
+absent rather than zero without it.
 
 ### 1.2 Partitions and shares
 
@@ -379,16 +373,8 @@ AddrOf(Ref, Mut, Unary(Deref, p))
 
 ### 4.2 The ffibox table
 
-Derived, not hand-written: the adoption methods are `from_raw`, `from_raw_with`,
-`from_ptr`, `from_c`, `from_c_with`, `from_raw_parts`, `from_raw_parts_with`,
-`from_raw_parts_or_empty` and `from_raw_parts_or_empty_with`, crossed with the
-`<primitive>` vocabulary and bucketed by the primitive's group -- `CStrBox` to
-`string`, the other owners to `owner`, `CBorrowedPtr` to `borrow`, `CSlice` and
-`CSliceMut` to `slice`.
-
-`as_ref`, `as_slice`, `as_c_str` and `as_bytes` are excluded: they take `&self`
-on an owner, so they are owner-to-borrow, not raw-to-borrow. `as_ptr`,
-`as_mut_ptr`, `as_c_ptr` and `as_elem_ptr` run the other direction.
+Derived from ffibox's adoption methods crossed with its primitives, as
+[`ffibox.md`](ffibox.md) describes.
 
 ### 4.3 `other`
 
@@ -397,19 +383,7 @@ For `local_seam` it holds a seam returning a bespoke handle. For `std` and
 shape, so a nonzero reading means the name table and the shape classifier have
 drifted apart.
 
-## 5. ffibox impls
-
-`ty.impl_trait.ffibox.<trait>.{handwritten,macro}` splits each impl by whether it was
-generated. ffibox ships `define_ctype!` and the `impl_c*!` family
-(`impl_cdrop!`, `impl_cdupclone!`, `impl_cdispose!`, `impl_clendrop!`,
-`impl_clenclone!`, `impl_crefclone!`, `impl_cguarded!`), so an impl either
-carries expansion context or was typed out, and `Span::from_expansion()` decides
-it exactly.
-
-`macro` is a reserved word; the driver's enum variant is spelled otherwise while
-the emitted key stays `macro`.
-
-## 6. Deliberate asymmetries
+## 5. Deliberate asymmetries
 
 `ty.impl_trait.ffibox` splits `{handwritten,macro}` but not `{pub,priv}`: whether a
 generator was used does not vary with visibility, and the split would cost 68
@@ -423,7 +397,7 @@ bookkeeping.
 `unsafe_op_in_unsafe_fn` denied, every `unsafe fn` doing anything raw has a
 block by construction, so counting it there would measure the lint.
 
-## 7. Retired counters
+## 6. Retired counters
 
 The counters the tree replaced are gone, not kept beside it. A second answer
 to a question the tree answers is a liability: the two drift, and a reader has
@@ -484,19 +458,13 @@ With it goes the pass itself: `compute_c_visible`, `is_c_accessible`,
 membership is the scanned crate or the named `-sys` crates -- so the tree is
 unchanged by its removal.
 
-## 8. Sites
+## 7. Sites
 
-`--sites` takes a tree counter as its dotted path, validated against the
-prefix and the family under it rather than against a list of every leaf. The
-leaves are open on purpose: the ffibox arms are generated from a vocabulary of
-17 traits and 10 primitives, so an exhaustive list would be a second copy of
-this document and would drift from the driver's.
+`--sites` reports where a counter's increments are, by its dotted path. The
+validation, and why a macro-generated item reports its macro's call site, are
+[`scanning.md`](scanning.md)'s.
 
-`all` means the owner / handle counters, which are the only closed list left.
-Enumerating every leaf of the tree is a different request, and nothing needs it
-yet.
-
-## 9. Limitations
+## 8. Limitations
 
 `raw_ptr.casted_to` is a filter, not a partition. A crate that hand-rolls a
 conversion and does not declare it in `--seams` is invisible, not filed under
@@ -520,3 +488,51 @@ until it is split, the arm is not a measure of the crate's own unsafety.
 `code.unsafe_call.ffi` counts calls through function pointers, which earlier
 versions keyed on `is_foreign_item` and missed. Figures measured before this
 change undercount and are not comparable.
+
+### 8.1 No target values
+
+ffimap has none, and this is the place that says so. Absolute counts are not
+comparable across crates of different size, and lower is not automatically
+better: a wrapper over C must contain unsafe, and folding 600 small audited
+blocks into 200 large ones improves the number while making the crate worse.
+A reader who wants a rate divides the leaves it names.
+
+Finding what is worth looking at is the opposite kind of work, and belongs to
+a reviewer who reads the code, forms suspicions and defends them. `none` and
+`no_seam_trait` name an absence, not a defect.
+
+### 8.2 Rules that were tried and rejected
+
+Kept because the reasoning is the useful part, and a counter that looks
+obvious often fails for a reason worth recording.
+
+- **A cast between two named types as evidence of C ownership.** Reading one
+  would mean composing casts from unrelated program points into a chain,
+  symmetrically, which says nothing about who owns the bytes. Measured on
+  libgit2-bindings (12 such casts) and git2-rs (42), it admitted no type that
+  declarations and containment did not already reach.
+- **A C-reachability pass behind the counters.** `compute_c_visible` and
+  `structural_wrapper` classified every type by whether C reads its bytes, and
+  fed the whole `c_type_*` family. The family is retired: `c_type_borrow` read
+  660 on libgit2-bindings, which is not a discriminating signal, and the
+  hazard it was reaching for -- `&W` over memory C may write -- is a finding
+  for a reviewer rather than a census cell.
+- **Layout newtypes as a counter.** `c_type_layout_wrapper` read 71 on
+  libgit2-bindings and 3 on git2-rs, which separates the two crates' binding
+  *styles* rather than their soundness; `ty.storing_raw_ptr` does that more
+  directly. Reviving it would revive the whole reachability pass for one
+  number.
+- **Owner and handle detection by shape.** `holds_c_pointer` found
+  hand-written owners and handles structurally, independent of any framework.
+  `ty.storing_raw_ptr` and its declaration shares answer what the shape test
+  was standing in for -- which types manage a pointer, and what they declare
+  about it -- without a wrapper taxonomy.
+- **Classifying a handle by the seam trait it implements.** It misses every
+  hand-written cell, since `define_ctype!` generates the seams only for a cell
+  with no parameters of its own. `CCell`'s associated types are the authority
+  (see [`ffibox.md`](ffibox.md)).
+- **Excluding trait-impl methods from `fn.*`.** The justification was that
+  another crate fixed the signature, but a foreign *declaration* has no body
+  and never reaches the walk, so the rule only ever excluded the crate's own
+  code -- including `impl Drop for Foo { fn drop }`, the one shape
+  `fn.safe.of_which.with_unsafe` exists to find.

@@ -1,284 +1,508 @@
 {
-  "crate_path": "/target/crustify/rust",
+  "crate_path": "/target/ffmpeg-bindings",
   "sys_crates": [
-    "clang_sys",
     "libavcodec_sys",
     "libavdevice_sys",
     "libavfilter_sys",
     "libavformat_sys",
     "libavutil_sys",
+    "libc_sys",
     "libswresample_sys",
-    "libswscale_sys",
-    "prettyplease",
-    "windows_sys"
+    "libswscale_sys"
   ],
   "counts": {
-    "code_lines": 17885,
-    "total_stmts": 3844,
-    "safe_fns_pub": 1595,
-    "safe_fns_priv": 559,
-    "unsafe_blocks": 1743,
-    "unsafe_block_stmts": 100,
-    "unsafe_block_lines": 2957,
-    "unsafe_block_code_lines": 2912,
-    "unsafe_blocks_wrapper_impl": 1085,
-    "unsafe_blocks_ffi_export": 29,
-    "unsafe_fns": 241,
-    "unsafe_fns_pub": 21,
-    "unsafe_fns_priv": 220,
-    "unsafe_impls": 406,
-    "unsafe_traits": 2,
-    "unsafe_send_impl": 115,
-    "unsafe_sync_impl": 115,
-    "c_type_wrapper": 59,
-    "c_type_borrow_sanctioned": 181,
-    "c_type_borrow_non_sanctioned": 2,
-    "c_type_borrow_opaque": 36,
-    "c_type_borrow_generic": 8,
-    "raw_ptr_as_slice_borrow": 43,
-    "c_type_by_val_fn_sig_pub": 165,
-    "c_type_by_val_fn_sig_priv": 18,
-    "c_type_by_val_ty_pub_fields_pub": 1,
-    "c_type_by_val_ty_pub_fields_priv": 0,
-    "c_type_by_val_ty_priv": 0,
-    "c_type_std_owner_fn_sig_pub": 0,
-    "c_type_std_owner_fn_sig_priv": 0,
-    "c_type_std_owner_ty_pub_fields_pub": 0,
-    "c_type_std_owner_ty_pub_fields_priv": 0,
-    "c_type_std_owner_ty_priv": 0,
-    "non_c_type_borrow_pub_safe": 1431,
-    "non_c_type_borrow_pub_unsafe": 10,
-    "non_c_type_borrow_priv_safe": 492,
-    "non_c_type_borrow_priv_unsafe": 3,
-    "raw_ptr_ty_pub_fields_pub": 0,
-    "raw_ptr_ty_pub_fields_priv": 18,
-    "raw_ptr_ty_priv": 0,
-    "raw_ptr_fn_pub_safe": 20,
-    "raw_ptr_fn_pub_unsafe": 6,
-    "raw_ptr_fn_priv_safe": 306,
-    "raw_ptr_fn_priv_unsafe": 213,
-    "raw_ptr_has_c_type_wrapper": 259,
-    "raw_ptr_derefs_rd": 275,
-    "raw_ptr_derefs_wr": 236,
-    "raw_ptr_derefs_outside_impl": 12,
-    "void_ptr_ty_pub_fields_pub": 0,
-    "void_ptr_ty_pub_fields_priv": 8,
-    "void_ptr_ty_priv": 0,
-    "void_ptr_fn_pub_safe": 17,
-    "void_ptr_fn_pub_unsafe": 2,
-    "void_ptr_fn_priv_safe": 146,
-    "void_ptr_fn_priv_unsafe": 74,
-    "drop_impl": 4,
-    "clone_impl": 1,
-    "ffi_calls": 594
-  },
-  "counts_unavailable": null,
-  "ffibox": {
-    "counts": {
-      "fn_sig_ffibox_owner_pub": 164,
-      "fn_sig_ffibox_owner_priv": 20,
-      "fn_sig_ffibox_handle_pub": 1109,
-      "fn_sig_ffibox_handle_priv": 543,
-      "fn_sig_non_ffibox_owner_pub": 5,
-      "fn_sig_non_ffibox_owner_priv": 0,
-      "fn_sig_non_ffibox_handle_pub": 95,
-      "fn_sig_non_ffibox_handle_priv": 26,
-      "ty_pub_fields_pub_ffibox_owner": 2,
-      "ty_pub_fields_priv_ffibox_owner": 14,
-      "ty_priv_ffibox_owner": 1,
-      "ty_pub_fields_pub_ffibox_handle": 3,
-      "ty_pub_fields_priv_ffibox_handle": 128,
-      "ty_priv_ffibox_handle": 4,
-      "ty_pub_fields_pub_non_ffibox_owner": 0,
-      "ty_pub_fields_priv_non_ffibox_owner": 0,
-      "ty_priv_non_ffibox_owner": 0,
-      "ty_pub_fields_pub_non_ffibox_handle": 1,
-      "ty_pub_fields_priv_non_ffibox_handle": 5,
-      "ty_priv_non_ffibox_handle": 1,
-      "ffibox_impl_macro": 70,
-      "ffibox_impl_manual": 86,
-      "ffibox_define_ctype_macro": 59,
-      "ffibox_define_ctype_manual": 0,
-      "ffibox_ccell_not_layout": 0,
-      "ffibox_layout_not_ccell": 0
+    "code": {
+      "loc": {
+        "total": 18378,
+        "unsafe": 3094
+      },
+      "unsafe_block": {
+        "of_which": {
+          "ffi_export": 38
+        },
+        "total": 2156
+      },
+      "unsafe_call": {
+        "ffi": 603,
+        "rust": 1067,
+        "total": 1670
+      },
+      "tests": {
+        "loc": {
+          "total": 87439,
+          "unsafe": 7236
+        },
+        "unsafe_block": 6677,
+        "fn": 4962,
+        "total": 99078
+      }
     },
-    "by": {
-      "fn_sig_ffibox_owner_pub": {
-        "CArc": 8,
-        "CBox": 88,
-        "CStrBox": 17,
-        "CVal": 17,
-        "CVec": 34
+    "fn": {
+      "ffibox": {
+        "returned": {
+          "CArc": {
+            "pub": 2,
+            "total": 2
+          },
+          "CBox": {
+            "pub": 6,
+            "total": 6
+          },
+          "CSlice": {
+            "priv": 1,
+            "pub": 4,
+            "total": 5
+          },
+          "CSliceMut": {
+            "pub": 4,
+            "total": 4
+          },
+          "CVal": {
+            "priv": 2,
+            "pub": 5,
+            "total": 7
+          },
+          "CVec": {
+            "priv": 1,
+            "pub": 3,
+            "total": 4
+          },
+          "total": 28
+        },
+        "taken": {
+          "CArc": {
+            "pub": 1,
+            "total": 1
+          },
+          "CBox": {
+            "priv": 4,
+            "pub": 14,
+            "total": 18
+          },
+          "CStrBox": {
+            "pub": 2,
+            "total": 2
+          },
+          "CVal": {
+            "priv": 1,
+            "pub": 4,
+            "total": 5
+          },
+          "CVec": {
+            "pub": 8,
+            "total": 8
+          },
+          "total": 34
+        },
+        "total": 62
       },
-      "fn_sig_ffibox_owner_priv": {
-        "CBox": 12,
-        "CStrBox": 2,
-        "CVal": 1,
-        "CVec": 5
+      "safe": {
+        "of_which": {
+          "with_unsafe": {
+            "priv": 92,
+            "pub": 1026,
+            "total": 1118
+          }
+        },
+        "priv": 367,
+        "pub": 2552,
+        "total": 2919
       },
-      "fn_sig_ffibox_handle_pub": {
-        "CSlice": 6,
-        "CSliceMut": 6,
-        "Mut": 584,
-        "Ref": 510,
-        "libavutil::opt::BareObject": 3
+      "total": {
+        "of_which": {
+          "macro": {
+            "priv": 79,
+            "pub": 904,
+            "total": 983
+          }
+        },
+        "priv": 410,
+        "pub": 2618,
+        "total": 3028
       },
-      "fn_sig_ffibox_handle_priv": {
-        "CSlice": 2,
-        "Mut": 204,
-        "Ref": 331,
-        "libavutil::hwcontext::HwFrames": 6
+      "unsafe": {
+        "priv": 43,
+        "pub": 66,
+        "total": 109
+      }
+    },
+    "raw_ptr": {
+      "casted_to": {
+        "ffibox": {
+          "owner": 78,
+          "string": 15,
+          "total": 93
+        },
+        "local_seam": {
+          "other": 231,
+          "total": 231
+        },
+        "std": {
+          "borrow": 15,
+          "owner": 14,
+          "slice": 16,
+          "string": 25,
+          "total": 70
+        },
+        "total": 394
       },
-      "fn_sig_non_ffibox_owner_pub": {
-        "libavutil::frame::SideDataArray": 2,
-        "libavutil::hwcontext::HwConfig": 2,
-        "libavutil::mem::DynArray": 1
+      "deref": {
+        "rd": 257,
+        "wr": 220,
+        "total": 477
       },
-      "fn_sig_non_ffibox_owner_priv": {},
-      "fn_sig_non_ffibox_handle_pub": {
-        "libavutil::frame::SideDataArrayRef": 8,
-        "libavutil::log::ChildClasses": 1,
-        "libavutil::log::Record": 8,
-        "libavutil::opt::ChildrenMut": 2,
-        "libavutil::opt::ObjectMut": 29,
-        "libavutil::opt::ObjectRef": 46,
-        "libavutil::opt::PotentialChildren": 1
+      "field": {
+        "of_which": {
+          "void": {
+            "priv": 8,
+            "total": 8
+          }
+        },
+        "priv": 18,
+        "total": 18
       },
-      "fn_sig_non_ffibox_handle_priv": {
-        "libavutil::frame::SideDataArrayRef": 3,
-        "libavutil::log::Record": 1,
-        "libavutil::opt::ObjectMut": 5,
-        "libavutil::opt::ObjectRef": 17
+      "in_impl": {
+        "of_which": {
+          "void": {
+            "safe": {
+              "priv": 17,
+              "total": 17
+            },
+            "total": 17
+          }
+        },
+        "safe": {
+          "priv": 24,
+          "pub": 15,
+          "total": 39
+        },
+        "unsafe": {
+          "priv": 2,
+          "pub": 52,
+          "total": 54
+        },
+        "total": 93
       },
-      "ty_pub_fields_pub_ffibox_owner": {
-        "CStrBox": 2
+      "returned": {
+        "of_which": {
+          "seam": {
+            "safe": {
+              "priv": 3,
+              "pub": 2,
+              "total": 5
+            },
+            "total": 5
+          },
+          "void": {
+            "safe": {
+              "priv": 6,
+              "pub": 10,
+              "total": 16
+            },
+            "total": 16
+          }
+        },
+        "safe": {
+          "priv": 35,
+          "pub": 13,
+          "total": 48
+        },
+        "unsafe": {
+          "priv": 2,
+          "total": 2
+        },
+        "total": 50
       },
-      "ty_pub_fields_priv_ffibox_owner": {
-        "CArc": 2,
-        "CBox": 7,
-        "CVec": 5
+      "taken": {
+        "of_which": {
+          "seam": {
+            "unsafe": {
+              "pub": 2,
+              "total": 2
+            },
+            "total": 2
+          },
+          "void": {
+            "safe": {
+              "priv": 5,
+              "pub": 7,
+              "total": 12
+            },
+            "unsafe": {
+              "priv": 15,
+              "pub": 2,
+              "total": 17
+            },
+            "total": 29
+          }
+        },
+        "safe": {
+          "priv": 11,
+          "pub": 7,
+          "total": 18
+        },
+        "unsafe": {
+          "priv": 32,
+          "pub": 6,
+          "total": 38
+        },
+        "total": 56
       },
-      "ty_priv_ffibox_owner": {
-        "CBox": 1
+      "total": {
+        "safe": {
+          "priv": 64,
+          "pub": 20,
+          "total": 84
+        },
+        "unsafe": {
+          "priv": 34,
+          "pub": 6,
+          "total": 40
+        },
+        "total": 124
+      }
+    },
+    "ty": {
+      "ffibox": {
+        "ccell": {
+          "pub": 58,
+          "total": 58
+        },
+        "total": 58
       },
-      "ty_pub_fields_pub_ffibox_handle": {
-        "CSlice": 1,
-        "Ref": 2
+      "field": {
+        "ffibox": {
+          "CArc": {
+            "pub": 1,
+            "total": 1
+          },
+          "CBox": {
+            "pub": 6,
+            "total": 6
+          },
+          "CSlice": {
+            "priv": 1,
+            "pub": 1,
+            "total": 2
+          },
+          "CStrBox": {
+            "pub": 1,
+            "total": 1
+          },
+          "CVec": {
+            "pub": 5,
+            "total": 5
+          },
+          "total": 15
+        },
+        "total": 15
       },
-      "ty_pub_fields_priv_ffibox_handle": {
-        "CBorrowedPtr": 59,
-        "Ref": 69
+      "generic": {
+        "of_which": {
+          "lifetime": {
+            "priv": 6,
+            "pub": 143,
+            "total": 149
+          },
+          "storing_raw_ptr": {
+            "priv": 1,
+            "pub": 15,
+            "total": 16
+          },
+          "type": {
+            "priv": 1,
+            "pub": 3,
+            "total": 4
+          }
+        },
+        "priv": 7,
+        "pub": 146,
+        "total": 153
       },
-      "ty_priv_ffibox_handle": {
-        "CSlice": 1,
-        "Mut": 1,
-        "Ref": 2
+      "impl_block": {
+        "of_which": {
+          "ffibox": {
+            "layout": {
+              "pub": 108,
+              "total": 108
+            },
+            "mut": {
+              "pub": 121,
+              "total": 121
+            },
+            "ref": {
+              "pub": 71,
+              "total": 71
+            },
+            "total": 300
+          },
+          "other": {
+            "priv": 9,
+            "pub": 134,
+            "total": 143
+          }
+        },
+        "priv": 9,
+        "pub": 434,
+        "total": 443
       },
-      "ty_pub_fields_pub_non_ffibox_owner": {},
-      "ty_pub_fields_priv_non_ffibox_owner": {},
-      "ty_priv_non_ffibox_owner": {},
-      "ty_pub_fields_pub_non_ffibox_handle": {
-        "libavutil::opt::ObjectRef": 1
+      "impl_trait": {
+        "of_which": {
+          "derived": {
+            "priv": 82,
+            "pub": 1100,
+            "total": 1182
+          },
+          "ffibox": {
+            "of_which": {
+              "CAlloc": {
+                "handwritten": 4,
+                "total": 4
+              },
+              "CAllocZeroed": {
+                "handwritten": 2,
+                "total": 2
+              },
+              "CCell": {
+                "macro": 58,
+                "total": 58
+              },
+              "CDispose": {
+                "macro": 1,
+                "total": 1
+              },
+              "CDrop": {
+                "handwritten": 25,
+                "macro": 6,
+                "total": 31
+              },
+              "CDupClone": {
+                "handwritten": 5,
+                "macro": 1,
+                "total": 6
+              },
+              "CLenClone": {
+                "macro": 1,
+                "total": 1
+              },
+              "CLenDrop": {
+                "macro": 2,
+                "total": 2
+              },
+              "CMutSeam": {
+                "macro": 58,
+                "total": 58
+              },
+              "CNew": {
+                "handwritten": 9,
+                "total": 9
+              },
+              "CPlainElem": {
+                "handwritten": 17,
+                "total": 17
+              },
+              "CRefClone": {
+                "handwritten": 3,
+                "total": 3
+              },
+              "CRefSeam": {
+                "macro": 58,
+                "total": 58
+              },
+              "CZeroable": {
+                "handwritten": 26,
+                "total": 26
+              }
+            },
+            "pub": 276,
+            "total": 276
+          },
+          "local": {
+            "priv": 48,
+            "pub": 22,
+            "total": 70
+          },
+          "send_sync": {
+            "send": {
+              "pub": 112,
+              "total": 112
+            },
+            "sync": {
+              "pub": 112,
+              "total": 112
+            },
+            "total": 224
+          },
+          "std": {
+            "priv": 127,
+            "pub": 1716,
+            "total": 1843
+          },
+          "unsafe": 398
+        },
+        "priv": 175,
+        "pub": 2014,
+        "total": 2189
       },
-      "ty_pub_fields_priv_non_ffibox_handle": {
-        "libavutil::frame::SideDataArrayRef": 2,
-        "libavutil::opt::ObjectRef": 3
+      "storing_raw_ptr": {
+        "of_which": {
+          "ffibox": {
+            "pub": 21,
+            "total": 21
+          },
+          "has_lifetime": {
+            "priv": 1,
+            "pub": 14,
+            "total": 15
+          },
+          "impl_clone": {
+            "priv": 1,
+            "pub": 11,
+            "total": 12
+          },
+          "impl_drop": {
+            "pub": 3,
+            "total": 3
+          },
+          "impl_send_sync": {
+            "pub": 22,
+            "total": 22
+          },
+          "pub_field": {
+            "pub": 1,
+            "total": 1
+          }
+        },
+        "priv": 1,
+        "pub": 39,
+        "total": 40
       },
-      "ty_priv_non_ffibox_handle": {
-        "libavutil::opt::ObjectRef": 1
-      },
-      "ffibox_impl_macro": {
-        "CCell": 59,
-        "CDispose": 1,
-        "CDrop": 6,
-        "CDupClone": 1,
-        "CLenClone": 1,
-        "CLenDrop": 2
-      },
-      "ffibox_impl_manual": {
-        "CAlloc": 4,
-        "CAllocZeroed": 2,
-        "CDrop": 22,
-        "CDupClone": 4,
-        "CNew": 7,
-        "CPlainElem": 17,
-        "CRefClone": 3,
-        "CZeroable": 27
-      },
-      "ffibox_define_ctype_macro": {
-        "libavutil::aes::Aes": 1,
-        "libavutil::aes_ctr::AesCtr": 1,
-        "libavutil::blowfish::Blowfish": 1,
-        "libavutil::bprint::BPrint": 1,
-        "libavutil::bprint::BPrintFields": 1,
-        "libavutil::bprint::Tm": 1,
-        "libavutil::buffer::Buffer": 1,
-        "libavutil::buffer::BufferPool": 1,
-        "libavutil::buffer::BufferReference": 1,
-        "libavutil::camellia::Camellia": 1,
-        "libavutil::cast5::Cast5": 1,
-        "libavutil::channel_layout::ChannelCustom": 1,
-        "libavutil::channel_layout::ChannelLayout": 1,
-        "libavutil::csp::CieXy": 1,
-        "libavutil::csp::ColorPrimariesDescriptor": 1,
-        "libavutil::csp::LumaCoefficients": 1,
-        "libavutil::csp::PrimaryCoefficients": 1,
-        "libavutil::des::Des": 1,
-        "libavutil::dict::Dictionary": 1,
-        "libavutil::dict::DictionaryEntry": 1,
-        "libavutil::eval::Expr": 1,
-        "libavutil::frame::Frame": 1,
-        "libavutil::frame::RegionOfInterest": 1,
-        "libavutil::frame::SideData": 1,
-        "libavutil::frame::SideDataDescriptor": 1,
-        "libavutil::hash::HashContext": 1,
-        "libavutil::hmac::Hmac": 1,
-        "libavutil::hwcontext::DeviceContext": 1,
-        "libavutil::hwcontext::DeviceReference": 1,
-        "libavutil::hwcontext::FramesConstraints": 1,
-        "libavutil::hwcontext::FramesContext": 1,
-        "libavutil::hwcontext::FramesReference": 1,
-        "libavutil::intfloat::IntFloat32": 1,
-        "libavutil::intfloat::IntFloat64": 1,
-        "libavutil::intreadwrite::Alias16": 1,
-        "libavutil::intreadwrite::Alias32": 1,
-        "libavutil::intreadwrite::Alias64": 1,
-        "libavutil::intreadwrite::Unaligned16": 1,
-        "libavutil::intreadwrite::Unaligned32": 1,
-        "libavutil::intreadwrite::Unaligned64": 1,
-        "libavutil::log::Class": 1,
-        "libavutil::md5::Md5": 1,
-        "libavutil::murmur3::Murmur3": 1,
-        "libavutil::opt::OptionArrayDef": 1,
-        "libavutil::opt::OptionDef": 1,
-        "libavutil::opt::OptionRange": 1,
-        "libavutil::opt::OptionRanges": 1,
-        "libavutil::pixdesc::ComponentDescriptor": 1,
-        "libavutil::pixdesc::PixelFormatDescriptor": 1,
-        "libavutil::rational::Rational": 1,
-        "libavutil::rc4::Rc4": 1,
-        "libavutil::refstruct::RefStructOpaque": 1,
-        "libavutil::refstruct::RefStructPool": 1,
-        "libavutil::ripemd::Ripemd": 1,
-        "libavutil::sha512::Sha512": 1,
-        "libavutil::sha::Sha": 1,
-        "libavutil::tea::Tea": 1,
-        "libavutil::twofish::Twofish": 1,
-        "libavutil::xtea::Xtea": 1
-      },
-      "ffibox_define_ctype_manual": {},
-      "ffibox_ccell_not_layout": {},
-      "ffibox_layout_not_ccell": {}
+      "total": {
+        "of_which": {
+          "ffibox_trait": {
+            "pub": 221,
+            "total": 221
+          },
+          "local_trait": {
+            "pub": 9,
+            "total": 9
+          },
+          "no_trait": {
+            "priv": 6,
+            "pub": 1,
+            "total": 7
+          },
+          "std_trait": {
+            "priv": 18,
+            "pub": 297,
+            "total": 315
+          }
+        },
+        "priv": 24,
+        "pub": 332,
+        "total": 356
+      }
     }
   },
-  "derived": {
-    "fns_pub": 1616,
-    "fns_priv": 779,
-    "unsafe_fn_pub_ratio": 0.0871,
-    "unsafe_fn_share_of_pub_fns": 0.013,
-    "raw_ptr_pub": 44,
-    "raw_ptr_pub_safe_interface": 20,
-    "unsafe_loc_ratio": 0.1628,
-    "loc_per_unsafe_block": 10.3
-  }
+  "counts_unavailable": null
 }

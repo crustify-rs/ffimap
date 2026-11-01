@@ -128,6 +128,10 @@
           "string": 4,
           "total": 146
         },
+        "local_seam": {
+          "other": 272,
+          "total": 272
+        },
         "std": {
           "borrow": 13,
           "owner": 9,
@@ -135,7 +139,7 @@
           "string": 84,
           "total": 114
         },
-        "total": 260
+        "total": 532
       },
       "deref": {
         "rd": 195,
@@ -160,6 +164,14 @@
       },
       "returned": {
         "of_which": {
+          "seam": {
+            "safe": {
+              "priv": 65,
+              "pub": 1,
+              "total": 66
+            },
+            "total": 66
+          },
           "void": {
             "safe": {
               "priv": 1,
@@ -186,6 +198,13 @@
       },
       "taken": {
         "of_which": {
+          "seam": {
+            "unsafe": {
+              "priv": 35,
+              "total": 35
+            },
+            "total": 35
+          },
           "void": {
             "unsafe": {
               "priv": 13,

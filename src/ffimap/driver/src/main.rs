@@ -139,37 +139,10 @@ fn is_c_void(tcx: TyCtxt<'_>, p: Ty<'_>) -> bool {
     matches!(p.kind(), ty::TyKind::Adt(def, _) if tcx.item_name(def.did()).as_str() == "c_void")
 }
 
-/// The wrapper inventory of the current crate: `wrapper ADT -> the C types it
-/// wraps`, empty where the wrapper names no ADT (`*mut c_void`) — a LAYOUT
-/// newtype may carry several. Key presence IS `is_wrapper`; the flattened
-/// values are `wrapped_c`.
-// ------------------------------------------------------------ C visibility
-//
-// Which types C can reach memory of. `#[repr(C)]` alone does not say: Rust
-// crates use it for their own layouts too. So C reachability is decided by
-// provenance, as a closure over the types the build hands to C:
-//
-//  * seeds: every type behind a pointer (`*const T`, `*mut T`, `&T`,
-//    `NonNull<T>`, nested) in the signature of a foreign fn (an `extern`
-//    block), of a fn the crate defines with a non-Rust ABI (callbacks, the
-//    `#[no_mangle]` gateway), or of a C-ABI fn-pointer type anywhere in the
-//    crate (vtables, callback slots); a foreign static's own type; the types
-//    a pointer cast or transmute converts to or from `*c_void` (a payload
-//    handed to C, or C memory typed by Rust); and every `#[repr(C)]` type of
-//    a sys crate, one with a Cargo `links` key (`UM_SYS_CRATES`);
-//  * closure: a field a reachable type holds by value, or points to; either
-//    side of a pointer cast or transmute whose other side is reachable; and a
-//    local `#[repr(C)]` / `#[repr(transparent)]` type that holds a reachable
-//    type by value (a wrapper whose bytes are C's).
-//
-// Passing a type by VALUE is a copy and seeds nothing. Generic wrappers
-// (`W<T>` over a C type) and memory C reaches through an erased `void *`
-// with no visible cast are not seen; a reachable TYPE does not mean every
-// value of it lives in C memory (see docs/ctypes.md).
-
-/// The crates whose `#[repr(C)]` types are C's, by crate name: `UM_SYS_CRATES`,
-/// comma-separated, set by `ffimap` from Cargo's `links` keys plus
-/// `--sys-crates`.
+/// The crates whose `#[repr(C)]` types are C's and whose types the field walk
+/// descends through, by crate name: `UM_SYS_CRATES`, comma-separated, which
+/// `ffimap` sets from `--sys-crates` alone. Nothing is discovered; see
+/// docs/scanning.md.
 fn sys_crates() -> &'static HashSet<String> {
     static SYS: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
     SYS.get_or_init(|| {
