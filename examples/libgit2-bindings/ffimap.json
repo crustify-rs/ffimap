@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "79998b41f8fa7b9cf9434cf283b65c931e05d5d3",
+    "ffimap": "f661513426ca3c37a493eabbf85d589ec9a30f6b",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -284,14 +284,14 @@
           "of_which": {
             "borrow": {
               "of_which": {
-                "in_ref_accessor": {
+                "self_in_ref_accessor": {
                   "priv": 4,
                   "pub": 90,
                   "total": 94
                 },
-                "in_trait_impl": {
-                  "pub": 65,
-                  "total": 65
+                "self_in_trait_impl": {
+                  "pub": 54,
+                  "total": 54
                 }
               },
               "priv": 4,
