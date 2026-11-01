@@ -354,6 +354,21 @@ class CanaryTests(unittest.TestCase):
             + self.at("ty.total.of_which.no_trait.pub"),
             self.at("ty.total.pub"))
 
+    def test_test_code_is_counted_apart_from_the_library(self) -> None:
+        """The fixture has no `#[cfg(test)]` code and no `tests/`, so the only
+        thing under `code.tests` is the harness `main` rustc generates for
+        each test binary -- `canary` and `canary_vendor`, two.
+
+        `code.tests.loc` is 0 because each lib test target recompiles the same
+        library and its figures are subtracted, which is what keeps the
+        library's own counters where they were when the scan built only `--lib`.
+        """
+        self.assertEqual(self.at("code.tests.fn"), 2)
+        self.assertEqual(self.at("code.tests.loc.total"), 0)
+        self.assertEqual(self.at("code.tests.unsafe_block"), 0)
+        # ...and the library's are untouched by the wider build.
+        self.assertEqual(self.at("code.loc.total"), 136)
+
     def test_fn_partition_sums_to_total(self) -> None:
         for vis in ("pub", "priv"):
             with self.subTest(vis=vis):

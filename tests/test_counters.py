@@ -31,7 +31,7 @@ class EmissionTests(unittest.TestCase):
         fmt = next(f for f in re.findall(r'"(\{\{\\"crate\\".*?\}\})"', src)
                    if "counts" in f)
         self.assertEqual(re.findall(r'\\"(\w+)\\":', fmt),
-                         ["crate", "counts", "sites"])
+                         ["crate", "test", "counts", "sites"])
 
     def test_every_counts_field_reaches_the_tree(self) -> None:
         """`Counts` holds only what is accumulated while walking and then

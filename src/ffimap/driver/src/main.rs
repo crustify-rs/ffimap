@@ -263,6 +263,38 @@ type PtrTally = std::collections::BTreeMap<String, u64>;
 /// The counters the schema places in the tree but the main pass counts as
 /// flat fields. They are mirrored rather than recounted, so the tree and the
 /// flat record cannot disagree about the same measurement.
+/// Whether this invocation is building a test harness. Cargo passes `--test`
+/// for the lib's test target and for each integration test crate, so the
+/// driver can tell test code from the library it is scanning without
+/// inspecting a single item.
+fn is_test_build() -> bool {
+    std::env::args().any(|a| a == "--test")
+}
+
+/// The test build's counters, under `code.tests`. Only the quantities that
+/// mean the same thing for a test as for the library -- its size, its fns and
+/// its unsafe -- because the rest of the tree asks what a crate's API hands
+/// its consumers, which a test harness has none of.
+///
+/// The lib's test target recompiles the whole library with `cfg(test)` on, so
+/// its figures include the library's; the Python side subtracts them, keyed on
+/// the crate name it shares with the non-test emission.
+fn tests_into_tree<'a>(ptr: &'a mut PtrTally, c: &Counts, fns: u64) -> &'a PtrTally {
+    let mut out = PtrTally::new();
+    for (key, n) in [
+        ("code.tests.loc.total", c.code_lines),
+        ("code.tests.loc.unsafe", c.unsafe_block_code_lines),
+        ("code.tests.unsafe_block", c.unsafe_blocks),
+        ("code.tests.fn", fns),
+    ] {
+        if n != 0 {
+            out.insert(key.to_string(), n);
+        }
+    }
+    *ptr = out;
+    ptr
+}
+
 fn mirror_into_tree<'a>(ptr: &'a mut PtrTally, c: &Counts) -> &'a PtrTally {
     for (key, n) in [
         ("code.loc.total", c.code_lines),
@@ -1707,9 +1739,16 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         println!(
-            "{{\"crate\":\"{}\",\"counts\":{},\"sites\":{}}}",
+            "{{\"crate\":\"{}\",\"test\":{},\"counts\":{},\"sites\":{}}}",
             krate,
-            ptr_json(mirror_into_tree(&mut ptr, &c)),
+            is_test_build(),
+            ptr_json(if is_test_build() {
+                let fns = *ptr.get("fn.total.pub").unwrap_or(&0)
+                    + *ptr.get("fn.total.priv").unwrap_or(&0);
+                tests_into_tree(&mut ptr, &c, fns)
+            } else {
+                mirror_into_tree(&mut ptr, &c)
+            }),
             sites.json()
         );
         Compilation::Continue

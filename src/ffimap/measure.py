@@ -48,7 +48,7 @@ TREE_SITE_FAMILIES = {
                 "casted_to"),
     "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic", "ffibox", "wrapping_unsafe_cell", "total"),
     "fn": ("safe", "unsafe", "ffibox", "total"),
-    "code": ("loc", "unsafe_block", "unsafe_call"),
+    "code": ("loc", "tests", "unsafe_block", "unsafe_call"),
 }
 
 
@@ -105,6 +105,9 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
     never the subject."""
     sites: dict[str, list] = {}
     ptr: dict[str, int] = {}
+    # per crate, so a lib's test target can be told from the library it embeds
+    lib: dict[str, dict] = {}
+    tests: dict[str, dict] = {}
     seen = 0
     for line in stdout.splitlines():
         line = line.strip()
@@ -115,15 +118,43 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
         except json.JSONDecodeError:
             continue
         crate = d.get("crate", "")
+        # A build script is its own crate under `--all-targets`; it builds the
+        # crate rather than being part of it.
+        if crate == "build_script_build":
+            continue
         if crate.endswith("_sys") or crate in sys:
             continue
         if "counts" not in d:
             continue
+        if d.get("test"):
+            # A test target. The lib's own recompiles the library with
+            # `cfg(test)` on, so its figures include the library's; they are
+            # subtracted below, keyed on the crate name it shares with it.
+            per = tests.setdefault(crate, {})
+            for k, n in d.get("counts", {}).items():
+                per[k] = per.get(k, 0) + int(n)
+            continue
         seen += 1
+        lib[crate] = d.get("counts", {})
         for k, n in d.get("counts", {}).items():
             ptr[k] = ptr.get(k, 0) + int(n)
         for k, rows in d.get("sites", {}).items():
             sites.setdefault(k, []).extend(rows)
+    # `code.tests.*`, net of the library a lib test target recompiles inside
+    # itself. An integration test crate shares its name with no library, so
+    # nothing is subtracted from it.
+    for crate, counts in tests.items():
+        own = lib.get(crate, {})
+        own_fns = own.get("fn.total.pub", 0) + own.get("fn.total.priv", 0)
+        for k, lib_key, lib_val in (
+            ("code.tests.loc.total", "code.loc.total", None),
+            ("code.tests.loc.unsafe", "code.loc.unsafe", None),
+            ("code.tests.unsafe_block", "code.unsafe_block.total", None),
+            ("code.tests.fn", None, own_fns),
+        ):
+            n = counts.get(k, 0) - (own.get(lib_key, 0) if lib_key else lib_val)
+            if n:
+                ptr[k] = ptr.get(k, 0) + n
     return sites, seen, ptr
 
 
@@ -271,7 +302,12 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
     env["UM_SYS_CRATES"] = ",".join(sys or ())
     env["UM_SEAM_FNS"] = ",".join(seams or ())
 
-    r = subprocess.run(["cargo", f"+{_TOOLCHAIN}", "build"], cwd=ws, env=env,
+    # `--all-targets`, not `--tests`: the latter builds the test targets
+    # INSTEAD of the plain library, and the library's own emission is the
+    # scan. Each test target is its own rustc invocation, which the driver
+    # tells apart by `--test` and reports under `code.tests`.
+    r = subprocess.run(["cargo", f"+{_TOOLCHAIN}", "build", "--all-targets"],
+                       cwd=ws, env=env,
                        capture_output=True, text=True)
     if r.returncode != 0:
         raise DriverUnavailable(

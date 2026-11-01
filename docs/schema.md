@@ -62,6 +62,8 @@ fn.
 
 code.
   loc.{total,unsafe}
+  tests.loc.{total,unsafe}
+  tests.{fn,unsafe_block}
   unsafe_block.total
   unsafe_block.of_which.ffi_export
   unsafe_call.{ffi,intrinsic,rust}
@@ -175,6 +177,26 @@ the crate touch the field -- so it is the type being exported AND the field
 being exported, rather than two levels a reader has to combine.
 
 `fn.total` and `code.unsafe_call` totals are derived from their partitions.
+
+`code.tests` is the test code, and every other counter is the library without
+it. `cargo build` enables no `cfg(test)` and builds nothing under `tests/`, so
+the test code was invisible rather than excluded by a rule -- on
+libgit2-bindings 92693 lines against the library's 16081, and 4909 fns against
+2755. The scan builds `--all-targets` and the driver tells a test target apart
+by the `--test` cargo passes it, reporting it under `code.tests` so that no
+library counter moves.
+
+Only the quantities that mean the same thing for a test as for a library are
+there: its size, its fns and its unsafe. The rest of the tree asks what a
+crate's API hands its consumers, which a test harness has none of.
+
+A lib's test target recompiles the library with `cfg(test)` on, so its figures
+include the library's; they are subtracted, keyed on the crate name it shares
+with the non-test emission. An integration test crate shares its name with no
+library, so nothing is subtracted from it, and a build script is skipped --
+under `--all-targets` it is its own crate, and it builds the crate rather than
+being part of it. `code.tests.fn` carries one generated harness `main` per test
+binary.
 
 `fn.*` counts every function the crate defines, the methods of its trait impls
 included. A method implementing another crate's trait is still this crate's

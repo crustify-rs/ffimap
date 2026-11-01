@@ -20,6 +20,15 @@
         "ffi": 557,
         "rust": 988,
         "total": 1545
+      },
+      "tests": {
+        "loc": {
+          "total": 92693,
+          "unsafe": 7838
+        },
+        "unsafe_block": 6238,
+        "fn": 4909,
+        "total": 103840
       }
     },
     "fn": {
