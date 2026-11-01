@@ -59,6 +59,31 @@ class NestPtrTests(unittest.TestCase):
         self.assertEqual(tree["ty"]["total"], {"pub": 300, "priv": 74, "total": 374})
         self.assertEqual(tree["ty"]["storing_raw_ptr"], {"pub": 9, "total": 9})
 
+    def test_a_namespace_node_gets_no_derived_total(self) -> None:
+        """`ty.ffibox` is a namespace of families, not a counter.
+
+        It holds a type population (`ccell` counts types) beside records of
+        mentions (`wrapper` and `by_val` count places, and overlap each other:
+        a cell held in a field is in both). Summing them mixes grains exactly
+        as summing across a top-level prefix would, so no total is written
+        there -- while every family under it keeps its own.
+        """
+        tree = measure.nest_ptr({
+            "ty.ffibox.ccell.pub": 32,
+            "ty.ffibox.wrapper.pub": 161,
+            "ty.ffibox.wrapper.of_which.borrow.pub": 161,
+            "ty.ffibox.by_val.pub": 109,
+        })
+        ffibox = tree["ty"]["ffibox"]
+        self.assertNotIn("total", ffibox)
+        self.assertEqual(ffibox["ccell"]["total"], 32)
+        self.assertEqual(ffibox["wrapper"]["total"], 161)
+        self.assertEqual(ffibox["by_val"]["total"], 109)
+        # The namespace is declared, not inferred: `ty` itself is the
+        # top-level case of the same rule.
+        self.assertIn(("ty", "ffibox"), measure.NAMESPACES)
+        self.assertNotIn("total", tree["ty"])
+
     def test_a_leaf_and_a_prefix_cannot_share_a_name(self) -> None:
         with self.assertRaises(ValueError):
             measure.nest_ptr({"code.unsafe_block": 1, "code.unsafe_block.of_which.x": 1})

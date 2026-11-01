@@ -37,9 +37,12 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         "--sites", nargs="+", action="extend", default=None, metavar="COUNTER",
         help="Also report where these counters' increments are in the source: "
              "a `sites` record beside `counts` with one list per counter. "
-             "Takes a counter's dotted path (e.g. raw_ptr.taken.safe.pub, "
-             "ty.storing_raw_ptr.of_which.none.pub, code.unsafe_call.ffi). "
-             "Line totals have no sites.")
+             "Takes a counter's dotted path down to its LEAF (e.g. "
+             "raw_ptr.taken.safe.pub, "
+             "ty.ffibox.wrapper.of_which.borrow.pub, code.unsafe_call.ffi): a "
+             "path that stops at an arm above one validates and then reads "
+             "empty, since the driver emits by leaf. Line totals have no "
+             "sites.")
     p.add_argument(
         "--sys-crates", type=lambda v: [c for c in v.split(",") if c], default=None,
         metavar="CRATE[,CRATE...]",

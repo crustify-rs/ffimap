@@ -59,7 +59,7 @@ Picking a direction means either a `has_type_param` share beside
 
 ## `--sites` takes a leaf, and a prefix reads empty
 
-`--sites ty.by_val.of_which.fn_sig` validates, because `is_tree_counter`
+`--sites ty.ffibox.by_val.of_which.fn_sig` validates, because `is_tree_counter`
 checks the prefix and family, and then reports an empty list: `compose` looks
 the name up in the driver's emissions, which are keyed by the leaf
 (`...fn_sig.pub`). So a reader who asks for an arm rather than a leaf is told

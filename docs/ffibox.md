@@ -36,12 +36,12 @@ ty.impl_block.of_which.ffibox.{layout,ref,mut,locked}.{pub,priv}
 ty.impl_trait.of_which.ffibox.{pub,priv}
 ty.impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}
 ty.total.of_which.ffibox_trait.{pub,priv}
-ty.wrapper.{pub,priv}
-ty.wrapper.of_which.{borrow,std_owner,slice,field}.{pub,priv}
-ty.wrapper.of_which.borrow.of_which.{in_ref_accessor,in_trait_impl}.{pub,priv}
-ty.ffi.<the same arms as ty.wrapper>
-ty.by_val.{pub,priv}
-ty.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}
+ty.ffibox.wrapper.{pub,priv}
+ty.ffibox.wrapper.of_which.{borrow,std_owner,slice,field}.{pub,priv}
+ty.ffibox.wrapper.of_which.borrow.of_which.{in_ref_accessor,in_trait_impl}.{pub,priv}
+ty.ffibox.ffi.<the same arms as ty.ffibox.wrapper>
+ty.ffibox.by_val.{pub,priv}
+ty.ffibox.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}
 fn.ffibox.{taken,returned}.<primitive>.{pub,priv}
 raw_ptr.casted_to.ffibox.{borrow,slice,string,owner,other}
 ```
@@ -127,16 +127,21 @@ git2-rs' 15 of 97 -- the direction `impl_drop` 3 against 52 already pointed.
 
 ## 8. Where the declarations mention a cell
 
-`ty.wrapper`, `ty.ffi` and `ty.by_val` read how far the crate's own
-declarations keep to the convention section 3 describes. `CCell` is the
-authority on all three: its `type C` names the raw struct a cell covers, as
-its `Ref` and `Mut` name the handles a consumer is meant to reach that
-struct's bytes through. So a `&Foo` written anywhere other than one of those
-mints is the layout published directly, and a `&Foo::C` is the raw C struct
-published with no convention over it at all.
+`ty.ffibox.wrapper`, `ty.ffibox.ffi` and `ty.ffibox.by_val` read how far the
+crate's own declarations keep to the convention section 3 describes. `CCell`
+is the authority on all three: its `type C` names the raw struct a cell
+covers, as its `Ref` and `Mut` name the handles a consumer is meant to reach
+that struct's bytes through. So a `&Foo` written anywhere other than one of
+those mints is the layout published directly, and a `&Foo::C` is the raw C
+struct published with no convention over it at all.
 
-`ty.wrapper` is keyed on the cell, `ty.ffi` on its `type C`, and `ty.by_val`
-on the cell held as a value.
+`wrapper` is keyed on the cell, `ffi` on its `type C`, and `by_val` on the
+cell held as a value. They sit under `ty.ffibox` beside `ccell`, which is
+where every counter that reads the convention belongs -- and `ty.ffibox`
+carries no total, being a namespace rather than a quantity, as
+[`schema.md`](schema.md)'s Namespaces section describes: `ccell` counts types
+while these three count places, and `wrapper` and `by_val` overlap, since a
+cell held in a field is in both.
 
 ### 8.1 Mentions, not types
 
@@ -193,7 +198,7 @@ stops at each. They are not small corrections: on libgit2-bindings they were
 ffibox's inline storage, which is the answer to the by-value hazard rather
 than a case of it.
 
-### 8.4 `ty.by_val`
+### 8.4 `by_val`
 
 A cell with nothing above the mention is held as a value: Rust-owned storage
 that moves with whatever holds it, so a C pointer retained into it dangles
@@ -212,7 +217,7 @@ than `pub_field`, whose `.priv` leaf would be a contradiction.
 
 ### 8.5 Limitations
 
-`ty.ffi` is keyed on `CCell::C`, so a raw `-sys` struct that no cell covers is
+`ty.ffibox.ffi` is keyed on `CCell::C`, so a raw `-sys` struct no cell covers is
 invisible to it. libgit2-bindings names `Option<&ffi::git_filter_options>` in
 three signatures, two of them public -- a reference to C layout with no
 wrapper at all -- and the counter reads nothing, since nothing declares
@@ -221,4 +226,10 @@ counter.
 
 An autoref through a raw pointer forms a reference without a cast expression
 or a signature to carry it: `(*p).field`, or a method call on `*p`. Neither
-`ty.wrapper` nor `raw_ptr.casted_to.*.borrow` sees it.
+`ty.ffibox.wrapper` nor `raw_ptr.casted_to.*.borrow` sees it.
+
+`--sites` takes a leaf, so the places behind an arm are asked for by their
+`{pub,priv}` leaf: `--sites ty.ffibox.wrapper.of_which.borrow.pub`, not the
+arm above it, which validates and then reads empty (see
+[`TODO.md`](TODO.md)). The unsanctioned borrows are then the arm's places less
+the two shares'.

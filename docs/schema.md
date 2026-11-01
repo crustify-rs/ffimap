@@ -31,8 +31,16 @@ ty.
     ffibox                                           --ffibox
     pub_field · none
   field.ffibox.<primitive>.{pub,priv}                --ffibox
+
   ffibox.ccell.{pub,priv}                            --ffibox
   ffibox.ccell.of_which.no_seam_trait.{pub,priv}     --ffibox
+  ffibox.{wrapper,ffi}.{pub,priv}                    --ffibox
+  ffibox.{wrapper,ffi}.of_which.{pub,priv}           --ffibox
+    borrow · std_owner · slice · field
+  ffibox.{wrapper,ffi}.of_which.borrow.of_which.{pub,priv}         --ffibox
+    in_ref_accessor · in_trait_impl
+  ffibox.by_val.{pub,priv}                           --ffibox
+  ffibox.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}       --ffibox
 
   impl_block.{pub,priv}
   impl_block.of_which.other.{pub,priv}
@@ -262,6 +270,24 @@ complement of this share, 13 against 28 of 41.
 An `of_which` node therefore carries no `total` of its own -- summing two
 shares is not a quantity -- while each share keeps the total of its own
 `{pub,priv}` partition.
+
+### 1.3 Namespaces
+
+Three kinds of node carry no derived `total`: an `of_which` node, as above; a
+node that already carries an emitted one, which is how the denominators
+`raw_ptr.total`, `ty.total` and `code.loc.total` survive a derivation that
+would otherwise take their name; and a NAMESPACE, a node whose children are
+families rather than the parts of one quantity.
+
+A top-level prefix is always a namespace -- `raw_ptr.taken` counts signature
+positions and `raw_ptr.deref` counts body sites, so their sum means nothing --
+and `ty.ffibox` is one a level down: it holds a type population (`ccell`
+counts types) beside three records of mentions (`wrapper`, `ffi` and `by_val`
+count places, and overlap each other, since a cell held in a field is in
+`wrapper` and in `by_val` both). `nest_ptr` declares them in `NAMESPACES`
+rather than inferring them, since no shape distinguishes a namespace from a
+partition: `raw_ptr.taken`'s `{safe,unsafe}` children are records with their
+own totals too, and summing those is exactly right.
 
 ## 2. The peel set
 

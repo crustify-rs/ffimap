@@ -47,11 +47,19 @@ TREE_SITE_FAMILIES = {
     "raw_ptr": ("taken", "returned", "in_impl", "field", "total", "deref",
                 "casted_to"),
     "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic",
-           "ffibox", "wrapper", "ffi", "by_val", "wrapping_unsafe_cell",
-           "total"),
+           "ffibox", "wrapping_unsafe_cell", "total"),
     "fn": ("safe", "unsafe", "ffibox", "total"),
     "code": ("loc", "tests", "unsafe_block", "unsafe_call"),
 }
+
+
+# The nodes that are a NAMESPACE of families rather than a counter, so no
+# derived `total` is written there: summing their children mixes grains, which
+# is why a top-level prefix gets none either. `ty.ffibox` holds a type
+# population (`ccell`) beside three records of MENTIONS whose mentions overlap
+# -- a cell held in a field is in `wrapper` and in `by_val` both -- so no sum
+# of them is a quantity.
+NAMESPACES = frozenset({("ty", "ffibox")})
 
 
 def is_tree_counter(name: str) -> bool:
@@ -195,10 +203,11 @@ def nest_ptr(flat: dict[str, int]) -> dict:
     Derived ``total`` keys are added bottom-up, summing every child except
     ``of_which``, whose children are overlapping shares and are never summed.
 
-    Two nodes are left without one. A top-level prefix, because summing across
-    families there would mix grains -- ``raw_ptr.taken`` counts signature
-    positions and ``raw_ptr.deref`` counts body sites, and their sum means
-    nothing. And any node that already carries a ``total``, which is how the
+    Three nodes are left without one. A top-level prefix, because summing
+    across families there would mix grains -- ``raw_ptr.taken`` counts
+    signature positions and ``raw_ptr.deref`` counts body sites, and their sum
+    means nothing. A ``NAMESPACES`` node, which is the same case one level
+    down. And any node that already carries a ``total``, which is how the
     explicit denominators ``ty.total`` and ``code.loc.total`` survive.
     """
     tree: dict = {}
@@ -215,11 +224,11 @@ def nest_ptr(flat: dict[str, int]) -> dict:
             raise ValueError(f"counter {key!r} is both a leaf and a prefix")
         node[parts[-1]] = prev + int(n)
 
-    def totals(node: dict, depth: int, is_of_which: bool) -> int:
+    def totals(node: dict, path: tuple[str, ...], is_of_which: bool) -> int:
         subtotal = 0
         for name, child in list(node.items()):
             if isinstance(child, dict):
-                got = totals(child, depth + 1, name == "of_which")
+                got = totals(child, path + (name,), name == "of_which")
                 if name != "of_which":
                     subtotal += got
             elif name != "of_which":
@@ -227,13 +236,14 @@ def nest_ptr(flat: dict[str, int]) -> dict:
         # The `of_which` node itself gets none: its children are overlapping
         # shares, so their sum is not a quantity. Each share still does -- the
         # `pub` / `priv` split inside one share is a partition.
-        if depth > 1 and "total" not in node and not is_of_which:
+        if (len(path) > 1 and "total" not in node and not is_of_which
+                and path not in NAMESPACES):
             node["total"] = subtotal
             return subtotal
         got = node.get("total")
         return got if isinstance(got, int) else subtotal
 
-    totals(tree, 0, False)
+    totals(tree, (), False)
     return tree
 
 

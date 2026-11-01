@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "fbba02240d8e4fcba7a7c938abed6ab4740b5bb4",
+    "ffimap": "79998b41f8fa7b9cf9434cf283b65c931e05d5d3",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -248,39 +248,69 @@
       }
     },
     "ty": {
-      "by_val": {
-        "of_which": {
-          "field": {
-            "priv": 4,
-            "total": 4
-          },
-          "fn_sig": {
-            "priv": 6,
-            "pub": 109,
-            "total": 115
-          }
-        },
-        "priv": 10,
-        "pub": 109,
-        "total": 119
-      },
-      "ffi": {
-        "of_which": {
-          "field": {
-            "priv": 73,
-            "total": 73
-          }
-        },
-        "priv": 73,
-        "total": 73
-      },
       "ffibox": {
+        "by_val": {
+          "of_which": {
+            "field": {
+              "priv": 4,
+              "total": 4
+            },
+            "fn_sig": {
+              "priv": 6,
+              "pub": 109,
+              "total": 115
+            }
+          },
+          "priv": 10,
+          "pub": 109,
+          "total": 119
+        },
         "ccell": {
           "priv": 2,
           "pub": 63,
           "total": 65
         },
-        "total": 65
+        "ffi": {
+          "of_which": {
+            "field": {
+              "priv": 73,
+              "total": 73
+            }
+          },
+          "priv": 73,
+          "total": 73
+        },
+        "wrapper": {
+          "of_which": {
+            "borrow": {
+              "of_which": {
+                "in_ref_accessor": {
+                  "priv": 4,
+                  "pub": 90,
+                  "total": 94
+                },
+                "in_trait_impl": {
+                  "pub": 65,
+                  "total": 65
+                }
+              },
+              "priv": 4,
+              "pub": 161,
+              "total": 165
+            },
+            "field": {
+              "priv": 4,
+              "total": 4
+            },
+            "slice": {
+              "pub": 6,
+              "total": 6
+            }
+          },
+          "priv": 8,
+          "pub": 161,
+          "total": 169
+        }
       },
       "field": {
         "ffibox": {
@@ -504,37 +534,6 @@
         "priv": 27,
         "pub": 347,
         "total": 374
-      },
-      "wrapper": {
-        "of_which": {
-          "borrow": {
-            "of_which": {
-              "in_ref_accessor": {
-                "priv": 4,
-                "pub": 90,
-                "total": 94
-              },
-              "in_trait_impl": {
-                "pub": 65,
-                "total": 65
-              }
-            },
-            "priv": 4,
-            "pub": 161,
-            "total": 165
-          },
-          "field": {
-            "priv": 4,
-            "total": 4
-          },
-          "slice": {
-            "pub": 6,
-            "total": 6
-          }
-        },
-        "priv": 8,
-        "pub": 161,
-        "total": 169
       }
     }
   },

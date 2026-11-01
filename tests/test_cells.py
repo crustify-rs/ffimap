@@ -52,7 +52,7 @@ class CellCounterTests(unittest.TestCase):
             node = node[part]
         return node if isinstance(node, int) else node.get("total", 0)
 
-    # ------------------------------------------------------------ ty.wrapper
+    # ----------------------------------------------------- ty.ffibox.wrapper
 
     def test_every_borrow_of_the_cell_is_counted_once_per_place(self) -> None:
         """The eight `&Widget` mentions of the fixture's public interface.
@@ -62,8 +62,8 @@ class CellCounterTests(unittest.TestCase):
         take one each -- the last two proving the walk enters `Option` and a
         slice.
         """
-        self.assertEqual(self.at("ty.wrapper.of_which.borrow.pub"), 8)
-        self.assertEqual(self.at("ty.wrapper.of_which.borrow.priv"), 0)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.borrow.pub"), 8)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.borrow.priv"), 0)
 
     def test_the_sanctioned_borrows_are_shares_so_the_rest_subtracts(self) -> None:
         """What the counter is for: `8 - 2 - 2` is the unsanctioned surface.
@@ -73,24 +73,24 @@ class CellCounterTests(unittest.TestCase):
         it takes the same `&self`: the share is a name rule, so a conversion
         the convention did not name stays in the remainder.
         """
-        accessor = self.at("ty.wrapper.of_which.borrow.of_which.in_ref_accessor.pub")
-        trait_impl = self.at("ty.wrapper.of_which.borrow.of_which.in_trait_impl.pub")
+        accessor = self.at("ty.ffibox.wrapper.of_which.borrow.of_which.in_ref_accessor.pub")
+        trait_impl = self.at("ty.ffibox.wrapper.of_which.borrow.of_which.in_trait_impl.pub")
         self.assertEqual((accessor, trait_impl), (2, 2))
-        self.assertEqual(self.at("ty.wrapper.of_which.borrow.pub")
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.borrow.pub")
                          - accessor - trait_impl, 4)
 
     def test_a_slice_of_cells_is_a_borrow_and_a_slice_at_one_mention(self) -> None:
         """`&[Widget]` is both, which is why the arms are shares."""
-        self.assertEqual(self.at("ty.wrapper.of_which.slice.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.slice.pub"), 1)
 
     def test_a_std_owner_holds_its_cell_inline(self) -> None:
         """`Box<Widget>` and `Vec<Widget>`, one mention each."""
-        self.assertEqual(self.at("ty.wrapper.of_which.std_owner.pub"), 2)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.std_owner.pub"), 2)
 
     def test_a_field_mention_is_keyed_on_reaching_it(self) -> None:
         """`Holder.w` is public, `PrivateHolder.w` is not."""
-        self.assertEqual(self.at("ty.wrapper.of_which.field.pub"), 1)
-        self.assertEqual(self.at("ty.wrapper.of_which.field.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.field.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.field.priv"), 1)
 
     def test_the_population_counts_each_mention_once(self) -> None:
         """Eleven public mentions: eight borrows, two owners and one field.
@@ -98,20 +98,20 @@ class CellCounterTests(unittest.TestCase):
         The slice is not a twelfth: it is the same mention as one of the
         borrows, which is what makes the arms shares rather than a partition.
         """
-        self.assertEqual(self.at("ty.wrapper.pub"), 11)
-        self.assertEqual(self.at("ty.wrapper.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.pub"), 11)
+        self.assertEqual(self.at("ty.ffibox.wrapper.priv"), 1)
 
-    # ---------------------------------------------------------------- ty.ffi
+    # --------------------------------------------------------- ty.ffibox.ffi
 
     def test_the_raw_struct_is_keyed_on_the_cells_associated_type(self) -> None:
         """`CCell::C` is the authority: `raw_widget` is counted because
         `Widget` names it, the newtype's own field privately and
         `raw_borrow`'s signature publicly."""
-        self.assertEqual(self.at("ty.ffi.of_which.borrow.pub"), 1)
-        self.assertEqual(self.at("ty.ffi.of_which.field.priv"), 1)
-        self.assertEqual(self.at("ty.ffi.total"), 2)
+        self.assertEqual(self.at("ty.ffibox.ffi.of_which.borrow.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.ffi.of_which.field.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.ffi.total"), 2)
 
-    # ------------------------------------------------------------- ty.by_val
+    # ------------------------------------------------------ ty.ffibox.by_val
 
     def test_a_cell_held_as_a_value_is_counted_where_it_is_held(self) -> None:
         """`by_value` and `boxed` name four between them, `take` one.
@@ -119,21 +119,21 @@ class CellCounterTests(unittest.TestCase):
         `field` and `fn_sig` partition the population; `std_owner` cuts
         across, so `boxed`'s two are in both.
         """
-        self.assertEqual(self.at("ty.by_val.of_which.fn_sig.pub"), 4)
-        self.assertEqual(self.at("ty.by_val.of_which.fn_sig.priv"), 1)
-        self.assertEqual(self.at("ty.by_val.of_which.field.pub"), 1)
-        self.assertEqual(self.at("ty.by_val.of_which.field.priv"), 1)
-        self.assertEqual(self.at("ty.by_val.of_which.std_owner.pub"), 2)
-        self.assertEqual(self.at("ty.by_val.total"), 7)
+        self.assertEqual(self.at("ty.ffibox.by_val.of_which.fn_sig.pub"), 4)
+        self.assertEqual(self.at("ty.ffibox.by_val.of_which.fn_sig.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.by_val.of_which.field.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.by_val.of_which.field.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.by_val.of_which.std_owner.pub"), 2)
+        self.assertEqual(self.at("ty.ffibox.by_val.total"), 7)
 
     def test_a_borrowed_cell_is_never_by_value(self) -> None:
         """The eight borrows are nowhere in `by_val`, which is the whole
         distinction: `&Widget` is somebody else's storage."""
-        self.assertEqual(self.at("ty.by_val.total"),
-                         self.at("ty.by_val.of_which.fn_sig.pub")
-                         + self.at("ty.by_val.of_which.fn_sig.priv")
-                         + self.at("ty.by_val.of_which.field.pub")
-                         + self.at("ty.by_val.of_which.field.priv"))
+        self.assertEqual(self.at("ty.ffibox.by_val.total"),
+                         self.at("ty.ffibox.by_val.of_which.fn_sig.pub")
+                         + self.at("ty.ffibox.by_val.of_which.fn_sig.priv")
+                         + self.at("ty.ffibox.by_val.of_which.field.pub")
+                         + self.at("ty.ffibox.by_val.of_which.field.priv"))
 
     # ----------------------------------------------------------- the negatives
 
@@ -146,11 +146,11 @@ class CellCounterTests(unittest.TestCase):
         libgit2-bindings the two primitives carried 76 of 80 field mentions
         and 250 of 423 signature mentions.
         """
-        self.assertEqual(self.at("ty.wrapper.of_which.std_owner.priv"), 0)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.std_owner.priv"), 0)
         # Four mentions would be added by the primitives and the two raw
         # pointers, and the totals are exactly the hand-derived ones without
         # them.
-        self.assertEqual(self.at("ty.wrapper.total"), 12)
+        self.assertEqual(self.at("ty.ffibox.wrapper.total"), 12)
 
     def test_a_pointer_to_a_cell_is_not_storage_holding_one(self) -> None:
         """`NonNull<Widget>` and `*mut Widget` are `raw_ptr`'s positions.
@@ -160,7 +160,7 @@ class CellCounterTests(unittest.TestCase):
         `NonNull` carried 58 of 173 signature mentions once the primitives
         were out. Were the two counted here the figure would be 6.
         """
-        self.assertEqual(self.at("ty.by_val.of_which.fn_sig.pub"), 4)
+        self.assertEqual(self.at("ty.ffibox.by_val.of_which.fn_sig.pub"), 4)
 
     def test_every_mention_reports_its_place(self) -> None:
         """`--sites` reaches all three families, and a counter's per-file
@@ -174,10 +174,10 @@ class CellCounterTests(unittest.TestCase):
         remainder readable: the unsanctioned borrows are recovered by taking
         the share's places out of the arm's.
         """
-        wanted = ["ty.wrapper.of_which.borrow.pub",
-                  "ty.wrapper.of_which.borrow.of_which.in_ref_accessor.pub",
-                  "ty.ffi.of_which.borrow.pub",
-                  "ty.by_val.of_which.fn_sig.pub"]
+        wanted = ["ty.ffibox.wrapper.of_which.borrow.pub",
+                  "ty.ffibox.wrapper.of_which.borrow.of_which.in_ref_accessor.pub",
+                  "ty.ffibox.ffi.of_which.borrow.pub",
+                  "ty.ffibox.by_val.of_which.fn_sig.pub"]
         sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
         for counter in wanted:
             with self.subTest(counter=counter):
@@ -188,9 +188,7 @@ class CellCounterTests(unittest.TestCase):
     def test_the_counters_are_gated_on_the_flag(self) -> None:
         """Without `--ffibox` there is no `CCell` to read, so the arms are
         absent rather than zero -- the rule every ffibox arm follows."""
-        tree = scan.compose(FIXTURE)["counts"]
-        for arm in ("wrapper", "ffi", "by_val"):
-            self.assertNotIn(arm, tree["ty"])
+        self.assertNotIn("ffibox", scan.compose(FIXTURE)["counts"]["ty"])
 
 
 if __name__ == "__main__":

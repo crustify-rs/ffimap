@@ -1316,8 +1316,10 @@ struct Mention {
 }
 
 /// Where the crate's declarations mention a `CCell` layout newtype
-/// (`ty.wrapper`), the raw C type it covers (`ty.ffi`), or hold either by
-/// value (`ty.by_val`).
+/// (`ty.ffibox.wrapper`), the raw C type it covers (`ty.ffibox.ffi`), or hold
+/// it by value (`ty.ffibox.by_val`). They sit under `ty.ffibox` with
+/// `ty.ffibox.ccell`, since every one of them reads ffibox's convention and
+/// none is emitted without the flag.
 ///
 /// MENTIONS, not types. One cell is named in many places and it is the places
 /// that are actionable, so a cell named in twenty signatures counts twenty
@@ -1429,10 +1431,10 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
             (m.field, "field"),
         ];
         if arms.iter().any(|(yes, _)| *yes) {
-            bump(format!("ty.{tree}.{vis}"));
+            bump(format!("ty.ffibox.{tree}.{vis}"));
             for (yes, name) in arms {
                 if yes {
-                    bump(format!("ty.{tree}.of_which.{name}.{vis}"));
+                    bump(format!("ty.ffibox.{tree}.of_which.{name}.{vis}"));
                 }
             }
             // The two sanctioned borrows, so the rest subtracts: `&self` on
@@ -1445,20 +1447,20 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
                     [(m.ref_accessor, "in_ref_accessor"), (m.trait_impl, "in_trait_impl")]
                 {
                     if yes {
-                        bump(format!("ty.{tree}.of_which.borrow.of_which.{name}.{vis}"));
+                        bump(format!("ty.ffibox.{tree}.of_which.borrow.of_which.{name}.{vis}"));
                     }
                 }
             }
         }
         if tree == "wrapper" && !m.shape.borrow {
-            bump(format!("ty.by_val.{vis}"));
+            bump(format!("ty.ffibox.by_val.{vis}"));
             // `field` and `fn_sig` partition these; `std_owner` cuts across
             // both, so all three are shares.
             for (yes, name) in
                 [(m.field, "field"), (!m.field, "fn_sig"), (m.shape.std_owner, "std_owner")]
             {
                 if yes {
-                    bump(format!("ty.by_val.of_which.{name}.{vis}"));
+                    bump(format!("ty.ffibox.by_val.of_which.{name}.{vis}"));
                 }
             }
         }
