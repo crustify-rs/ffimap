@@ -451,6 +451,11 @@ fn register_counters(ptr: &mut PtrTally) {
                 for name in ["borrow", "std_owner", "slice", "field"] {
                     at(format!("ty.ffibox.{tree}.of_which.{name}.{vis}"));
                 }
+                for name in ["borrow", "std_owner", "slice"] {
+                    for at_ in ["field", "fn_sig"] {
+                        at(format!("ty.ffibox.{tree}.of_which.{name}.of_which.{at_}.{vis}"));
+                    }
+                }
                 for name in ["self_in_ref_accessor", "self_in_trait_impl"] {
                     at(format!(
                         "ty.ffibox.{tree}.of_which.borrow.of_which.{name}.{vis}"));
@@ -1698,6 +1703,12 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
             for (yes, name) in arms {
                 if yes {
                     bump(format!("ty.ffibox.{tree}.of_which.{name}.{vis}"));
+                    // Where the shape sits, which `field` and `fn_sig`
+                    // partition: a mention is in a field or in a signature.
+                    if name != "field" {
+                        let at = if m.field { "field" } else { "fn_sig" };
+                        bump(format!("ty.ffibox.{tree}.of_which.{name}.of_which.{at}.{vis}"));
+                    }
                 }
             }
             // The two sanctioned borrows, so the rest subtracts: the

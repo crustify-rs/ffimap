@@ -174,15 +174,22 @@ The types the crate defines, by what they hold and what they declare about it.
   a cell named in twenty signatures is twenty of these.
 - `ty.ffibox.wrapper.of_which.borrow.{pub,priv}` -- of those, the mentions
   behind a reference, which the convention says should be a handle instead.
+- `ty.ffibox.wrapper.of_which.borrow.of_which.{field,fn_sig}.{pub,priv}` -- of
+  the borrows, where they sit: a field's type, or a signature's. These two
+  partition the borrows.
 - `ty.ffibox.wrapper.of_which.borrow.of_which.self_in_ref_accessor.{pub,priv}`
-  -- of the borrows, the receiver of an `as_ref` / `as_mut` accessor, which
+  -- of the borrows in a signature, the receiver of an `as_ref` / `as_mut` accessor, which
   ffibox's contract licenses.
 - `ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.{pub,priv}` --
   the receiver of a trait impl's method, whose shape the trait fixed rather
   than the crate. The remainder of the borrows is the unsanctioned surface.
 - `ty.ffibox.wrapper.of_which.std_owner.{pub,priv}` -- the mentions inside a
   standard-library container that owns its storage (`Box`, `Vec`, a map).
+- `ty.ffibox.wrapper.of_which.std_owner.of_which.{field,fn_sig}.{pub,priv}` --
+  where those sit, as for the borrows.
 - `ty.ffibox.wrapper.of_which.slice.{pub,priv}` -- the mentions behind a slice.
+- `ty.ffibox.wrapper.of_which.slice.of_which.{field,fn_sig}.{pub,priv}` -- where
+  those sit, likewise.
 - `ty.ffibox.wrapper.of_which.field.{pub,priv}` -- the mentions that are a
   field's type, which cuts across the other three.
 - `ty.ffibox.ffi.{pub,priv}` -- the same mentions for the raw `-sys` struct a
@@ -190,13 +197,19 @@ The types the crate defines, by what they hold and what they declare about it.
   been.
 - `ty.ffibox.ffi.of_which.borrow.{pub,priv}` -- of those, the mentions behind a
   reference.
+- `ty.ffibox.ffi.of_which.borrow.of_which.{field,fn_sig}.{pub,priv}` -- where
+  the borrows sit, as above.
 - `ty.ffibox.ffi.of_which.borrow.of_which.self_in_ref_accessor.{pub,priv}` --
   the receiver of an accessor, as above.
 - `ty.ffibox.ffi.of_which.borrow.of_which.self_in_trait_impl.{pub,priv}` -- the
   receiver of a trait impl's method, as above.
 - `ty.ffibox.ffi.of_which.std_owner.{pub,priv}` -- the mentions inside a
   standard-library owner.
+- `ty.ffibox.ffi.of_which.std_owner.of_which.{field,fn_sig}.{pub,priv}` --
+  where those sit, as above.
 - `ty.ffibox.ffi.of_which.slice.{pub,priv}` -- the mentions behind a slice.
+- `ty.ffibox.ffi.of_which.slice.of_which.{field,fn_sig}.{pub,priv}` -- where
+  those sit, as above.
 - `ty.ffibox.ffi.of_which.field.{pub,priv}` -- the mentions that are a field's
   type.
 - `ty.ffibox.by_val.{pub,priv}` -- mentions of a cell by value rather than

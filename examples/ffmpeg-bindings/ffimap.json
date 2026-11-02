@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "9bfa7260f9a64b4940e3198cb51dbb6c2dc33b04",
+    "ffimap": "9f2fd9a3918382fd4e9c712630d4333e9ee07a6a",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -622,6 +622,16 @@
               "pub": 215,
               "priv": 0,
               "of_which": {
+                "field": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "fn_sig": {
+                  "total": 215,
+                  "pub": 215,
+                  "priv": 0
+                },
                 "self_in_ref_accessor": {
                   "total": 116,
                   "pub": 116,
@@ -637,12 +647,36 @@
             "std_owner": {
               "total": 0,
               "pub": 0,
-              "priv": 0
+              "priv": 0,
+              "of_which": {
+                "field": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "fn_sig": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                }
+              }
             },
             "slice": {
               "total": 2,
               "pub": 1,
-              "priv": 1
+              "priv": 1,
+              "of_which": {
+                "field": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "fn_sig": {
+                  "total": 2,
+                  "pub": 1,
+                  "priv": 1
+                }
+              }
             }
           }
         },
@@ -661,6 +695,16 @@
               "pub": 0,
               "priv": 0,
               "of_which": {
+                "field": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "fn_sig": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
                 "self_in_ref_accessor": {
                   "total": 0,
                   "pub": 0,
@@ -676,12 +720,36 @@
             "std_owner": {
               "total": 0,
               "pub": 0,
-              "priv": 0
+              "priv": 0,
+              "of_which": {
+                "field": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "fn_sig": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                }
+              }
             },
             "slice": {
               "total": 0,
               "pub": 0,
-              "priv": 0
+              "priv": 0,
+              "of_which": {
+                "field": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                },
+                "fn_sig": {
+                  "total": 0,
+                  "pub": 0,
+                  "priv": 0
+                }
+              }
             }
           }
         },

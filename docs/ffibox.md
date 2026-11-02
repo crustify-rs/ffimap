@@ -41,6 +41,7 @@ ty.impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}
 ty.total.of_which.ffibox_trait.{pub,priv}
 ty.ffibox.wrapper.{pub,priv}
 ty.ffibox.wrapper.of_which.{borrow,std_owner,slice,field}.{pub,priv}
+ty.ffibox.wrapper.of_which.{borrow,std_owner,slice}.of_which.{field,fn_sig}.{pub,priv}
 ty.ffibox.wrapper.of_which.borrow.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}
 ty.ffibox.ffi.<the same arms as ty.ffibox.wrapper>
 ty.ffibox.by_val.{pub,priv}
@@ -159,6 +160,14 @@ out, because nearly every cell has an `as_ref`: `self_in_ref_accessor` would cov
 nearly the whole `borrow` population, and the mentions that are *not*
 sanctioned -- the ones worth reading -- would not be recoverable by
 subtracting it.
+
+Each of `borrow`, `std_owner` and `slice` is split by where its mentions sit,
+`field` or `fn_sig`, which partition it as they partition `by_val`. The
+`field` share beside the three is every field mention, a cell held inline
+included, so it is not their sum. On both campaigns every borrow and slice of
+a cell is a signature's: libgit2-bindings' 165 borrows and 6 slices and
+ffmpeg-bindings' 215 and 2 are all `fn_sig`, and no field of either borrows a
+cell.
 
 ### 8.2 The sanctioned borrows
 

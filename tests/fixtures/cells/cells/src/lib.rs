@@ -205,6 +205,19 @@ pub fn peeked(_w: Option<&CBox<Widget>>) {}
 /// interface, not data this signature passes.
 pub fn called_back(_f: fn(CBox<Widget>) -> Widget) {}
 
+/// A cell borrowed in a public field and owned in a private one: the shapes a
+/// signature gives a mention, in a field instead.
+///
+/// ty.ffibox.wrapper.of_which.borrow.of_which.field.pub,
+/// ty.ffibox.wrapper.of_which.field.pub (`w`);
+/// ty.ffibox.wrapper.of_which.std_owner.of_which.field.priv,
+/// ty.ffibox.wrapper.of_which.field.priv, ty.ffibox.by_val.of_which.field.priv,
+/// ty.ffibox.by_val.of_which.std_owner.priv (`ws`)
+pub struct Lens<'a> {
+    pub w: &'a Widget,
+    ws: Vec<Widget>,
+}
+
 /// A public field holding a cell inline.
 ///
 /// ty.ffibox.wrapper.of_which.field.pub, ty.ffibox.by_val.of_which.field.pub
