@@ -216,23 +216,31 @@ The types the crate defines, by what they hold and what they declare about it.
   them: the cell's bytes sit in the mention's own place.
 - `ty.ffibox.wrapper.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- where
   they sit.
-- `ty.ffibox.ffi.as.borrowed.std.{pub,priv}` -- the same mentions of the raw
-  `-sys` struct a cell covers, its `CCell::C`: the C layout named where the
-  wrapper could have been. `ffi` counts no types of its own.
-- `ty.ffibox.ffi.as.borrowed.std.of_which.{field,fn_sig}.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.borrowed.std.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}`
+- `ty.ffibox.sys.total` -- the structs and unions the crates `--sys-crates`
+  names declare: the C aggregates the bindings expose. No `{pub,priv}`: they
+  are another crate's types.
+- `ty.ffibox.sys.of_which.raw_in_sys.total` -- of those, the ones a `-sys`
+  declaration puts behind a raw pointer: a function's signature, a field, a
+  callback typedef's parameters.
+- `ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped` -- of those, the ones a
+  cell's `CCell::C` names.
+- `ty.ffibox.sys.as.borrowed.std.{pub,priv}` -- the same mentions as
+  `wrapper.as`'s, of the raw struct a cell covers, its `CCell::C`: the C layout
+  named where the wrapper could have been.
+- `ty.ffibox.sys.as.borrowed.std.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.borrowed.std.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}`
   -- as above.
-- `ty.ffibox.ffi.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}`
+- `ty.ffibox.sys.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}`
   -- as above.
-- `ty.ffibox.ffi.as.borrowed.ffibox.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.borrowed.ffibox.of_which.{field,fn_sig}.{pub,priv}` -- as
+- `ty.ffibox.sys.as.borrowed.ffibox.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.borrowed.ffibox.of_which.{field,fn_sig}.{pub,priv}` -- as
   above.
-- `ty.ffibox.ffi.as.owned.std.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.owned.std.of_which.{field,fn_sig}.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.owned.ffibox.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.owned.ffibox.of_which.{field,fn_sig}.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.by_val.{pub,priv}` -- as above.
-- `ty.ffibox.ffi.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.owned.std.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.owned.std.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.owned.ffibox.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.owned.ffibox.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.by_val.{pub,priv}` -- as above.
+- `ty.ffibox.sys.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- as above.
 
 ### 1.3 `fn`
 
@@ -334,10 +342,9 @@ families rather than the parts of one quantity.
 
 A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts
 signature positions and `raw_ptr.deref` counts body sites, so their sum means
-nothing -- and four are namespaces below it. `ty.ffibox` holds the cell types
-(`wrapper`) beside `ffi`, which counts no types and holds only the mentions of
-the structs the cells cover, under `as`, so `ty.ffibox.ffi` is a namespace too.
-`code.tests` holds four separate
+nothing -- and three are namespaces a level down. `ty.ffibox` holds two type
+counts, the cells (`wrapper`) and the `-sys` crates' types (`sys`), each with
+its mentions under `as`. `code.tests` holds four separate
 measurements of the test build: its lines, its unsafe lines -- a subset of them
 -- its unsafe blocks and its fns; their sum read 103840 on libgit2-bindings, a
 figure with no unit at all. `fn.sig` holds what a signature carries, in
@@ -445,6 +452,12 @@ evidence for a rule, and a reading of several is in
 [`examples/README.md`](../examples/README.md), where three real documents are
 tabulated side by side. A figure copied into this document would be a second
 copy to keep current, and the counters are what this document is for.
+
+**How much of the bindings has a cell.** Under `--ffibox` with the `-sys`
+crates named, `ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped` against
+`raw_in_sys` is the share of the C types the bindings hand around by pointer
+that the crate has given a cell. Against `ty.ffibox.sys.total` it reads low by
+construction, since a by-value struct needs no cell.
 
 **Which `unsafe fn`s nothing required.** `fn.unsafe.of_which.other` is the
 unsafe surface the crate chose: no trait declared the method unsafe and no

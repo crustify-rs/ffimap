@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "0c260d5b702919dda13a7b41b65fa969479b8a3f",
+    "ffimap": "e14373146c54c80c354f887839744f821fa10f28",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -743,7 +743,16 @@
             }
           }
         },
-        "ffi": {
+        "sys": {
+          "total": 304,
+          "of_which": {
+            "raw_in_sys": {
+              "total": 103,
+              "of_which": {
+                "wrapped": 42
+              }
+            }
+          },
           "as": {
             "total": 109,
             "borrowed": {

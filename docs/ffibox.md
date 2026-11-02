@@ -44,7 +44,10 @@ ty.ffibox.wrapper.as.by_val.{pub,priv}
 ty.ffibox.wrapper.as.<arm>.of_which.{field,fn_sig}.{pub,priv}
 ty.ffibox.wrapper.as.borrowed.std.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}
 ty.ffibox.wrapper.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}
-ty.ffibox.ffi.as.<the arms of ty.ffibox.wrapper.as>
+ty.ffibox.sys.total
+ty.ffibox.sys.of_which.raw_in_sys.total
+ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped
+ty.ffibox.sys.as.<the arms of ty.ffibox.wrapper.as>
 fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>
@@ -152,9 +155,17 @@ consumer is meant to reach that struct's bytes through. So a `&Foo` written
 anywhere other than one of those mints is the layout published directly, and
 a `&Foo::C` is the raw C struct published with no convention over it at all.
 
-`wrapper.as` is keyed on the cell, `ffi.as` on its `type C`, and `ffi` counts
-no types of its own, so it is a namespace, as [`schema.md`](schema.md)'s
-Namespaces section describes.
+`wrapper.as` is keyed on the cell and `sys.as` on its `type C`. Beside them,
+`ty.ffibox.sys.total` counts the structs and unions the crates `--sys-crates`
+names declare, `of_which.raw_in_sys` the ones a `-sys` declaration puts behind
+a raw pointer -- a function's signature, a field, a callback typedef's
+parameters -- and `of_which.wrapped` the ones of those a cell covers: how much
+of the C the bindings hand around by pointer has a cell. libgit2-bindings
+covers 61 of 113 and ffmpeg-bindings 42 of 103. libgit2-bindings' remainder is
+the modules the campaign has not reached (`git_remote`, `git_rebase`,
+`git_submodule`, the backends) and `pcre2-sys`'s contexts, a library libgit2
+builds against and names as a `-sys` crate but nobody wraps: the figure is over
+whichever crates the flag names.
 
 ### 8.1 Mentions, by what holds them
 
@@ -284,20 +295,24 @@ than `pub_field`, whose `.priv` leaf would be a contradiction.
 
 ### 8.5 Limitations
 
-`ty.ffibox.ffi` is keyed on `CCell::C`, so a raw `-sys` struct no cell covers is
-invisible to it. libgit2-bindings names `Option<&ffi::git_filter_options>` in
-three signatures, two of them public -- a reference to C layout with no
-wrapper at all -- and the counter reads nothing, since nothing declares
-`CCell` for that struct. The wider keying, any `-sys` type, is a different
-counter.
+`ty.ffibox.sys.as` is keyed on `CCell::C`, so a mention of a raw `-sys` struct
+no cell covers is invisible to it. libgit2-bindings names
+`Option<&ffi::git_filter_options>` in three signatures, two of them public --
+a reference to C layout with no wrapper at all -- and the mentions read
+nothing, since nothing declares `CCell` for that struct; the type is in
+`sys.of_which.raw_in_sys` and not in its `wrapped` share.
 
 An autoref through a raw pointer forms a reference without a cast expression
 or a signature to carry it: `(*p).field`, or a method call on `*p`. Neither
 `ty.ffibox.wrapper` nor `raw_ptr.casted_to.*.borrow` sees it.
 
-`ty.ffibox.ffi` is keyed on `CCell::C` for a second reason: it answers what
+`ty.ffibox.sys.as` is keyed on `CCell::C` for a second reason: it answers what
 the campaign's own wrapped C types are mentioned as. The keying is deliberate
 rather than a gap to close in place.
+
+The inventory is taken from the crate that declares cells, once: a second
+crate of the same workspace scanned beside it would count the `-sys` crates'
+types again.
 
 `--sites` takes a leaf, so the places behind an arm are asked for by their
 `{pub,priv}` leaf: `--sites ty.ffibox.wrapper.as.borrowed.std.pub`, not the

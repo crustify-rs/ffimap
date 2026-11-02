@@ -55,19 +55,16 @@ TREE_SITE_FAMILIES = {
 
 # The nodes that are a NAMESPACE of families rather than a counter, so no
 # derived `total` is written there: summing their children mixes grains, which
-# is why a top-level prefix gets none either. `ty.ffibox` holds the cell types
-# (`wrapper`) beside `ffi`, which holds only the mentions of the C structs they
-# cover, under `as`: no type count of its own, so a namespace one level down.
-# `code.tests` holds four separate measurements of the
+# is why a top-level prefix gets none either. `ty.ffibox` holds two type
+# counts, the cells (`wrapper`) and the `-sys` crates' types (`sys`), each
+# with its mentions under `as`, so no sum of them is a quantity. `code.tests` holds four separate measurements of the
 # test build: its lines, its unsafe lines (a subset of them), its unsafe
 # blocks and its fns. Summing those read 103840 on libgit2-bindings, a figure
 # of no unit at all. `fn.sig` holds what a signature
 # carries, in mentions -- a fn taking two `CBox` is two of them -- so it is a
 # share of no fn count, and `fn.total` beside it is the denominator a reader
 # divides by.
-NAMESPACES = frozenset({
-    ("ty", "ffibox"), ("ty", "ffibox", "ffi"), ("code", "tests"), ("fn", "sig"),
-})
+NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests"), ("fn", "sig")})
 
 
 def is_tree_counter(name: str) -> bool:
@@ -264,7 +261,8 @@ KEY_ORDER = (
     "owner", "string", "borrow", "slice", "other",
     "std", "local", "local_seam",
     # the cell records, and their arms
-    "no_seam_trait", "wrapper", "ffi", "rust", "intrinsic",
+    "no_seam_trait", "wrapper", "sys", "ffi", "rust", "intrinsic",
+    "raw_in_sys", "wrapped",
     "borrowed", "owned", "by_val",
     "fn_sig", "self_in_ref_accessor", "self_in_trait_impl",
     "fn",

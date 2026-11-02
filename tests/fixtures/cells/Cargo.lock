@@ -6,8 +6,13 @@ version = 4
 name = "cells"
 version = "0.1.0"
 dependencies = [
+ "cells-sys",
  "ffibox",
 ]
+
+[[package]]
+name = "cells-sys"
+version = "0.1.0"
 
 [[package]]
 name = "ffibox"

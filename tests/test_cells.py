@@ -17,6 +17,8 @@ from ffimap import measure, scan
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cells"
 W = "ty.ffibox.wrapper.as"
+# The fixture's `-sys` crate, which declares `raw_widget`.
+SYS = ["cells-sys"]
 
 
 def _driver_available() -> bool:
@@ -42,7 +44,7 @@ class CellCounterTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.tree = scan.compose(FIXTURE, ffibox=True)["counts"]
+        cls.tree = scan.compose(FIXTURE, ffibox=True, sys_crates=SYS)["counts"]
 
     def at(self, path: str) -> int:
         """A leaf by its dotted path, 0 where the counter did not fire."""
@@ -178,7 +180,7 @@ class CellCounterTests(unittest.TestCase):
         describes the mention. Read off the places, since the figure alone
         cannot say which mention it is."""
         wanted = [f"{W}.borrowed.std.pub", f"{W}.owned.std.pub"]
-        sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
+        sites = scan.compose(FIXTURE, ffibox=True, sys_crates=SYS, sites=wanted)["sites"]
         src = (FIXTURE / "cells" / "src" / "lib.rs").read_text().splitlines()
         named = {c: {src[ln - 1].strip() for r in sites[c] for ln in r["lines"]}
                  for c in wanted}
@@ -195,7 +197,7 @@ class CellCounterTests(unittest.TestCase):
         holder.
         """
         wanted = [f"{W}.owned.std.pub", f"{W}.owned.ffibox.pub"]
-        sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
+        sites = scan.compose(FIXTURE, ffibox=True, sys_crates=SYS, sites=wanted)["sites"]
         src = (FIXTURE / "cells" / "src" / "lib.rs").read_text().splitlines()
         named = {c: {src[ln - 1].strip() for r in sites[c] for ln in r["lines"]}
                  for c in wanted}
@@ -204,16 +206,35 @@ class CellCounterTests(unittest.TestCase):
         self.assertIn("pub fn owners_in_vec(_w: Vec<CBox<Widget>>) {}",
                       named[f"{W}.owned.ffibox.pub"])
 
-    # --------------------------------------------------------- ty.ffibox.ffi
+    # --------------------------------------------------------- ty.ffibox.sys
 
     def test_the_raw_struct_is_keyed_on_the_cells_associated_type(self) -> None:
         """`CCell::C` is the authority: `raw_widget` is counted because
         `Widget` names it, the newtype's own field privately and
-        `raw_borrow`'s signature publicly. `ffi` holds mentions only."""
-        self.assertEqual(self.at("ty.ffibox.ffi.as.borrowed.std.of_which.fn_sig.pub"), 1)
-        self.assertEqual(self.at("ty.ffibox.ffi.as.by_val.of_which.field.priv"), 1)
-        self.assertEqual(self.at("ty.ffibox.ffi.as.total"), 2)
-        self.assertNotIn("total", self.tree["ty"]["ffibox"]["ffi"])
+        `raw_borrow`'s signature publicly."""
+        self.assertEqual(self.at("ty.ffibox.sys.as.borrowed.std.of_which.fn_sig.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.sys.as.by_val.of_which.field.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.sys.as.total"), 2)
+
+    def test_the_sys_crates_types_and_how_many_a_cell_covers(self) -> None:
+        """`cells-sys` declares five structs and unions, its enum aside.
+        `raw_widget` is behind a pointer in `widget_free`, `raw_list` only in
+        `visit_cb`'s callback parameter and `raw_item` two pointers deep in a
+        field; `raw_value` and `raw_either` never are. Of the three, a cell
+        covers `raw_widget`."""
+        sys = "ty.ffibox.sys"
+        self.assertEqual(self.at(f"{sys}.total"), 5)
+        self.assertEqual(self.at(f"{sys}.of_which.raw_in_sys.total"), 3)
+        self.assertEqual(self.at(f"{sys}.of_which.raw_in_sys.of_which.wrapped"), 1)
+        # The mentions are never summed into the types.
+        self.assertEqual(self.tree["ty"]["ffibox"]["sys"]["total"], 5)
+
+    def test_the_sys_inventory_needs_the_crates_named(self) -> None:
+        """Without `--sys-crates` there is no inventory to take, so the counts
+        are absent rather than zero; the mentions stay."""
+        sys = scan.compose(FIXTURE, ffibox=True)["counts"]["ty"]["ffibox"]["sys"]
+        self.assertNotIn("of_which", sys)
+        self.assertEqual(sys["as"]["total"], 2)
 
     # ------------------------------------------------------- ty.impl_trait
 
@@ -267,7 +288,7 @@ class CellCounterTests(unittest.TestCase):
         holds nothing, and `called_back`'s fn pointer is not entered: none is
         in the arms, whose sum is the hand-derived 32 without them."""
         self.assertEqual(self.at(f"{W}.total"), 32)
-        self.assertEqual(self.at("ty.ffibox.ffi.as.total"), 2)
+        self.assertEqual(self.at("ty.ffibox.sys.as.total"), 2)
 
     def test_every_mention_reports_its_place(self) -> None:
         """`--sites` reaches both trees, and a counter's per-file counts sum
@@ -283,9 +304,9 @@ class CellCounterTests(unittest.TestCase):
         """
         wanted = [f"{W}.borrowed.std.pub",
                   f"{W}.borrowed.std.of_which.self_in_ref_accessor.pub",
-                  "ty.ffibox.ffi.as.borrowed.std.pub",
+                  "ty.ffibox.sys.as.borrowed.std.pub",
                   f"{W}.by_val.of_which.fn_sig.pub"]
-        sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
+        sites = scan.compose(FIXTURE, ffibox=True, sys_crates=SYS, sites=wanted)["sites"]
         for counter in wanted:
             with self.subTest(counter=counter):
                 rows = sites[counter]

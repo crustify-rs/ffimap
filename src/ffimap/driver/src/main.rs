@@ -28,7 +28,7 @@ extern crate rustc_span;
 use rustc_abi::ExternAbi;
 use rustc_driver::{Callbacks, Compilation};
 use rustc_hir as hir;
-use rustc_hir::def::DefKind;
+use rustc_hir::def::{DefKind, Res};
 use rustc_hir::intravisit::{self, Visitor};
 use rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypeckResults};
@@ -458,7 +458,7 @@ fn register_counters(ptr: &mut PtrTally) {
             }
             at(format!("ty.ffibox.wrapper.{vis}"));
             at(format!("ty.ffibox.wrapper.of_which.no_seam_trait.{vis}"));
-            for tree in ["wrapper", "ffi"] {
+            for tree in ["wrapper", "sys"] {
                 let base = format!("ty.ffibox.{tree}.as");
                 for arm in ["borrowed.std", "borrowed.ffibox", "owned.std", "owned.ffibox", "by_val"] {
                     at(format!("{base}.{arm}.{vis}"));
@@ -472,6 +472,15 @@ fn register_counters(ptr: &mut PtrTally) {
                 at(format!(
                     "{base}.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{vis}"));
             }
+        }
+    }
+    if is_ffibox() && !sys_crates().is_empty() {
+        for k in [
+            "ty.ffibox.sys.total",
+            "ty.ffibox.sys.of_which.raw_in_sys.total",
+            "ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped",
+        ] {
+            at(k.to_string());
         }
     }
     if is_ffibox() {
@@ -1596,8 +1605,124 @@ fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
     is_std_crate(tcx, tr) && REF_FORMING.contains(&tcx.item_name(tr).as_str())
 }
 
+/// The types of the crates `--sys-crates` names (`ty.ffibox.sys`): every struct
+/// and union they declare, the ones a `-sys` declaration puts behind a raw
+/// pointer, and of those the ones a cell's `CCell::C` names -- how much of
+/// the C the bindings expose by pointer the crate has given a cell.
+///
+/// Counted from the crate that declares cells, once: the inventory is the
+/// `-sys` crates', and a second crate scanning beside it would count it again.
+/// Types of another crate have no visibility of this one's, so the counts are
+/// scalars. Enums are out: a C enum is used through its generated constants
+/// and takes no cell.
+fn count_sys_types<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    ptr: &mut PtrTally,
+    sites: &mut Sites,
+    cs: &HashSet<DefId>,
+) {
+    let mut types: Vec<DefId> = Vec::new();
+    let mut behind_ptr: HashSet<DefId> = HashSet::new();
+    for &cnum in tcx.crates(()) {
+        if !sys_crates().contains(tcx.crate_name(cnum).as_str()) {
+            continue;
+        }
+        let mut modules = vec![cnum.as_def_id()];
+        let mut seen = HashSet::new();
+        while let Some(m) = modules.pop() {
+            if !seen.insert(m) {
+                continue;
+            }
+            for child in tcx.module_children(m) {
+                let Res::Def(kind, did) = child.res else { continue };
+                // A re-export of another crate's item is that crate's.
+                if did.krate != cnum {
+                    continue;
+                }
+                let mut decl = |t: Ty<'tcx>| sys_pointees(tcx, t, &mut behind_ptr);
+                match kind {
+                    DefKind::Mod => modules.push(did),
+                    DefKind::Struct | DefKind::Union => {
+                        if !types.contains(&did) {
+                            types.push(did);
+                        }
+                        for f in tcx.adt_def(did).all_fields() {
+                            decl(tcx.type_of(f.did).instantiate_identity().skip_norm_wip());
+                        }
+                    }
+                    DefKind::Fn => {
+                        let sig = tcx.fn_sig(did).skip_binder().skip_binder();
+                        for t in sig.inputs_and_output {
+                            decl(t);
+                        }
+                    }
+                    DefKind::TyAlias | DefKind::Static { .. } => {
+                        decl(tcx.type_of(did).instantiate_identity().skip_norm_wip());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut bump = |k: &str, did: DefId| {
+        *ptr.entry(k.to_string()).or_default() += 1;
+        sites.add(k.to_string(), span_site(tcx, tcx.def_span(did)));
+    };
+    for did in types {
+        bump("ty.ffibox.sys.total", did);
+        if behind_ptr.contains(&did) {
+            bump("ty.ffibox.sys.of_which.raw_in_sys.total", did);
+            if cs.contains(&did) {
+                bump("ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped", did);
+            }
+        }
+    }
+}
+
+/// The ADTs a `-sys` declaration's type puts behind a raw pointer, however
+/// many pointers deep (`*mut *mut git_repository`). Unlike `raw_pointees` it
+/// enters fn pointers: a callback typedef's parameters are the bindings'
+/// declarations too, and C hands its objects to callbacks by pointer.
+fn sys_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut HashSet<DefId>) {
+    let pointee = match t.kind() {
+        ty::TyKind::RawPtr(p, _) => Some(*p),
+        ty::TyKind::Adt(d, args) if is_raw_ptr_adt(tcx, d.did()) => args.types().next(),
+        _ => None,
+    };
+    if let Some(mut p) = pointee {
+        while let ty::TyKind::RawPtr(q, _) = p.kind() {
+            p = *q;
+        }
+        if let ty::TyKind::Adt(d, _) = p.kind() {
+            out.insert(d.did());
+        }
+        return;
+    }
+    match t.kind() {
+        ty::TyKind::FnPtr(sig, _) => {
+            for t in sig.skip_binder().inputs_and_output {
+                sys_pointees(tcx, t, out);
+            }
+        }
+        ty::TyKind::Adt(_, args) => {
+            for a in args.types() {
+                sys_pointees(tcx, a, out);
+            }
+        }
+        ty::TyKind::Ref(_, t, _) | ty::TyKind::Array(t, _) | ty::TyKind::Slice(t) => {
+            sys_pointees(tcx, *t, out);
+        }
+        ty::TyKind::Tuple(ts) => {
+            for t in ts.iter() {
+                sys_pointees(tcx, t, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Where the crate's declarations mention a `CCell` layout newtype
-/// (`ty.ffibox.wrapper.as`) or the raw C type it covers (`ty.ffibox.ffi.as`),
+/// (`ty.ffibox.wrapper.as`) or the raw C type it covers (`ty.ffibox.sys.as`),
 /// each in one arm by the innermost holder above it: borrowed or owned, by std
 /// or by ffibox, or held by value with nothing above it. They sit under
 /// `ty.ffibox`, since every one of them reads ffibox's convention and none is
@@ -1620,6 +1745,7 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
     if types.cells.is_empty() {
         return;
     }
+    count_sys_types(tcx, ptr, sites, &types.cs);
     let evis = tcx.effective_visibilities(());
     let mut mentions: Vec<Mention> = Vec::new();
 
@@ -1713,7 +1839,7 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
         let tree = if types.cells.contains(&m.did) {
             "wrapper"
         } else if types.cs.contains(&m.did) {
-            "ffi"
+            "sys"
         } else {
             continue;
         };

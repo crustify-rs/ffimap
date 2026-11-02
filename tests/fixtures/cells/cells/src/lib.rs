@@ -1,7 +1,8 @@
 //! A crate built on ffibox, for the counters `--ffibox` turns on: the cell
-//! types (`ty.ffibox.wrapper`), and where the declarations mention a cell or
-//! the raw struct it covers (`ty.ffibox.{wrapper,ffi}.as`), by the innermost
-//! holder above the mention.
+//! types (`ty.ffibox.wrapper`), the `-sys` crate's (`ty.ffibox.sys`, in
+//! `cells-sys`), and where the declarations mention a cell or the raw struct
+//! it covers (`ty.ffibox.{wrapper,sys}.as`), by the innermost holder above the
+//! mention.
 //!
 //! Every item is annotated with the counters it should move, the cell ones
 //! relative to `ty.ffibox`, and the point is the negatives as much as the
@@ -17,18 +18,13 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
+use cells_sys::raw_widget;
 use ffibox::{CBorrowedPtr, CBox, CCell, CDrop, CNew};
-
-/// Stands in for a `-sys` crate's declaration.
-#[repr(C)]
-pub struct raw_widget {
-    pub n: i32,
-}
 
 /// The layout newtype, and the fixture's one cell.
 ///
 /// wrapper.pub, wrapper.of_which.no_seam_trait.pub -- its handles implement
-/// no seam. ffi.as.by_val.field.priv -- its own field is the raw struct, and
+/// no seam. sys.as.by_val.field.priv -- its own field is the raw struct, and
 /// the field is private even though the type is not.
 #[repr(transparent)]
 pub struct Widget(raw_widget);
@@ -166,7 +162,7 @@ pub fn boxed(w: Box<Widget>) -> Vec<Widget> {
 
 /// A reference to the raw struct, published: no convention covers it.
 ///
-/// ffi.as.borrowed.std.fn_sig.pub
+/// sys.as.borrowed.std.fn_sig.pub
 pub fn raw_borrow(c: &raw_widget) -> i32 {
     c.n
 }

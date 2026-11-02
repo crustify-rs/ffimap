@@ -62,20 +62,21 @@ class NestPtrTests(unittest.TestCase):
     def test_a_namespace_node_gets_no_derived_total(self) -> None:
         """`ty.ffibox` is a namespace of families, not a counter.
 
-        It holds the cell types (`wrapper`) beside `ffi`, which holds only
-        mentions, so `ffi` is a namespace one level down. Summing them mixes
-        grains exactly as summing across a top-level prefix would, so no total
-        is written there -- while every family under it keeps its own.
+        It holds two type counts, the cells (`wrapper`) and the `-sys` crates'
+        types (`sys`). Summing them mixes grains exactly as summing across a
+        top-level prefix would, so no total is written there -- while every
+        family under it keeps its own.
         """
         tree = measure.nest_ptr({
             "ty.ffibox.wrapper.pub": 32,
-            "ty.ffibox.ffi.as.by_val.priv": 73,
+            "ty.ffibox.sys.total": 95,
+            "ty.ffibox.sys.as.by_val.priv": 73,
         })
         ffibox = tree["ty"]["ffibox"]
         self.assertNotIn("total", ffibox)
-        self.assertNotIn("total", ffibox["ffi"])
         self.assertEqual(ffibox["wrapper"]["total"], 32)
-        self.assertEqual(ffibox["ffi"]["as"]["total"], 73)
+        self.assertEqual(ffibox["sys"]["total"], 95)
+        self.assertEqual(ffibox["sys"]["as"]["total"], 73)
         # The namespace is declared, not inferred: `ty` itself is the
         # top-level case of the same rule.
         self.assertIn(("ty", "ffibox"), measure.NAMESPACES)
