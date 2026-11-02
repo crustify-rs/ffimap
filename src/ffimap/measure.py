@@ -262,7 +262,7 @@ KEY_ORDER = (
     "std", "local", "local_seam",
     # the cell records, and their arms
     "no_seam_trait", "wrapper", "sys", "ffi", "rust", "intrinsic",
-    "raw_in_sys", "wrapped",
+    "raw_ptr_in_sys", "used", "wrapped",
     "borrowed", "owned", "by_val",
     "fn_sig", "self_in_ref_accessor", "self_in_trait_impl",
     "fn",

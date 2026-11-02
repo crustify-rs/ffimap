@@ -219,11 +219,14 @@ The types the crate defines, by what they hold and what they declare about it.
 - `ty.ffibox.sys.total` -- the structs and unions the crates `--sys-crates`
   names declare: the C aggregates the bindings expose. No `{pub,priv}`: they
   are another crate's types.
-- `ty.ffibox.sys.of_which.raw_in_sys.total` -- of those, the ones a `-sys`
+- `ty.ffibox.sys.of_which.raw_ptr_in_sys.total` -- of those, the ones a `-sys`
   declaration puts behind a raw pointer: a function's signature, a field, a
   callback typedef's parameters.
-- `ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped` -- of those, the ones a
-  cell's `CCell::C` names.
+- `ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.used` -- of those, the ones
+  the crate's compiled code names: in a declaration, or as the type of any
+  expression or binding in a body.
+- `ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.wrapped` -- of those, the ones
+  a cell's `CCell::C` names.
 - `ty.ffibox.sys.as.borrowed.std.{pub,priv}` -- the same mentions as
   `wrapper.as`'s, of the raw struct a cell covers, its `CCell::C`: the C layout
   named where the wrapper could have been.
@@ -454,9 +457,11 @@ tabulated side by side. A figure copied into this document would be a second
 copy to keep current, and the counters are what this document is for.
 
 **How much of the bindings has a cell.** Under `--ffibox` with the `-sys`
-crates named, `ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped` against
-`raw_in_sys` is the share of the C types the bindings hand around by pointer
-that the crate has given a cell. Against `ty.ffibox.sys.total` it reads low by
+crates named, `ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.wrapped` against
+`raw_ptr_in_sys` is the share of the C types the bindings hand around by pointer
+that the crate has given a cell, and `used` against it the share the crate
+touches at all, so the gap between the two shares is the C it touches
+without a cell ([ffibox.md](ffibox.md#8-where-the-declarations-mention-a-cell)). Against `ty.ffibox.sys.total` it reads low by
 construction, since a by-value struct needs no cell.
 
 **Which `unsafe fn`s nothing required.** `fn.unsafe.of_which.other` is the

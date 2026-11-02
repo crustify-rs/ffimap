@@ -477,8 +477,9 @@ fn register_counters(ptr: &mut PtrTally) {
     if is_ffibox() && !sys_crates().is_empty() {
         for k in [
             "ty.ffibox.sys.total",
-            "ty.ffibox.sys.of_which.raw_in_sys.total",
-            "ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped",
+            "ty.ffibox.sys.of_which.raw_ptr_in_sys.total",
+            "ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.used",
+            "ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.wrapped",
         ] {
             at(k.to_string());
         }
@@ -1607,14 +1608,16 @@ fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
 
 /// The types of the crates `--sys-crates` names (`ty.ffibox.sys`): every struct
 /// and union they declare, the ones a `-sys` declaration puts behind a raw
-/// pointer, and of those the ones a cell's `CCell::C` names -- how much of
-/// the C the bindings expose by pointer the crate has given a cell.
+/// pointer, and of those the ones the crate's compiled code names at all and
+/// the ones a cell's `CCell::C` names -- how much of the C the bindings expose
+/// by pointer the crate uses, and has given a cell.
 ///
 /// Counted from the crate that declares cells, once: the inventory is the
 /// `-sys` crates', and a second crate scanning beside it would count it again.
 /// Types of another crate have no visibility of this one's, so the counts are
 /// scalars. Enums are out: a C enum is used through its generated constants
-/// and takes no cell.
+/// and takes no cell, whether bindgen writes it as a Rust enum or as a
+/// newtype over its integer (`is_newtype_enum`).
 fn count_sys_types<'tcx>(
     tcx: TyCtxt<'tcx>,
     ptr: &mut PtrTally,
@@ -1642,6 +1645,7 @@ fn count_sys_types<'tcx>(
                 let mut decl = |t: Ty<'tcx>| sys_pointees(tcx, t, &mut behind_ptr);
                 match kind {
                     DefKind::Mod => modules.push(did),
+                    DefKind::Struct if is_newtype_enum(tcx, did) => {}
                     DefKind::Struct | DefKind::Union => {
                         if !types.contains(&did) {
                             types.push(did);
@@ -1668,15 +1672,92 @@ fn count_sys_types<'tcx>(
         *ptr.entry(k.to_string()).or_default() += 1;
         sites.add(k.to_string(), span_site(tcx, tcx.def_span(did)));
     };
+    let named = named_adts(tcx);
     for did in types {
         bump("ty.ffibox.sys.total", did);
         if behind_ptr.contains(&did) {
-            bump("ty.ffibox.sys.of_which.raw_in_sys.total", did);
+            bump("ty.ffibox.sys.of_which.raw_ptr_in_sys.total", did);
+            if named.contains(&did) {
+                bump("ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.used", did);
+            }
             if cs.contains(&did) {
-                bump("ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped", did);
+                bump("ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.wrapped", did);
             }
         }
     }
+}
+
+/// Every ADT the crate's compiled code names: in a declaration -- a
+/// signature, a field, an alias, a constant or static, an impl's self type,
+/// trait arguments and associated types -- or as the type of any expression,
+/// pattern or binding in a body, which is every statement's. Read through
+/// every generic argument, pointer and fn-pointer signature. What `cfg(test)`
+/// leaves out of the build is not compiled, so not here.
+fn named_adts<'tcx>(tcx: TyCtxt<'tcx>) -> HashSet<DefId> {
+    let mut out = HashSet::new();
+    let mut add = |t: Ty<'tcx>| {
+        for g in t.walk() {
+            if let Some(t) = g.as_type() {
+                if let ty::TyKind::Adt(d, _) = t.kind() {
+                    out.insert(d.did());
+                }
+            }
+        }
+    };
+    let ty_of = |did: DefId| tcx.type_of(did).instantiate_identity().skip_norm_wip();
+    for ld in tcx.hir_crate_items(()).definitions() {
+        let did = ld.to_def_id();
+        match tcx.def_kind(did) {
+            DefKind::Fn | DefKind::AssocFn => {
+                for t in tcx.fn_sig(did).skip_binder().skip_binder().inputs_and_output {
+                    add(t);
+                }
+            }
+            DefKind::Struct | DefKind::Union | DefKind::Enum => {
+                for f in tcx.adt_def(did).all_fields() {
+                    add(ty_of(f.did));
+                }
+            }
+            DefKind::TyAlias | DefKind::Const | DefKind::Static { .. } | DefKind::AssocConst => {
+                add(ty_of(did));
+            }
+            // An impl's associated type has a value; a trait's may not.
+            DefKind::AssocTy
+                if tcx
+                    .opt_parent(did)
+                    .is_some_and(|p| matches!(tcx.def_kind(p), DefKind::Impl { .. })) =>
+            {
+                add(ty_of(did));
+            }
+            DefKind::Impl { of_trait } => {
+                add(ty_of(did));
+                if of_trait {
+                    for t in tcx.impl_trait_ref(did).skip_binder().args.types() {
+                        add(t);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for owner in tcx.hir_body_owners() {
+        for (_, t) in tcx.typeck(owner).node_types().items_in_stable_order() {
+            add(*t);
+        }
+    }
+    out
+}
+
+/// A C enum as bindgen's `newtype_enum` writes it: a `#[repr(transparent)]`
+/// struct over one integer, its variants associated constants. A C struct is
+/// `#[repr(C)]`, so the shape does not catch one.
+fn is_newtype_enum(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    let adt = tcx.adt_def(did);
+    adt.repr().transparent()
+        && adt.all_fields().count() == 1
+        && adt.all_fields().all(|f| {
+            tcx.type_of(f.did).instantiate_identity().skip_norm_wip().is_integral()
+        })
 }
 
 /// The ADTs a `-sys` declaration's type puts behind a raw pointer, however

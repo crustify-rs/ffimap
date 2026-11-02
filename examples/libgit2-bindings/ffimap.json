@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "e14373146c54c80c354f887839744f821fa10f28",
+    "ffimap": "77543044d25b52f5057c95b7dfabe9aa27af4059",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -740,9 +740,10 @@
         "sys": {
           "total": 118,
           "of_which": {
-            "raw_in_sys": {
+            "raw_ptr_in_sys": {
               "total": 113,
               "of_which": {
+                "used": 73,
                 "wrapped": 61
               }
             }

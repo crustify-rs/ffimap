@@ -234,6 +234,15 @@ pub fn peeked(_w: Option<&CBox<Widget>>) {}
 /// data this signature passes.
 pub fn called_back(_f: fn(CBox<Widget>) -> Widget) {}
 
+/// Names `raw_list` in a statement and in no declaration: the crate uses the
+/// type without wrapping it.
+///
+/// ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.used (`raw_list`)
+pub fn lists_none() -> bool {
+    let none: *const cells_sys::raw_list = core::ptr::null();
+    none.is_null()
+}
+
 /// A cell borrowed in a public field and owned in a private one: the shapes a
 /// signature gives a mention, in a field instead.
 ///

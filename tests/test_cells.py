@@ -220,12 +220,14 @@ class CellCounterTests(unittest.TestCase):
         """`cells-sys` declares five structs and unions, its enum aside.
         `raw_widget` is behind a pointer in `widget_free`, `raw_list` only in
         `visit_cb`'s callback parameter and `raw_item` two pointers deep in a
-        field; `raw_value` and `raw_either` never are. Of the three, a cell
-        covers `raw_widget`."""
+        field; `raw_value` and `raw_either` never are. Of the three, `cells`
+        names `raw_widget` throughout and `raw_list` in one statement of
+        `lists_none`, and a cell covers `raw_widget`."""
         sys = "ty.ffibox.sys"
         self.assertEqual(self.at(f"{sys}.total"), 5)
-        self.assertEqual(self.at(f"{sys}.of_which.raw_in_sys.total"), 3)
-        self.assertEqual(self.at(f"{sys}.of_which.raw_in_sys.of_which.wrapped"), 1)
+        self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.total"), 3)
+        self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.of_which.used"), 2)
+        self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.of_which.wrapped"), 1)
         # The mentions are never summed into the types.
         self.assertEqual(self.tree["ty"]["ffibox"]["sys"]["total"], 5)
 

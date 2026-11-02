@@ -45,8 +45,8 @@ ty.ffibox.wrapper.as.<arm>.of_which.{field,fn_sig}.{pub,priv}
 ty.ffibox.wrapper.as.borrowed.std.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}
 ty.ffibox.wrapper.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}
 ty.ffibox.sys.total
-ty.ffibox.sys.of_which.raw_in_sys.total
-ty.ffibox.sys.of_which.raw_in_sys.of_which.wrapped
+ty.ffibox.sys.of_which.raw_ptr_in_sys.total
+ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.{used,wrapped}
 ty.ffibox.sys.as.<the arms of ty.ffibox.wrapper.as>
 fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}
@@ -157,15 +157,29 @@ a `&Foo::C` is the raw C struct published with no convention over it at all.
 
 `wrapper.as` is keyed on the cell and `sys.as` on its `type C`. Beside them,
 `ty.ffibox.sys.total` counts the structs and unions the crates `--sys-crates`
-names declare, `of_which.raw_in_sys` the ones a `-sys` declaration puts behind
-a raw pointer -- a function's signature, a field, a callback typedef's
-parameters -- and `of_which.wrapped` the ones of those a cell covers: how much
-of the C the bindings hand around by pointer has a cell. libgit2-bindings
-covers 61 of 113 and ffmpeg-bindings 42 of 103. libgit2-bindings' remainder is
-the modules the campaign has not reached (`git_remote`, `git_rebase`,
-`git_submodule`, the backends) and `pcre2-sys`'s contexts, a library libgit2
-builds against and names as a `-sys` crate but nobody wraps: the figure is over
-whichever crates the flag names.
+names declare -- a C enum is out, whether bindgen writes it as a Rust enum or
+as a newtype over its integer -- and `of_which.raw_ptr_in_sys` the ones a
+`-sys` declaration puts behind a raw pointer: a function's signature, a field,
+a callback typedef's parameters. Of those, `used` is the ones the crate's
+compiled code names at all, in a declaration or in any expression of a body,
+and `wrapped` the ones a cell covers, which a cell's `CCell::C` names and so
+are used too:
+
+| | `raw_ptr_in_sys` | `used` | `wrapped` |
+|---|---|---|---|
+| libgit2-bindings | 113 | 73 | 61 |
+| ffmpeg-bindings | 99 | 43 | 42 |
+
+`used` less `wrapped` is what the crate handles raw. On ffmpeg-bindings that
+is `__va_list_tag`, C's variadic argument list. On libgit2-bindings it is a
+dozen: options structs passed by pointer (`git_diff_options`,
+`git_filter_options`, `git_odb_options`), the backends (`git_odb_backend`,
+`git_refdb_backend`) and three `pcre2` contexts. `raw_ptr_in_sys` less `used` is
+what the bindings declare and the crate never touches: on libgit2-bindings the
+modules the campaign has not reached (`git_remote`, `git_rebase`,
+`git_submodule`), whose functions its tests allowlisted to set C up, and most
+of `pcre2-sys`, a library libgit2 builds against and names as a `-sys` crate.
+The figures are over whichever crates the flag names.
 
 ### 8.1 Mentions, by what holds them
 
@@ -300,7 +314,7 @@ no cell covers is invisible to it. libgit2-bindings names
 `Option<&ffi::git_filter_options>` in three signatures, two of them public --
 a reference to C layout with no wrapper at all -- and the mentions read
 nothing, since nothing declares `CCell` for that struct; the type is in
-`sys.of_which.raw_in_sys` and not in its `wrapped` share.
+`sys.of_which.raw_ptr_in_sys` and not in its `wrapped` share.
 
 An autoref through a raw pointer forms a reference without a cast expression
 or a signature to carry it: `(*p).field`, or a method call on `*p`. Neither
