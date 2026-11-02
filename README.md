@@ -4,12 +4,12 @@ A deterministic scanner of a Rust crate's `unsafe` surface and raw-pointer usage
 
 ffimap checks a Cargo workspace through a rustc driver and counts, from the
 compiler's own HIR and type information, how the crate's code bypasses safe Rust: its
-`unsafe` functions, blocks and calls, the raw pointers its API takes, returns
-and holds in struct fields, the primitives they are cast to and built from,
+`unsafe` functions, blocks and calls, the raw pointers its functions take or return
+and its structs hold in their fields, the primitives they are cast to and built from,
 and more. [docs/schema.md](docs/schema.md) lists every counter.  
 
-ffimap is built for Rust crates that wrap C libraries, and is
-integrated with the [ffibox](https://github.com/crustify-rs/ffibox) crate
+It is meant for Rust crates that wrap C libraries, and is
+integrated with [ffibox](https://github.com/crustify-rs/ffibox)
 for building safe FFI bindings. ffimap is also the safety scan
 used by [crustify](https://github.com/crustify-rs/crustify).
 
