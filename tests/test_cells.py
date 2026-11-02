@@ -217,15 +217,16 @@ class CellCounterTests(unittest.TestCase):
         self.assertEqual(self.at("ty.ffibox.sys.as.total"), 2)
 
     def test_the_sys_crates_types_and_how_many_a_cell_covers(self) -> None:
-        """`cells-sys` declares five structs and unions, its enum aside.
+        """`cells-sys` declares five structs, its unions and enums aside.
         `raw_widget` is behind a pointer in `widget_free`, `raw_list` only in
-        `visit_cb`'s callback parameter and `raw_item` two pointers deep in a
-        field; `raw_value` and `raw_either` never are. Of the three, `cells`
-        names `raw_widget` throughout and `raw_list` in one statement of
-        `lists_none`, and a cell covers `raw_widget`."""
+        `visit_cb`'s callback parameter, `raw_item` two pointers deep in a
+        field and `raw_member` as a member of the union `slot_get` points at;
+        `raw_value` never is. Of the four, `cells` names `raw_widget`
+        throughout and `raw_list` in one statement of `lists_none`, and a cell
+        covers `raw_widget`."""
         sys = "ty.ffibox.sys"
         self.assertEqual(self.at(f"{sys}.total"), 5)
-        self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.total"), 3)
+        self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.total"), 4)
         self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.of_which.used"), 2)
         self.assertEqual(self.at(f"{sys}.of_which.raw_ptr_in_sys.of_which.wrapped"), 1)
         # The mentions are never summed into the types.

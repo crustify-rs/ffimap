@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "77543044d25b52f5057c95b7dfabe9aa27af4059",
+    "ffimap": "4fa783109006359cfb3441ac84c52ad14f041b32",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [

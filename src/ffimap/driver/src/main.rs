@@ -1607,7 +1607,7 @@ fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
 }
 
 /// The types of the crates `--sys-crates` names (`ty.ffibox.sys`): every struct
-/// and union they declare, the ones a `-sys` declaration puts behind a raw
+/// they declare, the ones a `-sys` declaration puts behind a raw
 /// pointer, and of those the ones the crate's compiled code names at all and
 /// the ones a cell's `CCell::C` names -- how much of the C the bindings expose
 /// by pointer the crate uses, and has given a cell.
@@ -1617,7 +1617,9 @@ fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
 /// Types of another crate have no visibility of this one's, so the counts are
 /// scalars. Enums are out: a C enum is used through its generated constants
 /// and takes no cell, whether bindgen writes it as a Rust enum or as a
-/// newtype over its integer (`is_newtype_enum`).
+/// newtype over its integer (`is_newtype_enum`). Unions are out too, but not
+/// what they hold: a union's fields are declarations like a struct's, and a
+/// union behind a pointer puts its members there (`sys_pointees`).
 fn count_sys_types<'tcx>(
     tcx: TyCtxt<'tcx>,
     ptr: &mut PtrTally,
@@ -1647,7 +1649,7 @@ fn count_sys_types<'tcx>(
                     DefKind::Mod => modules.push(did),
                     DefKind::Struct if is_newtype_enum(tcx, did) => {}
                     DefKind::Struct | DefKind::Union => {
-                        if !types.contains(&did) {
+                        if kind == DefKind::Struct && !types.contains(&did) {
                             types.push(did);
                         }
                         for f in tcx.adt_def(did).all_fields() {
@@ -1748,6 +1750,31 @@ fn named_adts<'tcx>(tcx: TyCtxt<'tcx>) -> HashSet<DefId> {
     out
 }
 
+/// The types `t` puts in the place a pointer reaches: `t` itself, or, for a
+/// union, every member it can hold, through arrays, nested unions and the
+/// `ManuallyDrop` bindgen wraps a non-`Copy` member in.
+fn union_members<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut HashSet<DefId>) {
+    match t.kind() {
+        ty::TyKind::Adt(d, _) if d.is_union() => {
+            for f in d.all_fields() {
+                union_members(tcx, tcx.type_of(f.did).instantiate_identity().skip_norm_wip(), out);
+            }
+        }
+        ty::TyKind::Adt(d, args)
+            if is_std_crate(tcx, d.did()) && tcx.item_name(d.did()).as_str() == "ManuallyDrop" =>
+        {
+            for a in args.types() {
+                union_members(tcx, a, out);
+            }
+        }
+        ty::TyKind::Adt(d, _) => {
+            out.insert(d.did());
+        }
+        ty::TyKind::Array(e, _) => union_members(tcx, *e, out),
+        _ => {}
+    }
+}
+
 /// A C enum as bindgen's `newtype_enum` writes it: a `#[repr(transparent)]`
 /// struct over one integer, its variants associated constants. A C struct is
 /// `#[repr(C)]`, so the shape does not catch one.
@@ -1763,7 +1790,9 @@ fn is_newtype_enum(tcx: TyCtxt<'_>, did: DefId) -> bool {
 /// The ADTs a `-sys` declaration's type puts behind a raw pointer, however
 /// many pointers deep (`*mut *mut git_repository`). Unlike `raw_pointees` it
 /// enters fn pointers: a callback typedef's parameters are the bindings'
-/// declarations too, and C hands its objects to callbacks by pointer.
+/// declarations too, and C hands its objects to callbacks by pointer. A union
+/// behind a pointer is not a type of its own here: the pointer reaches its
+/// members (`union_members`).
 fn sys_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut HashSet<DefId>) {
     let pointee = match t.kind() {
         ty::TyKind::RawPtr(p, _) => Some(*p),
@@ -1774,9 +1803,7 @@ fn sys_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut HashSet<DefId>) 
         while let ty::TyKind::RawPtr(q, _) = p.kind() {
             p = *q;
         }
-        if let ty::TyKind::Adt(d, _) = p.kind() {
-            out.insert(d.did());
-        }
+        union_members(tcx, p, out);
         return;
     }
     match t.kind() {

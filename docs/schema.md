@@ -216,12 +216,12 @@ The types the crate defines, by what they hold and what they declare about it.
   them: the cell's bytes sit in the mention's own place.
 - `ty.ffibox.wrapper.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- where
   they sit.
-- `ty.ffibox.sys.total` -- the structs and unions the crates `--sys-crates`
-  names declare: the C aggregates the bindings expose. No `{pub,priv}`: they
-  are another crate's types.
+- `ty.ffibox.sys.total` -- the structs the crates `--sys-crates` names
+  declare: the C aggregates the bindings expose. No `{pub,priv}`: they are
+  another crate's types.
 - `ty.ffibox.sys.of_which.raw_ptr_in_sys.total` -- of those, the ones a `-sys`
   declaration puts behind a raw pointer: a function's signature, a field, a
-  callback typedef's parameters.
+  callback typedef's parameters, or a member of a union a pointer reaches.
 - `ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.used` -- of those, the ones
   the crate's compiled code names: in a declaration, or as the type of any
   expression or binding in a body.

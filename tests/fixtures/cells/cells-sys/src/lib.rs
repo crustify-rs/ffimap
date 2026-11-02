@@ -1,7 +1,7 @@
 //! Stands in for a `-sys` crate: the types and declarations bindgen writes,
-//! for `ty.ffibox.sys`. Five C aggregates, three of them behind a raw pointer
-//! somewhere in these declarations; of those, `cells` names two and a cell's
-//! `CCell::C` one.
+//! for `ty.ffibox.sys`. Five C structs, four of them behind a raw pointer
+//! somewhere in these declarations, one through a union; of those, `cells`
+//! names two and a cell's `CCell::C` one. Unions and enums are not counted.
 
 #![allow(non_camel_case_types, reason = "C's names")]
 
@@ -32,11 +32,25 @@ pub struct raw_value {
     pub v: i32,
 }
 
-/// A union, never behind a pointer.
+/// Not counted: a union, never behind a pointer.
 #[repr(C)]
 pub union raw_either {
     pub a: i32,
     pub b: f32,
+}
+
+/// Not counted: a union, behind a pointer in `slot_get`, which puts its
+/// members there instead.
+#[repr(C)]
+pub union raw_slot {
+    pub member: core::mem::ManuallyDrop<raw_member>,
+    pub n: i32,
+}
+
+/// raw_ptr_in_sys only as a member of `raw_slot`, behind `slot_get`'s pointer.
+#[repr(C)]
+pub struct raw_member {
+    pub v: i32,
 }
 
 /// Not counted: a C enum takes no cell.
@@ -58,4 +72,5 @@ extern "C" {
     pub fn value_get() -> raw_value;
     pub fn kind_of(k: raw_kind) -> i32;
     pub fn formats(out: *mut raw_format) -> i32;
+    pub fn slot_get(s: *mut raw_slot) -> i32;
 }

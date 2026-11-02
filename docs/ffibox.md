@@ -156,11 +156,13 @@ anywhere other than one of those mints is the layout published directly, and
 a `&Foo::C` is the raw C struct published with no convention over it at all.
 
 `wrapper.as` is keyed on the cell and `sys.as` on its `type C`. Beside them,
-`ty.ffibox.sys.total` counts the structs and unions the crates `--sys-crates`
-names declare -- a C enum is out, whether bindgen writes it as a Rust enum or
-as a newtype over its integer -- and `of_which.raw_ptr_in_sys` the ones a
-`-sys` declaration puts behind a raw pointer: a function's signature, a field,
-a callback typedef's parameters. Of those, `used` is the ones the crate's
+`ty.ffibox.sys.total` counts the structs the crates `--sys-crates` names
+declare -- a C enum is out, whether bindgen writes it as a Rust enum or as a
+newtype over its integer, and so is a union, which takes no cell -- and
+`of_which.raw_ptr_in_sys` the ones a `-sys` declaration puts behind a raw
+pointer: a function's signature, a field, a callback typedef's parameters. A
+union's fields are declarations like a struct's, and a union behind a pointer
+puts its members there. Of those, `used` is the ones the crate's
 compiled code names at all, in a declaration or in any expression of a body,
 and `wrapped` the ones a cell covers, which a cell's `CCell::C` names and so
 are used too:
