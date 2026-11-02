@@ -79,8 +79,8 @@ bodies do with them.
 - `raw_ptr.casted_to.std.{owner,string,borrow,slice,other}` -- a raw pointer
   converted into a standard-library shape, by the shape it became: an owner
   (`Box`, `Vec`, `Rc`, `Arc`), a string (`CStr`, `CString`, `String`), a
-  borrow, a slice. `other` is structurally zero, so a nonzero reading means the
-  name table and the shape classifier have drifted apart.
+  borrow, a slice. `other` is a shape the table does not know, which for `std`
+  is none of them ([analysis 11.3](analysis.md#113-other)).
 - `raw_ptr.casted_to.ffibox.{owner,string,borrow,slice}` -- adopted into an
   ffibox primitive, by the primitive's group. There is no `other` arm: every
   primitive maps to a shape.
@@ -389,10 +389,16 @@ make the arithmetic sound:
 
 ### 3.1 The readings worth taking
 
+Each reading below names the leaves it is made of. The figures are not here: a
+reading of one crate is in [`analysis.md`](analysis.md), where it is the
+evidence for a rule, and a reading of several is in
+[`examples/README.md`](../examples/README.md), where three real documents are
+tabulated side by side. A figure copied into this document would be a second
+copy to keep current, and the counters are what this document is for.
+
 **What a consumer meets without writing `unsafe`.**
-`raw_ptr.total.safe.pub` is the raw pointers on the safe public interface: 5 on
-libgit2-bindings and 5 on git2-rs. `fn.unsafe.pub` against `fn.total.pub` is
-the public unsafe surface -- 98 of 2403 on libgit2-bindings -- and
+`raw_ptr.total.safe.pub` is the raw pointers on the safe public interface,
+`fn.unsafe.pub` against `fn.total.pub` the public unsafe surface, and
 `raw_ptr.field.pub` the pointers a public field hands over with no `unsafe` at
 all.
 
@@ -406,39 +412,34 @@ own helpers, `intrinsic` is `transmute` and its siblings.
 
 **What the crate wrote, as opposed to what a macro did.** Subtract
 `fn.total.of_which.macro` from `fn.total`, and
-`ty.impl_trait.of_which.derived` from `ty.impl_trait`: on libgit2-bindings
-that is 802 of 2755 fns and 1171 of 2024 impls. A comparison of two crates
-without those shares is partly a comparison of how much boilerplate each
-spells.
+`ty.impl_trait.of_which.derived` from `ty.impl_trait`. A comparison of two
+crates without those shares is partly a comparison of how much boilerplate
+each spells.
 
 **What the crate declares about the pointers it manages.**
 `ty.storing_raw_ptr.of_which.none` against `ty.storing_raw_ptr` is the types
-that hold a pointer and say nothing about it: 4 of 41 on libgit2-bindings, 15
-of 97 on git2-rs. The other shares say what the rest declared --
-`impl_drop`, `impl_clone`, `ffibox` -- and `pub_field` is the opposite of a
-declaration.
+that hold a pointer and say nothing about it. The other shares say what the
+rest declared -- `impl_drop`, `impl_clone`, `ffibox` -- and `pub_field` is the
+opposite of a declaration.
 
 **Whether a convention is kept.** Under `--ffibox`,
 `ty.ffibox.wrapper.of_which.borrow` less `self_in_ref_accessor` and
 `self_in_trait_impl` is the bare `&Foo` surface the convention says should be a
-handle: 17 of 161 on libgit2-bindings, 22 of 215 on ffmpeg-bindings.
-`ty.ffibox.ccell.of_which.no_seam_trait` is the cells a generic handle has to
-special-case, and `fn.sig.of_which.ffibox` whether the vocabulary reaches the
-interface at all.
+handle. `ty.ffibox.ccell.of_which.no_seam_trait` is the cells a generic handle
+has to special-case, and `fn.sig.of_which.ffibox` whether the vocabulary
+reaches the interface at all.
 
 **Whose shape the pointers in trait impls are.** `fn_sig_trait_impl` is read
-through its `of_which` arms, never bare: the same 64, 93 and 134 are ffibox's
-lifecycle strategies, a crate's own private helpers and one local `Binding`
-trait respectively.
+through its `of_which` arms, never bare: one crate's are a convention's
+lifecycle strategies, another's its own private helpers, a third's one local
+conversion trait, and the bare figure is the same for all three.
 
 **The test code, beside the library and never added to it.**
 `code.tests.loc.total` against `code.loc.total` is how much of the tree is
-tests -- 92693 against 16081 on libgit2-bindings -- and the `code.tests` arms
-are the only counters that include them.
+tests, and the `code.tests` arms are the only counters that include them.
 
 A report of several crates is a table of leaves, one row per crate, with the
-denominator beside every share: `examples/README.md` is one, and its tables
-name the leaves each column came from.
+denominator beside every share.
 
 ### 3.2 What a comparison requires
 

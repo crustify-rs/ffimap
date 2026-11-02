@@ -68,12 +68,10 @@ The `std` column is zero on all three, and stays zero unless a crate writes a
 `From<*mut T>`: `Drop::drop` takes `&mut self` and `Deref::deref` returns a
 reference.
 
-None of the ffibox positions is in either campaign's declared seam list,
-because nothing local defines a seam there: the seam traits are implemented
-empty, naming only their `type Cell`, and `as_ptr` and `from_ptr` are
-ffibox's provided methods, so no local fn carries the name. The campaigns'
-seams are all on inherent methods, which is why they land in `fn_sig_ret` and
-`fn_sig_arg` instead.
+None of the ffibox positions is in either campaign's declared seam list, for
+the reason [`docs/ffibox.md`](../docs/ffibox.md#9-the-pointers-the-conventions-traits-declare)
+gives: the seam traits are implemented empty there, so the campaigns' own seams
+are inherent methods and land in `fn_sig_ret` and `fn_sig_arg` instead.
 
 The same reading applies to `fn_sig_ret`: 66 of libgit2-bindings' 86 and 14 of
 git2-rs' 19 are seams.

@@ -1,16 +1,16 @@
 # TODO
 
-What is open. A rule that was tried and rejected is in
-[`analysis.md`](analysis.md)'s last section; this file is only the live work.
+What is open: the work each entry proposes. What a counter holds is
+[`schema.md`](schema.md)'s and what it is decided from
+[`analysis.md`](analysis.md)'s, so an entry states its proposal and cites the
+measurement rather than repeating it.
 
 ## `code.unsafe_call.rust` is dominated by the standard library
 
-On the canary fixture it reads 13, of which 1 is a call to the crate's own
-`unsafe fn` and 12 are std's unsafe constructors -- `Box::from_raw` and its
-siblings, the same calls `raw_ptr.casted_to` already classifies. Splitting the
-arm into own-crate and dependency, which is one `did.krate` test at the
-classification site, separates "wrote unsafe helpers" from "used std's unsafe
-API". Until it is split the arm is not a measure of the crate's own unsafety.
+Splitting the arm into own-crate and dependency, which is one `did.krate` test
+at the classification site, separates "wrote unsafe helpers" from "used std's
+unsafe API". [`analysis.md`](analysis.md#12-what-the-analysis-cannot-see) has
+the measurement.
 
 ## `storing_raw_ptr.of_which.none` interrogates the wrong type
 
@@ -44,7 +44,7 @@ no `doc(hidden)` at all, so there is no machine-readable signal.
 it; the inherent blocks do not, although the same `Span::from_expansion()`
 decides it. On libgit2-bindings the 98 public layout blocks are 67
 hand-written across 55 distinct self types and 31 emitted by `define_ctype!`,
-a split that had to be read off `--sites` twice in one session to answer
+a split that takes two `--sites` passes to answer
 "which of this surface did the framework write".
 
 ## `ty.generic.of_which.storing_raw_ptr` overlaps `has_lifetime`

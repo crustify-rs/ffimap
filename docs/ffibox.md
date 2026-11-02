@@ -2,8 +2,11 @@
 
 What `--ffibox` adds, and the conventions each arm reads. These are the only
 conditional counters in the tree: without the flag they are absent, not zero.
-The counters themselves are [`schema.md`](schema.md); how a scan runs and
-what each counter is decided from is [`analysis.md`](analysis.md).
+This document owns the convention: what ffibox's vocabulary is, and how a
+cell, a handle, a role, a seam and an adoption are identified from it. What
+each counter holds is [`schema.md`](schema.md)'s, and the passes and tests that
+produce them [`analysis.md`](analysis.md)'s, which cites this document wherever
+a decision rests on the convention rather than on the analysis.
 
 The arms are generated from a vocabulary rather than enumerated, so a trait or
 primitive ffibox adds appears without a change here. That is why `--sites`
@@ -56,22 +59,29 @@ describes: the layout newtype `Foo`, its shared handle `FooRef<'a>` and its
 exclusive one `FooMut<'a>`. `ty.impl_block.of_which.ffibox` splits an inherent
 `impl` block by which of those its self type is, because they are different
 surfaces: the layout type carries the constructors, the shared handle the
-getters, the exclusive handle the setters.
+getters, the exclusive handle the setters. On libgit2-bindings: 408 blocks, 100
+on layout types, 86 on shared handles, 103 on exclusive ones and 119 on
+everything else -- the handles outnumbering the layout types, which is what a
+convention routing every field access through them implies.
 
 The role is read from `CCell`'s own `Ref<'a>` and `Mut<'a>` associated types,
 **not** from the seam trait a type implements. `define_ctype!` generates
 `CRefSeam` and `CMutSeam` only for a cell with no parameters of its own -- its
 pattern takes a bare `$name:ident` -- so a lifetime-carrying cell such as
-`Blob<'r>` hand-writes `CCell` and no seam at all. Reading the seams therefore
-missed every hand-written cell's handles: on libgit2-bindings 49 `*Ref` and 40
-`*Mut` blocks fell through to `other`.
+`Blob<'r>` hand-writes `CCell` and no seam at all. Reading the seams would
+therefore leave every hand-written cell's handles under `other`: 49 `*Ref` and
+40 `*Mut` blocks on libgit2-bindings. The associated types name the handles
+whatever wrote the impl.
 
 ## 4. `ccell.of_which.no_seam_trait`
 
 A cell whose handles implement neither seam. Those handles sit outside the
 generic seam the traits carry **on the handle type** -- `from_ptr`,
 `from_void_ptr`, `as_ptr`, `as_void_ptr` -- so code generic over a handle has
-to reach the cell and call `CCell::ref_from_ptr` instead.
+to reach the cell and call `CCell::ref_from_ptr` instead. `define_ctype!`
+writes both seams and a hand-written cell gets neither, so the share is the
+hand-written cells that were not given them: 0 of libgit2-bindings' 65 and 0 of
+ffmpeg-bindings' 58, both campaigns having written them.
 
 It is an omission rather than a limit. This compiles against ffibox:
 
@@ -109,10 +119,6 @@ bucketed by the primitive's group -- `CStrBox` to `string`, the other owners to
 `as_ref`, `as_slice`, `as_c_str` and `as_bytes` are excluded: they take `&self`
 on an owner, so they are owner-to-borrow, not raw-to-borrow. `as_ptr`,
 `as_mut_ptr`, `as_c_ptr` and `as_elem_ptr` run the other direction.
-
-`casted_to.ffibox.other` is structurally zero, every primitive mapping to a
-known shape, so a nonzero reading means the vocabulary and the shape
-classifier have drifted apart.
 
 ## 7. Why `ffibox` is a declaration share
 
