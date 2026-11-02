@@ -1,21 +1,26 @@
 # ffimap
 
-A deterministic map of a Rust crate's FFI and `unsafe` surface.
+A deterministic scanner of a Rust crate's `unsafe` surface and raw-pointer usage.
 
 ffimap checks a Cargo workspace through a rustc driver and counts, from the
-compiler's own HIR and type information, how the crate's code meets C: its
-`unsafe` blocks, functions and calls, the raw pointers its API takes, returns
-and holds in fields, the conversions it makes from them, what its types
-declare about the pointers they hold, and the size of its test code. It is
-built for Rust crates that wrap C libraries, and is the safety scan used by
-[crustify](https://github.com/crustify-rs/crustify).
+compiler's own HIR and type information, how the crate's code bypasses safe Rust: its
+`unsafe` functions, blocks and calls, the raw pointers its API takes, returns
+and holds in struct fields, the primitives they are cast to and built from,
+and more. [docs/schema.md](docs/schema.md) lists every counter.  
 
-- **Deterministic.** No LLM and no network. The same tree gives the same
-  bytes under a fixed scanner, so a diff between two scans is a change in the
-  crate -- provided the ffimap commit and the flags are the same, since both
-  decide what is counted.
+ffimap is built for Rust crates that wrap C libraries, and is
+integrated with the [ffibox](https://github.com/crustify-rs/ffibox) crate
+for building safe FFI bindings. ffimap is also the safety scan
+used by [crustify](https://github.com/crustify-rs/crustify).
+
+- **Deterministic.** The same tree gives the same bytes under a fixed
+  scanner, so a diff between two scans is a change in the crate -- or in the
+  ffimap revision and the flags it ran with, which the document records
+  because both decide what is counted.
 - **Compiler-precise.** Counts are made after macro expansion, `cfg` selection
   and type resolution, which source-text tools cannot do.
+- **Fact-driven.** A counter is a declaration or one expression node, with no
+  dataflow and no points-to analysis behind it.
 - **Counts, not verdicts.** It says how much unsafety there is and where, never
   which of it is wrong.
 
@@ -52,13 +57,12 @@ errors go to stderr. There is no prose rendering of the counters:
 ## CLI
 
 ```text
-ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]] [--json]
-                 [--seams NAMES] [--sites COUNTER ... | all]
+ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]]
+                 [--seams NAMES] [--sites COUNTER ...]
 ```
 
 | Option | Effect |
 |---|---|
-| `--json` | Accepted and ignored: the document is the only output. Kept so existing invocations keep working. |
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). Each is a counter's dotted path, such as `raw_ptr.fn_sig_arg.safe.pub`. |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, and descend through their types when deciding which types store a raw pointer. Name the crate's own bindings and anything else it reaches C through, such as `libc`. Nothing is discovered — a Cargo `links` key and a `*-sys` name both over-report — so unnamed means the scanned crate alone. |
 | `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |

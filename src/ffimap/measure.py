@@ -372,7 +372,7 @@ def _driver_bin() -> Path:
         raise DriverUnavailable(
             "the driver is not built and `cargo` is not on PATH")
     if not bin_path.is_file():
-        # stderr: `--json` owns stdout.
+        # stderr: the document owns stdout.
         print("[ffimap] building the HIR driver (first run only)…",
               file=sys.stderr)
     # The caller's CARGO_TARGET_DIR is for the audited workspace. Inherited

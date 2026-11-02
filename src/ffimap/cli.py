@@ -20,19 +20,15 @@ import sys
 from pathlib import Path
 
 DESCRIPTION = (
-    "Map a Rust crate's FFI and unsafe surface with a rustc driver over HIR "
-    "and typeck. Reproducible: same tree, same bytes. Needs the crate to "
+    "Scan a Rust crate's unsafe surface and raw-pointer usage with a rustc "
+    "driver over HIR and typeck. Reproducible: same tree, same bytes. "
+    "Needs the crate to "
     "compile; when it does not, there are no counts rather than approximate "
     "ones. It says HOW MUCH unsafety is there, never which of it is wrong.")
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:
     """Register the scan's flags (not the workspace positional) on ``p``."""
-    p.add_argument("--json", action="store_true",
-                   help="Accepted and ignored: the document on stdout is the "
-                        "only output. Kept so existing invocations keep "
-                        "working. Redirect it to keep it; ffimap writes no "
-                        "file.")
     p.add_argument(
         "--sites", nargs="+", action="extend", default=None, metavar="COUNTER",
         help="Also report where these counters' increments are in the source: "
