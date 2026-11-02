@@ -420,11 +420,11 @@ fn register_counters(ptr: &mut PtrTally) {
                      "impl_deref_mut", "impl_send_sync", "pub_field", "none"] {
             at(format!("ty.storing_raw_ptr.of_which.{name}.{vis}"));
         }
-        for name in ["send", "sync"] {
-            at(format!("ty.impl_trait.of_which.send_sync.{name}.{vis}"));
+        for arm in ["drop", "clone", "send", "sync", "ref_forming", "other"] {
+            at(format!("ty.impl_trait.of_which.std.{arm}.{vis}"));
         }
+        at(format!("ty.impl_trait.of_which.local.{vis}"));
         for whose in ["std", "local"] {
-            at(format!("ty.impl_trait.of_which.{whose}.{vis}"));
             at(format!("ty.total.of_which.{whose}_trait.{vis}"));
         }
 
@@ -437,40 +437,38 @@ fn register_counters(ptr: &mut PtrTally) {
             for (name, _) in FFIBOX_PRIMITIVES {
                 at(format!("ty.field.ffibox.{name}.{vis}"));
             }
-            at(format!("ty.impl_trait.of_which.ffibox.{vis}"));
+            for group in ["layout", "policy"] {
+                at(format!("ty.impl_trait.of_which.ffibox.{group}.{vis}"));
+            }
             at(format!("ty.total.of_which.ffibox_trait.{vis}"));
             at(format!("ty.storing_raw_ptr.of_which.ffibox.{vis}"));
             // The roles `CCell`, `CRefSeam`, `CMutSeam` and `CLockedSeam` name.
             for shape in ["layout", "ref", "mut", "locked"] {
                 at(format!("ty.impl_block.of_which.ffibox.{shape}.{vis}"));
             }
-            at(format!("ty.ffibox.ccell.{vis}"));
-            at(format!("ty.ffibox.ccell.of_which.no_seam_trait.{vis}"));
+            at(format!("ty.ffibox.wrapper.{vis}"));
+            at(format!("ty.ffibox.wrapper.of_which.no_seam_trait.{vis}"));
             for tree in ["wrapper", "ffi"] {
-                at(format!("ty.ffibox.{tree}.{vis}"));
-                for name in ["borrow", "std_owner", "slice", "field"] {
-                    at(format!("ty.ffibox.{tree}.of_which.{name}.{vis}"));
-                }
-                for name in ["borrow", "std_owner", "slice"] {
+                let base = format!("ty.ffibox.{tree}.as");
+                for arm in ["borrowed.std", "borrowed.ffibox", "owned.std", "owned.ffibox", "by_val"] {
+                    at(format!("{base}.{arm}.{vis}"));
                     for at_ in ["field", "fn_sig"] {
-                        at(format!("ty.ffibox.{tree}.of_which.{name}.of_which.{at_}.{vis}"));
+                        at(format!("{base}.{arm}.of_which.{at_}.{vis}"));
                     }
                 }
                 for name in ["self_in_ref_accessor", "self_in_trait_impl"] {
-                    at(format!(
-                        "ty.ffibox.{tree}.of_which.borrow.of_which.{name}.{vis}"));
+                    at(format!("{base}.borrowed.std.of_which.{name}.{vis}"));
                 }
-            }
-            at(format!("ty.ffibox.by_val.{vis}"));
-            for name in ["field", "fn_sig", "std_owner"] {
-                at(format!("ty.ffibox.by_val.of_which.{name}.{vis}"));
+                at(format!(
+                    "{base}.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{vis}"));
             }
         }
     }
     if is_ffibox() {
         for (name, _) in FFIBOX_TRAITS {
+            let group = ffibox_trait_group(name).unwrap_or("layout");
             for how in ["handwritten", "macro"] {
-                at(format!("ty.impl_trait.of_which.ffibox.of_which.{name}.{how}"));
+                at(format!("ty.impl_trait.of_which.ffibox.{group}.of_which.{name}.{how}"));
             }
         }
     }
@@ -1314,6 +1312,17 @@ const FFIBOX_ADOPTERS: &[&str] = &[
     "from_raw_parts_or_empty", "from_raw_parts_or_empty_with",
 ];
 
+/// Which half of ffibox's vocabulary a trait is: `layout` for the traits that
+/// state a cell's layout and how it is reached and locked, `policy` for the
+/// lifecycle strategies an owner allocates, releases and clones through.
+/// `None` outside the vocabulary.
+fn ffibox_trait_group(name: &str) -> Option<&'static str> {
+    FFIBOX_TRAITS.iter().find(|(t, _)| *t == name).map(|(_, role)| match *role {
+        "allocate" | "release" | "clone" => "policy",
+        _ => "layout",
+    })
+}
+
 /// The ffibox primitive `did` names, with the shape it gives a pointer.
 fn ffibox_primitive(tcx: TyCtxt<'_>, did: DefId) -> Option<(&'static str, &'static str)> {
     if !is_ffibox_crate(tcx, did) {
@@ -1419,29 +1428,30 @@ fn cell_types(tcx: TyCtxt<'_>) -> CellTypes {
     out
 }
 
-/// What stands between one mention of a type and an owner of it. A
-/// `&Vec<Foo>` is a borrow and a std owner at once, so these are flags over
-/// the one mention rather than a choice between arms.
+/// What stands between one mention of a type and its holder: the INNERMOST
+/// qualifier above it, so one mention is in exactly one arm. A `Vec<&Foo>`
+/// owns no `Foo`, and a `Vec` inside a `CBox` owns its elements itself.
 #[derive(Clone, Copy, Default)]
 struct Shape {
-    borrow: bool,
-    std_owner: bool,
-    slice: bool,
-    /// Behind a pointer its holder manages: an ffibox primitive, `NonNull`,
-    /// `AtomicPtr`, a raw pointer. The walk CONTINUES through one, so that a
-    /// hazard nested below it is seen -- `CBox<Vec<Foo>>` is a vector holding
-    /// cells by value, whatever manages the vector -- but a mention that
-    /// arrives still carrying the flag is nobody's storage and no borrow, and
-    /// is dropped.
+    /// `("borrowed" | "owned", "std" | "ffibox")`, or `None` for a cell with
+    /// nothing above it.
+    held: Option<(&'static str, &'static str)>,
+    /// Behind a raw pointer, `NonNull` or `AtomicPtr`. The walk CONTINUES
+    /// through one, so that a hazard nested below it is seen -- `*mut Vec<Foo>`
+    /// reaches a vector holding cells by value -- but a mention that arrives
+    /// still carrying the flag is `raw_ptr`'s position, not a holder, and is
+    /// dropped.
     via_ptr: bool,
 }
 
-/// What the walk carries into a pointer-like: the flag, and nothing of what
-/// stood above it. The INNERMOST qualifier of each class describes a mention,
-/// so the arms clear the classes they override -- a `Vec<&Foo>` owns no `Foo`,
-/// and a `Vec` inside a `CBox` owns its elements itself.
-const VIA_PTR: Shape =
-    Shape { borrow: false, std_owner: false, slice: false, via_ptr: true };
+/// What the walk carries into a raw pointer: the flag, and nothing of what
+/// stood above it.
+const VIA_PTR: Shape = Shape { held: None, via_ptr: true };
+
+/// A qualifier: the arm it puts a mention in, which clears the pointer flag.
+const fn held(arm: &'static str, whose: &'static str) -> Shape {
+    Shape { held: Some((arm, whose)), via_ptr: false }
+}
 
 /// The std types that hold a `Foo` in storage OF THEIR OWN: a heap allocation
 /// (`Box`, `Rc`, `Arc`) or a collection that owns a run of elements. A map and
@@ -1457,11 +1467,10 @@ const VIA_PTR: Shape =
 /// The ones that merely ARE the value are deliberately out: `Option`,
 /// `Result`, `Cell`, `Mutex`, `ManuallyDrop`, `MaybeUninit`, a tuple, an
 /// array. They allocate nothing and own no run of elements -- the cell sits in
-/// the mention's own place, exactly as a bare `Foo` would -- so `by_val`
-/// already says everything the share could. Admitting them read 34 mentions
-/// on libgit2-bindings, 31 of them `Result<Foo, Error>` returns, and moved
-/// `ty.ffibox.wrapper` with them: a share whose figure is a crate's error
-/// convention measures nothing.
+/// the mention's own place, exactly as a bare `Foo` would -- so `by_val` says
+/// it. Admitting them would put 31 of libgit2-bindings' `Result<Foo, Error>`
+/// returns in `owned.std`: an arm whose figure is a crate's error convention
+/// measures nothing.
 ///
 /// `Cow` is out for its own reason: whether it owns is its discriminant's
 /// answer and no type rule settles it.
@@ -1473,12 +1482,15 @@ const STD_OWNERS: &[&str] = &[
 
 /// Every ADT `t` mentions, each with the shape it is mentioned in.
 ///
-/// A pointer-like is walked THROUGH, carrying `via_ptr`: `*mut Foo` is
-/// `raw_ptr`'s position and not storage holding a cell, but `*mut Vec<Foo>`
+/// A raw pointer is walked THROUGH, carrying `via_ptr`: `*mut Foo` is
+/// `raw_ptr`'s position and not a holder of a cell, but `*mut Vec<Foo>`
 /// reaches a vector that holds cells by value, and stopping at the pointer
-/// hid it. A fn pointer is not entered at all, its parameters being a
-/// callback's interface rather than this position's -- the rule `raw_pointees`
-/// follows, for the same reason.
+/// hid it. An ffibox primitive is a holder of its own, borrowed or owned by
+/// its group, and only its element argument is walked: the others are its
+/// policy, often the cell itself, which the primitive does not hold. A fn
+/// pointer is not entered at all, its parameters being a callback's interface
+/// rather than this position's -- the rule `raw_pointees` follows, for the
+/// same reason.
 fn walk_shapes<'tcx>(
     tcx: TyCtxt<'tcx>,
     t: Ty<'tcx>,
@@ -1486,14 +1498,11 @@ fn walk_shapes<'tcx>(
     out: &mut Vec<(DefId, Shape)>,
 ) {
     match t.kind() {
-        ty::TyKind::Ref(_, inner, _) => {
-            let at = Shape { borrow: true, std_owner: false, via_ptr: false, ..at };
-            walk_shapes(tcx, *inner, at, out);
-        }
+        ty::TyKind::Ref(_, inner, _) => walk_shapes(tcx, *inner, held("borrowed", "std"), out),
         ty::TyKind::RawPtr(inner, _) => walk_shapes(tcx, *inner, VIA_PTR, out),
-        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => {
-            walk_shapes(tcx, *e, Shape { slice: true, ..at }, out);
-        }
+        // A slice or an array holds its elements where it is, so it is no
+        // qualifier: `&[Foo]` is a borrow, `[Foo; 4]` four cells by value.
+        ty::TyKind::Slice(e) | ty::TyKind::Array(e, _) => walk_shapes(tcx, *e, at, out),
         ty::TyKind::Tuple(ts) => {
             for a in ts.iter() {
                 walk_shapes(tcx, a, at, out);
@@ -1506,29 +1515,20 @@ fn walk_shapes<'tcx>(
             if is_std_crate(tcx, d.did())
                 && tcx.item_name(d.did()).as_str() == "PhantomData" => {}
         // `NonNull<Foo>` and `AtomicPtr<Foo>` are raw pointers to the cell,
-        // not storage holding one: `c_drop(&self, ptr: NonNull<Commit>)` is
+        // not holders of one: `c_drop(&self, ptr: NonNull<Commit>)` is
         // ffibox's lifecycle strategy, and `raw_ptr` counts the position.
-        ty::TyKind::Adt(d, args)
-            if is_std_crate(tcx, d.did())
-                && matches!(tcx.item_name(d.did()).as_str(), "NonNull" | "AtomicPtr") =>
-        {
+        ty::TyKind::Adt(d, args) if is_raw_ptr_adt(tcx, d.did()) => {
             for a in args.types() {
                 walk_shapes(tcx, a, VIA_PTR, out);
             }
         }
-        // An ffibox primitive holds the cell behind its own pointer and
-        // manages it, so the cell inside is not a position the crate chose:
-        // `fn to_commit(&self) -> CArc<Commit<'r>>` publishes neither the
-        // layout nor inline storage, and `ty.field.ffibox` and `fn.sig`
-        // count the delegation already. The rule `in_peel_set` follows, for
-        // the same reason.
-        //
-        // `CVal` goes with them. It IS inline storage, but it is ffibox's,
-        // which is the answer to the by-value hazard rather than a case of
-        // it.
         ty::TyKind::Adt(d, args) if ffibox_primitive(tcx, d.did()).is_some() => {
-            for a in args.types() {
-                walk_shapes(tcx, a, VIA_PTR, out);
+            let arm = match ffibox_primitive(tcx, d.did()) {
+                Some((_, "borrow" | "slice")) => "borrowed",
+                _ => "owned",
+            };
+            if let Some(e) = args.types().next() {
+                walk_shapes(tcx, e, held(arm, "ffibox"), out);
             }
         }
         ty::TyKind::Adt(d, args) => {
@@ -1536,7 +1536,7 @@ fn walk_shapes<'tcx>(
             let at = if is_std_crate(tcx, d.did())
                 && STD_OWNERS.contains(&tcx.item_name(d.did()).as_str())
             {
-                Shape { std_owner: true, via_ptr: false, ..at }
+                held("owned", "std")
             } else {
                 at
             };
@@ -1568,27 +1568,43 @@ struct Mention {
     /// as much a published borrow as any free function's -- `fn deref(&self)
     /// -> &Foo` hands one out, and the trait compelled none of it.
     self_in_trait_impl: bool,
+    /// Of those, the receiver of a std trait whose method hands out a
+    /// reference the impl chose (`REF_FORMING`).
+    ref_forming: bool,
     site: (String, usize),
 }
 
+/// The std traits whose method takes `&self` and returns a reference the
+/// IMPL chooses -- `Deref::Target`, `AsRef<T>`'s `T`, `Index::Output` -- so an
+/// impl of one can hand out a `&Foo` over C-owned memory.
+const REF_FORMING: &[&str] = &[
+    "Deref", "DerefMut", "AsRef", "AsMut", "Borrow", "BorrowMut", "Index", "IndexMut",
+];
+
+/// True if `tr` is one of std's `REF_FORMING` traits.
+fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
+    is_std_crate(tcx, tr) && REF_FORMING.contains(&tcx.item_name(tr).as_str())
+}
+
 /// Where the crate's declarations mention a `CCell` layout newtype
-/// (`ty.ffibox.wrapper`), the raw C type it covers (`ty.ffibox.ffi`), or hold
-/// it by value (`ty.ffibox.by_val`). They sit under `ty.ffibox` with
-/// `ty.ffibox.ccell`, since every one of them reads ffibox's convention and
-/// none is emitted without the flag.
+/// (`ty.ffibox.wrapper.as`) or the raw C type it covers (`ty.ffibox.ffi.as`),
+/// each in one arm by the innermost holder above it: borrowed or owned, by std
+/// or by ffibox, or held by value with nothing above it. They sit under
+/// `ty.ffibox`, since every one of them reads ffibox's convention and none is
+/// emitted without the flag.
 ///
 /// MENTIONS, not types. One cell is named in many places and it is the places
 /// that are actionable, so a cell named in twenty signatures counts twenty
 /// times and `--sites` lists them. The alternative, a type population, washes
-/// the signal out: nearly every cell has an `as_ref`, so `in_ref_accessor`
-/// would cover nearly the whole `borrow` population and the mentions that are
-/// NOT sanctioned -- the ones worth reading -- would not be recoverable by
+/// the signal out: nearly every cell has an `as_ref`, so `self_in_ref_accessor`
+/// would cover nearly every borrowed cell and the mentions that are NOT
+/// sanctioned -- the ones worth reading -- would not be recoverable by
 /// subtracting it.
 ///
-/// `by_val` is the cell held as a value: nothing above the mention is a
-/// reference, so the bytes are Rust-owned storage that moves with whatever
-/// holds it. A C pointer retained into it dangles, and no owner runs the C
-/// destructor -- the cases ffibox's `CBox` and `CVal` exist for.
+/// `by_val` is the cell held as a value: no holder above the mention, so the
+/// bytes are Rust-owned storage that moves with whatever holds it. A C pointer
+/// retained into it dangles, and no owner runs the C destructor -- the cases
+/// ffibox's `CBox` and `CVal` exist for.
 fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
     let types = cell_types(tcx);
     if types.cells.is_empty() {
@@ -1620,6 +1636,7 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
                     reachable,
                     self_in_ref_accessor: false,
                     self_in_trait_impl: false,
+                    ref_forming: false,
                     site: site.clone(),
                 });
             }
@@ -1648,6 +1665,10 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
         // receiver's shape is a trait's doing.
         let has_self = matches!(parent_kind, Some(DefKind::Impl { .. }))
             && tcx.associated_item(did).is_method();
+        let ref_forming = trait_impl
+            && tcx.opt_parent(did).is_some_and(|parent| {
+                is_ref_forming(tcx, tcx.impl_trait_ref(parent).skip_binder().def_id)
+            });
         let reachable = did.as_local().is_some_and(|l| evis.is_exported(l));
         let site = counter_site(tcx, tcx.def_span(did));
         let sig = tcx.fn_sig(did).skip_binder().skip_binder();
@@ -1664,6 +1685,7 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
                     reachable,
                     self_in_ref_accessor: has_self && accessor && i == 0,
                     self_in_trait_impl: has_self && trait_impl && i == 0,
+                    ref_forming: has_self && ref_forming && i == 0,
                     site: site.clone(),
                 });
             }
@@ -1690,52 +1712,30 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
             *ptr.entry(k.clone()).or_default() += 1;
             sites.add(k, m.site.clone());
         };
-        // Shares, not a partition: a mention is several of these at once, and
-        // `field` cuts across the other three.
-        let arms = [
-            (m.shape.borrow, "borrow"),
-            (m.shape.std_owner, "std_owner"),
-            (m.shape.slice, "slice"),
-            (m.field, "field"),
-        ];
-        if arms.iter().any(|(yes, _)| *yes) {
-            bump(format!("ty.ffibox.{tree}.{vis}"));
-            for (yes, name) in arms {
-                if yes {
-                    bump(format!("ty.ffibox.{tree}.of_which.{name}.{vis}"));
-                    // Where the shape sits, which `field` and `fn_sig`
-                    // partition: a mention is in a field or in a signature.
-                    if name != "field" {
-                        let at = if m.field { "field" } else { "fn_sig" };
-                        bump(format!("ty.ffibox.{tree}.of_which.{name}.of_which.{at}.{vis}"));
-                    }
-                }
+        // One arm per mention, by the innermost qualifier above it, and
+        // where it sits, which `field` and `fn_sig` partition.
+        let arm = match m.shape.held {
+            Some((arm, whose)) => format!("{arm}.{whose}"),
+            None => "by_val".to_string(),
+        };
+        let at = if m.field { "field" } else { "fn_sig" };
+        let base = format!("ty.ffibox.{tree}.as.{arm}");
+        bump(format!("{base}.{vis}"));
+        bump(format!("{base}.of_which.{at}.{vis}"));
+        // The two sanctioned borrows, so the rest subtracts: the RECEIVER of
+        // an accessor and of a trait method stand on the same contract, that
+        // nothing hands out a `&Foo` over C-owned memory. Which is what the
+        // unsanctioned mentions would do, so the counter audits the premise
+        // its own shares rest on.
+        if arm == "borrowed.std" {
+            if m.self_in_ref_accessor {
+                bump(format!("{base}.of_which.self_in_ref_accessor.{vis}"));
             }
-            // The two sanctioned borrows, so the rest subtracts: the
-            // RECEIVER of an accessor and of a trait method stand on the same
-            // contract, that nothing hands out a `&Foo` over C-owned memory.
-            // Which is what the unsanctioned mentions would do, so the
-            // counter audits the premise its own shares rest on.
-            if m.shape.borrow {
-                for (yes, name) in [
-                    (m.self_in_ref_accessor, "self_in_ref_accessor"),
-                    (m.self_in_trait_impl, "self_in_trait_impl"),
-                ] {
-                    if yes {
-                        bump(format!("ty.ffibox.{tree}.of_which.borrow.of_which.{name}.{vis}"));
-                    }
-                }
-            }
-        }
-        if tree == "wrapper" && !m.shape.borrow {
-            bump(format!("ty.ffibox.by_val.{vis}"));
-            // `field` and `fn_sig` partition these; `std_owner` cuts across
-            // both, so all three are shares.
-            for (yes, name) in
-                [(m.field, "field"), (!m.field, "fn_sig"), (m.shape.std_owner, "std_owner")]
-            {
-                if yes {
-                    bump(format!("ty.ffibox.by_val.of_which.{name}.{vis}"));
+            if m.self_in_trait_impl {
+                bump(format!("{base}.of_which.self_in_trait_impl.{vis}"));
+                if m.ref_forming {
+                    bump(format!(
+                        "{base}.of_which.self_in_trait_impl.of_which.ref_forming.{vis}"));
                 }
             }
         }
@@ -1859,10 +1859,10 @@ impl Callbacks for MetricsCallbacks {
                     let f = facts.get(&did).copied().unwrap_or_default();
                     if f.ffibox_shape == Some("layout") {
                         tree_bump(&mut ptr, &mut sites, tcx, did,
-                                  &format!("ty.ffibox.ccell.{vis}"));
+                                  &format!("ty.ffibox.wrapper.{vis}"));
                         if f.cell_no_seam {
                             tree_bump(&mut ptr, &mut sites, tcx, did, &format!(
-                                "ty.ffibox.ccell.of_which.no_seam_trait.{vis}"));
+                                "ty.ffibox.wrapper.of_which.no_seam_trait.{vis}"));
                         }
                     }
                     for f in tcx.adt_def(did).all_fields() {
@@ -1989,9 +1989,27 @@ impl Callbacks for MetricsCallbacks {
                     } else {
                         None
                     };
-                    if let Some(whose) = whose {
+                    // std's and ffibox's are partitioned by the trait: std's by
+                    // what an impl of it can do to a wrapped object, ffibox's
+                    // by whether it states the layout or a lifecycle policy.
+                    let name = tcx.item_name(tr_did);
+                    let arm = match whose {
+                        Some("std") => Some(format!("std.{}", match name.as_str() {
+                            "Drop" => "drop",
+                            "Clone" => "clone",
+                            "Send" => "send",
+                            "Sync" => "sync",
+                            _ if is_ref_forming(tcx, tr_did) => "ref_forming",
+                            _ => "other",
+                        })),
+                        Some("ffibox") => ffibox_trait_group(name.as_str())
+                            .map(|g| format!("ffibox.{g}")),
+                        Some(whose) => Some(whose.to_string()),
+                        None => None,
+                    };
+                    if let Some(arm) = arm {
                         tree_bump(&mut ptr, &mut sites, tcx, did,
-                                  &format!("ty.impl_trait.of_which.{whose}.{self_vis}"));
+                                  &format!("ty.impl_trait.of_which.{arm}.{self_vis}"));
                     }
                     // Of those, the ones a `#[derive]` wrote. Nobody typed
                     // them, and on these crates they are most of the `std`
@@ -2012,31 +2030,20 @@ impl Callbacks for MetricsCallbacks {
                         tree_bump(&mut ptr, &mut sites, tcx, did,
                                   "ty.impl_trait.of_which.unsafe");
                     }
-                    // `unsafe impl Send` / `Sync` on any type, the crate-wide
-                    // claim that memory it reaches is thread-safe.
-                    if tcx.crate_name(tr_did.krate).as_str() == "core"
-                        && tcx.impl_trait_header(did).safety.is_unsafe()
-                    {
-                        if let n @ ("Send" | "Sync") = tcx.item_name(tr_did).as_str() {
-                            let n = n.to_lowercase();
-                            tree_bump(&mut ptr, &mut sites, tcx, did,
-                                      &format!("ty.impl_trait.of_which.send_sync.{n}.{self_vis}"));
-                        }
-                    }
                     // ffibox's vocabulary, split by whether the impl was
                     // generated. ffibox ships `define_ctype!` and the
                     // `impl_c*!` family, so an impl either carries expansion
                     // context or was typed out.
                     if is_ffibox() && is_ffibox_crate(tcx, tr_did) {
                         let n = tcx.item_name(tr_did);
-                        if FFIBOX_TRAITS.iter().any(|(t, _)| *t == n.as_str()) {
+                        if let Some(group) = ffibox_trait_group(n.as_str()) {
                             let how = if from_ffibox_macro(tcx, tcx.def_span(did)) {
                                 "macro"
                             } else {
                                 "handwritten"
                             };
-                            tree_bump(&mut ptr, &mut sites, tcx, did,
-                                      &format!("ty.impl_trait.of_which.ffibox.of_which.{n}.{how}"));
+                            tree_bump(&mut ptr, &mut sites, tcx, did, &format!(
+                                "ty.impl_trait.of_which.ffibox.{group}.of_which.{n}.{how}"));
                         }
                     }
                 }

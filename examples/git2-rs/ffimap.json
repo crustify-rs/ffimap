@@ -8,7 +8,7 @@
     "openssl_sys"
   ],
   "scanner": {
-    "ffimap": "9f2fd9a3918382fd4e9c712630d4333e9ee07a6a",
+    "ffimap": "6f68c53192adc8151d0de1be149427455b7c4536",
     "toolchain": "nightly-2026-10-07",
     "ffibox": false,
     "seams": [
@@ -319,8 +319,18 @@
             "pub": 432,
             "priv": 251
           },
-          "send_sync": {
-            "total": 8,
+          "std": {
+            "total": 1713,
+            "drop": {
+              "total": 54,
+              "pub": 52,
+              "priv": 2
+            },
+            "clone": {
+              "total": 87,
+              "pub": 64,
+              "priv": 23
+            },
             "send": {
               "total": 7,
               "pub": 7,
@@ -330,12 +340,17 @@
               "total": 1,
               "pub": 1,
               "priv": 0
+            },
+            "ref_forming": {
+              "total": 26,
+              "pub": 4,
+              "priv": 22
+            },
+            "other": {
+              "total": 1538,
+              "pub": 879,
+              "priv": 659
             }
-          },
-          "std": {
-            "total": 1713,
-            "pub": 1007,
-            "priv": 706
           },
           "local": {
             "total": 115,

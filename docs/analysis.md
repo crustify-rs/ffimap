@@ -110,7 +110,7 @@ is no `all`: enumerating every leaf is a different request.
 
 The path must reach a LEAF. One that stops at a family or at an `of_which` arm
 validates and then reads empty, since the lookup is keyed by leaf:
-`--sites ty.ffibox.wrapper.of_which.borrow.pub`, not the arm above it.
+`--sites ty.ffibox.wrapper.as.borrowed.std.pub`, not the arm above it.
 
 Every counter that counts a PLACE has sites, keyed by the same dotted path
 `--sites` names. The line and statement counters have none -- `code.loc`,

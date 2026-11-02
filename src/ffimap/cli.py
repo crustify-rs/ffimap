@@ -35,7 +35,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "a `sites` record beside `counts` with one list per counter. "
              "Takes a counter's dotted path down to its LEAF (e.g. "
              "raw_ptr.fn_sig_arg.safe.pub, "
-             "ty.ffibox.wrapper.of_which.borrow.pub, code.unsafe_call.ffi): a "
+             "ty.ffibox.wrapper.as.borrowed.std.pub, code.unsafe_call.ffi): a "
              "path that stops at an arm above one validates and then reads "
              "empty, since the driver emits by leaf. Line totals have no "
              "sites.")

@@ -239,8 +239,8 @@ class CanaryTests(unittest.TestCase):
 
     def test_unsafe_impls(self) -> None:
         self.assertEqual(self.at("ty.impl_trait.of_which.unsafe"), 2)
-        self.assertEqual(self.at("ty.impl_trait.of_which.send_sync.send.pub"), 1)
-        self.assertEqual(self.at("ty.impl_trait.of_which.send_sync.sync.pub"), 1)
+        self.assertEqual(self.at("ty.impl_trait.of_which.std.send.pub"), 1)
+        self.assertEqual(self.at("ty.impl_trait.of_which.std.sync.pub"), 1)
 
     # ------------------------------------------------------------- fn bodies
 
@@ -324,10 +324,15 @@ class CanaryTests(unittest.TestCase):
         self.assertEqual(self.at("ty.impl_block.pub"), 2)
         # `RawSeam`, the fixture's own trait, implemented for two types.
         self.assertEqual(self.at("ty.impl_trait.of_which.local.pub"), 2)
-        # std's, across the workspace: Drop, Clone, Deref, DerefMut, Send,
-        # Sync, the macro-written Display, the vendor crate's Default, and
-        # `Derived`'s two derives.
-        self.assertEqual(self.at("ty.impl_trait.of_which.std.pub"), 10)
+        # std's, across the workspace, by trait: Drop, Clone, Send, Sync,
+        # Deref and DerefMut, and in `other` the macro-written Display, the
+        # vendor crate's Default and `Derived`'s two derives.
+        std = "ty.impl_trait.of_which.std"
+        self.assertEqual(
+            {arm: self.at(f"{std}.{arm}.pub")
+             for arm in ["drop", "clone", "send", "sync", "ref_forming", "other"]},
+            {"drop": 1, "clone": 1, "send": 1, "sync": 1, "ref_forming": 2, "other": 4})
+        self.assertEqual(self.at(f"{std}.total"), 10)
 
     def test_derived_impls_are_a_share_of_the_trait_impls(self) -> None:
         """`#[derive(Debug, Default)]` on `Derived` writes two impls nobody

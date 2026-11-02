@@ -16,6 +16,7 @@ from pathlib import Path
 from ffimap import measure, scan
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cells"
+W = "ty.ffibox.wrapper.as"
 
 
 def _driver_available() -> bool:
@@ -84,164 +85,151 @@ class CellCounterTests(unittest.TestCase):
 
     # ----------------------------------------------------- ty.ffibox.wrapper
 
-    def test_every_borrow_of_the_cell_is_counted_once_per_place(self) -> None:
-        """The fourteen `&Widget` mentions of the fixture's public interface.
+    def test_wrapper_counts_the_cell_types(self) -> None:
+        """`Widget` is the fixture's one `CCell`, and its handles implement
+        no seam."""
+        self.assertEqual(self.at("ty.ffibox.wrapper.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.no_seam_trait.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.total"), 1)
 
-        Four receivers (`as_ref`, `as_mut`, `peek`, `eq`) and `widest`'s; the
-        arguments `eq`, `widest`, `leaked`, `leaked_optional`, `leaked_slice`
-        and `Holder::as_ref` take, `borrowed_in_vec`'s through a `Vec`,
-        `widest`'s returned `&Widget`, and `Lens.w`'s field. `leaked_optional`
-        and `leaked_slice` prove the walk enters `Option` and a slice.
+    def test_the_mentions_are_never_summed_into_the_types(self) -> None:
+        """`as` counts places, the record above it types: 31 mentions of one
+        cell, and the cell count stays 1."""
+        self.assertEqual(self.at("ty.ffibox.wrapper.as.total"), 31)
+        self.assertEqual(self.tree["ty"]["ffibox"]["wrapper"]["total"], 1)
+
+    # ------------------------------------------------- ty.ffibox.wrapper.as
+
+    # The innermost holder above each mention, by place, read off the
+    # fixture's annotations.
+    AS = {
+        "borrowed.std": {"fn_sig.pub": 15, "field.pub": 1},
+        "borrowed.ffibox": {"fn_sig.pub": 1},
+        "owned.std": {"fn_sig.pub": 3, "field.priv": 1},
+        "owned.ffibox": {"fn_sig.pub": 4},
+        "by_val": {"fn_sig.pub": 3, "fn_sig.priv": 1, "field.pub": 1, "field.priv": 1},
+    }
+
+    def test_every_mention_is_in_one_arm_by_its_innermost_holder(self) -> None:
+        """The arms partition the mentions, and `field` and `fn_sig` each arm.
+
+        `borrowed.std` is every `&Widget`: the receivers of `as_ref`, `as_mut`,
+        `peek`, `eq`, `as_ref` the trait method and `widest`, the arguments
+        `eq`, `widest`, `leaked`, `leaked_optional`, `leaked_slice`,
+        `borrowed_in_vec` and `Holder::as_ref` take, the returns of `widest`
+        and `AsRef::as_ref`, and `Lens.w`. `owned.ffibox` is `in_ffibox_owner`,
+        `owners_in_vec`, `opened` and `peeked`, whose reference is to the
+        `CBox` and not to the cell.
         """
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.borrow.pub"), 14)
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.borrow.priv"), 0)
+        for arm, places in self.AS.items():
+            for place in ["fn_sig.pub", "fn_sig.priv", "field.pub", "field.priv"]:
+                at, vis = place.split(".")
+                with self.subTest(arm=arm, place=place):
+                    self.assertEqual(self.at(f"{W}.{arm}.of_which.{at}.{vis}"),
+                                     places.get(place, 0))
+            with self.subTest(arm=arm):
+                self.assertEqual(self.at(f"{W}.{arm}.total"), sum(places.values()))
+        self.assertEqual(self.at(f"{W}.total"),
+                         sum(sum(p.values()) for p in self.AS.values()))
 
     def test_the_sanctioned_borrows_are_shares_so_the_rest_subtracts(self) -> None:
-        """What the counter is for: `14 - 2 - 2` is the unsanctioned surface.
+        """What the counter is for: `16 - 2 - 3` is the unsanctioned surface.
 
         The accessors' receivers and the trait impls' stand on ffibox's own
         contract, that a cell value is Rust-owned inline storage. `peek` does
         not, although it takes the same `&self`: the share is a name rule, so
         a conversion the convention did not name stays in the remainder.
         """
-        accessor = self.at(
-            "ty.ffibox.wrapper.of_which.borrow.of_which.self_in_ref_accessor.pub")
-        trait_impl = self.at(
-            "ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.pub")
-        self.assertEqual((accessor, trait_impl), (2, 2))
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.borrow.pub")
-                         - accessor - trait_impl, 10)
+        accessor = self.at(f"{W}.borrowed.std.of_which.self_in_ref_accessor.pub")
+        trait_impl = self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.pub")
+        self.assertEqual((accessor, trait_impl), (2, 3))
+        self.assertEqual(self.at(f"{W}.borrowed.std.pub") - accessor - trait_impl, 11)
 
     def test_only_the_receiver_of_a_trait_method_is_sanctioned(self) -> None:
-        """`eq` and `widest` have one sanctioned borrow each, of five.
+        """`eq`, `as_ref` and `widest` have one sanctioned borrow each, of
+        seven.
 
-        The trait fixes the receiver's shape and nothing else: `eq`'s `other`
-        and `widest`'s argument and RETURN are published borrows of C-owned
-        memory that the impl chose, and `fn deref(&self) -> &Foo` is the shape
-        that makes the distinction worth drawing.
+        The trait fixes the receiver's shape and nothing else: `eq`'s `other`,
+        `widest`'s argument and the RETURNS of `widest` and `AsRef::as_ref` are
+        published borrows of C-owned memory that the impl chose.
         """
+        self.assertEqual(self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.pub"), 3)
+
+    def test_a_ref_forming_receiver_is_its_own_share(self) -> None:
+        """`AsRef::as_ref` is the one receiver of a std trait whose method
+        returns a reference the impl chose; `PartialEq` and the local `Widest`
+        are not std's ref-forming traits."""
         self.assertEqual(
-            self.at("ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.pub"),
-            2)
+            self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.pub"),
+            1)
 
     def test_an_accessor_by_name_without_a_receiver_is_not_sanctioned(self) -> None:
-        """`Holder::as_ref(w: &Widget)` carries the name and no `self`.
+        """`Holder::as_ref(w: &Widget)` carries the name and no `self`, and the
+        trait method `AsRef::as_ref` is not in an inherent impl.
 
-        The contract licenses the mint `define_ctype!` writes, which is a
-        method on the cell; a free-standing function of the same name is a
-        borrow its author chose.
+        The contract licenses the mint `define_ctype!` writes, which is an
+        inherent method on the cell; a free-standing function of the same name
+        is a borrow its author chose.
         """
-        self.assertEqual(
-            self.at("ty.ffibox.wrapper.of_which.borrow.of_which.self_in_ref_accessor.pub"),
-            2)
-
-    def test_a_slice_of_cells_is_a_borrow_and_a_slice_at_one_mention(self) -> None:
-        """`&[Widget]` is both, which is why the arms are shares."""
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.slice.pub"), 1)
-
-    def test_a_std_owner_holds_its_cell_in_storage_of_its_own(self) -> None:
-        """`Box<Widget>`, `Vec<Widget>` and the `Vec` nested inside a `CBox`.
-
-        `Option<Widget>` is not a fourth: it allocates nothing and owns no run
-        of elements, so the cell sits in the mention's own place and `by_val`
-        says it. Admitting the inline wrappers read 34 mentions on
-        libgit2-bindings, 31 of them `Result<Foo, Error>` returns.
-        """
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.std_owner.pub"), 3)
+        self.assertEqual(self.at(f"{W}.borrowed.std.of_which.self_in_ref_accessor.pub"), 2)
 
     def test_a_std_owner_of_borrows_owns_no_cell(self) -> None:
-        """`Vec<&Widget>` is one borrow and no owner.
-
-        The innermost qualifier of each class describes the mention, so the
-        reference below the `Vec` clears the owner the `Vec` set. Read off the
-        places, since the figure alone cannot say which mention it is.
-        """
-        wanted = ["ty.ffibox.wrapper.of_which.borrow.pub",
-                  "ty.ffibox.wrapper.of_which.std_owner.pub"]
+        """`Vec<&Widget>` is one borrow and no owner: the innermost holder
+        describes the mention. Read off the places, since the figure alone
+        cannot say which mention it is."""
+        wanted = [f"{W}.borrowed.std.pub", f"{W}.owned.std.pub"]
         sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
         src = (FIXTURE / "cells" / "src" / "lib.rs").read_text().splitlines()
         named = {c: {src[ln - 1].strip() for r in sites[c] for ln in r["lines"]}
                  for c in wanted}
         decl = "pub fn borrowed_in_vec(ws: Vec<&Widget>) -> usize {"
-        self.assertIn(decl, named["ty.ffibox.wrapper.of_which.borrow.pub"])
-        self.assertNotIn(decl, named["ty.ffibox.wrapper.of_which.std_owner.pub"])
+        self.assertIn(decl, named[f"{W}.borrowed.std.pub"])
+        self.assertNotIn(decl, named[f"{W}.owned.std.pub"])
 
-    def test_a_field_mention_is_keyed_on_reaching_it(self) -> None:
-        """`Holder.w` and `Lens.w` are public, `PrivateHolder.w` and `Lens.ws`
-        are not."""
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.field.pub"), 2)
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.field.priv"), 2)
+    def test_a_hazard_nested_below_a_primitive_is_still_seen(self) -> None:
+        """`CBox<Vec<Widget>>` against `Vec<CBox<Widget>>`.
 
-    def test_where_a_shape_sits_partitions_it(self) -> None:
-        """`field` and `fn_sig` split each of the three shapes.
-
-        `Lens.w` is the one borrow in a field and `Lens.ws` the one owner, so
-        the other thirteen borrows, the three public owners and the slice are
-        a signature's. The receivers the sanctioned shares name are among the
-        borrows in a signature.
+        The walk goes THROUGH a primitive rather than stopping at it, so a
+        `Vec` below one is still a vector holding cells by value, whoever
+        manages the vector, and the other way round the primitive is the
+        holder.
         """
-        at = lambda shape, where, vis: self.at(
-            f"ty.ffibox.wrapper.of_which.{shape}.of_which.{where}.{vis}")
-        self.assertEqual((at("borrow", "field", "pub"), at("borrow", "fn_sig", "pub")),
-                         (1, 13))
-        self.assertEqual((at("std_owner", "field", "priv"),
-                          at("std_owner", "fn_sig", "pub")), (1, 3))
-        self.assertEqual((at("slice", "field", "pub"), at("slice", "fn_sig", "pub")),
-                         (0, 1))
-        for shape in ["borrow", "std_owner", "slice"]:
-            for vis in ["pub", "priv"]:
-                self.assertEqual(
-                    at(shape, "field", vis) + at(shape, "fn_sig", vis),
-                    self.at(f"ty.ffibox.wrapper.of_which.{shape}.{vis}"), (shape, vis))
-
-    def test_the_population_counts_each_mention_once(self) -> None:
-        """Eighteen public mentions: 14 borrows, three owners and `Holder.w`.
-
-        `Lens.w` is a field too, but the same mention as one of the borrows,
-        and the slice is not a nineteenth either: it is the same mention as one of the
-        borrows, which is what makes the arms shares rather than a partition.
-        A `Widget` taken by value with no qualifier above it -- `by_value`'s
-        two, and `maybe`'s `Option` -- is in `by_val` and not here: `wrapper`
-        counts the mentions one of its arms describes.
-        """
-        self.assertEqual(self.at("ty.ffibox.wrapper.pub"), 18)
-        self.assertEqual(self.at("ty.ffibox.wrapper.priv"), 2)
+        wanted = [f"{W}.owned.std.pub", f"{W}.owned.ffibox.pub"]
+        sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
+        src = (FIXTURE / "cells" / "src" / "lib.rs").read_text().splitlines()
+        named = {c: {src[ln - 1].strip() for r in sites[c] for ln in r["lines"]}
+                 for c in wanted}
+        self.assertIn("pub fn nested_owner(_w: CBox<Vec<Widget>>) {}",
+                      named[f"{W}.owned.std.pub"])
+        self.assertIn("pub fn owners_in_vec(_w: Vec<CBox<Widget>>) {}",
+                      named[f"{W}.owned.ffibox.pub"])
 
     # --------------------------------------------------------- ty.ffibox.ffi
 
     def test_the_raw_struct_is_keyed_on_the_cells_associated_type(self) -> None:
         """`CCell::C` is the authority: `raw_widget` is counted because
         `Widget` names it, the newtype's own field privately and
-        `raw_borrow`'s signature publicly."""
-        self.assertEqual(self.at("ty.ffibox.ffi.of_which.borrow.pub"), 1)
-        self.assertEqual(self.at("ty.ffibox.ffi.of_which.field.priv"), 1)
-        self.assertEqual(self.at("ty.ffibox.ffi.total"), 2)
+        `raw_borrow`'s signature publicly. `ffi` holds mentions only."""
+        self.assertEqual(self.at("ty.ffibox.ffi.as.borrowed.std.of_which.fn_sig.pub"), 1)
+        self.assertEqual(self.at("ty.ffibox.ffi.as.by_val.of_which.field.priv"), 1)
+        self.assertEqual(self.at("ty.ffibox.ffi.as.total"), 2)
+        self.assertNotIn("total", self.tree["ty"]["ffibox"]["ffi"])
 
-    # ------------------------------------------------------ ty.ffibox.by_val
+    # ------------------------------------------------------- ty.impl_trait
 
-    def test_a_cell_held_as_a_value_is_counted_where_it_is_held(self) -> None:
-        """`by_value`, `boxed`, `maybe` and `nested_owner` name six, `take` one;
-        `Holder.w` holds one, and `PrivateHolder.w` and `Lens.ws` one each.
-
-        `field` and `fn_sig` partition the population; `std_owner` cuts across
-        and covers four of them, `boxed`'s two, `nested_owner`'s and `Lens.ws`.
-        """
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.fn_sig.pub"), 6)
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.fn_sig.priv"), 1)
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.field.pub"), 1)
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.field.priv"), 2)
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.std_owner.pub"), 3)
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.std_owner.priv"), 1)
-        self.assertEqual(self.at("ty.ffibox.by_val.total"), 10)
-
-    def test_a_borrowed_cell_is_never_by_value(self) -> None:
-        """The thirteen borrows are nowhere in `by_val`, which is the whole
-        distinction: `&Widget` is somebody else's storage."""
-        self.assertEqual(self.at("ty.ffibox.by_val.total"),
-                         self.at("ty.ffibox.by_val.of_which.fn_sig.pub")
-                         + self.at("ty.ffibox.by_val.of_which.fn_sig.priv")
-                         + self.at("ty.ffibox.by_val.of_which.field.pub")
-                         + self.at("ty.ffibox.by_val.of_which.field.priv"))
+    def test_std_and_ffibox_impls_are_partitioned_by_trait(self) -> None:
+        """`PartialEq` is `other`, `AsRef` `ref_forming`, `Drop for Holder`
+        `drop`; `CCell` is `layout`, `CDrop` and `CNew` `policy`."""
+        it = "ty.impl_trait.of_which"
+        self.assertEqual(
+            {arm: self.at(f"{it}.std.{arm}.pub")
+             for arm in ["drop", "clone", "send", "sync", "ref_forming", "other"]},
+            {"drop": 1, "clone": 0, "send": 0, "sync": 0, "ref_forming": 1, "other": 1})
+        self.assertEqual(self.at(f"{it}.std.total"), 3)
+        self.assertEqual(self.at(f"{it}.ffibox.layout.pub"), 1)
+        self.assertEqual(self.at(f"{it}.ffibox.policy.pub"), 2)
+        self.assertEqual(self.at(f"{it}.ffibox.policy.of_which.CDrop.handwritten"), 1)
+        self.assertEqual(self.at(f"{it}.ffibox.total"), 3)
 
     # ---------------------------------------------------------------- fn.sig
 
@@ -260,55 +248,17 @@ class CellCounterTests(unittest.TestCase):
 
     # ----------------------------------------------------------- the negatives
 
-    def test_what_ffibox_manages_is_not_the_crates_own_mention(self) -> None:
-        """`CBox<Widget>` and `CBorrowedPtr<Widget>` hold the cell behind
-        their own pointer, so the walk stops at the primitive.
-
-        Were they counted, every campaign's figures would be dominated by the
-        delegation `ty.field.ffibox` and `fn.sig` already report: on
-        libgit2-bindings the two primitives carried 76 of 80 field mentions
-        and 250 of 423 signature mentions.
-        """
-        # `Lens.ws` is the one private owner: none of the primitives is.
-        self.assertEqual(self.at("ty.ffibox.wrapper.of_which.std_owner.priv"), 1)
-        # The primitives, the two raw pointers and `Vec<CBox<Widget>>` would
-        # each add a mention; the totals are the hand-derived ones without
-        # them.
-        self.assertEqual(self.at("ty.ffibox.wrapper.total"), 20)
-
-    def test_a_hazard_nested_below_a_primitive_is_still_seen(self) -> None:
-        """`CBox<Vec<Widget>>` against `Vec<CBox<Widget>>`.
-
-        The walk goes THROUGH a pointer-like rather than stopping at it, so a
-        `Vec` below one is still a vector holding cells by value, whoever
-        manages the vector. The other way round the innermost qualifier is the
-        primitive, and nothing is this crate's storage. Stopping at the
-        primitive hid the first case; counting the primitive itself as storage
-        read 250 of libgit2-bindings' 423 signature mentions.
-        """
-        sites = scan.compose(
-            FIXTURE, ffibox=True,
-            sites=["ty.ffibox.by_val.of_which.std_owner.pub"])["sites"]
-        lines = [l for r in sites["ty.ffibox.by_val.of_which.std_owner.pub"]
-                 for l in r["lines"]]
-        src = (FIXTURE / "cells" / "src" / "lib.rs").read_text().splitlines()
-        named = sorted({src[l - 1].strip() for l in lines})
-        self.assertIn("pub fn nested_owner(_w: CBox<Vec<Widget>>) {}", named)
-        self.assertNotIn("pub fn owners_in_vec(_w: Vec<CBox<Widget>>) {}", named)
-
-    def test_a_pointer_to_a_cell_is_not_storage_holding_one(self) -> None:
-        """`NonNull<Widget>` and `*mut Widget` are `raw_ptr`'s positions.
-
-        ffibox's lifecycle strategies take `NonNull<Cell>`, so counting it
-        would put every `c_drop` in the by-value hazard: on libgit2-bindings
-        `NonNull` carried 58 of 173 signature mentions once the primitives
-        were out. Were the two counted here the figure would be 8.
-        """
-        self.assertEqual(self.at("ty.ffibox.by_val.of_which.fn_sig.pub"), 6)
+    def test_a_pointer_to_a_cell_is_no_holder(self) -> None:
+        """`NonNull<Widget>`, `*mut Widget`, the strategies' `NonNull<raw_widget>`
+        and the handles' raw pointers are `raw_ptr`'s positions, `PhantomData`
+        holds nothing, and `called_back`'s fn pointer is not entered: none is
+        in the arms, whose sum is the hand-derived 31 without them."""
+        self.assertEqual(self.at(f"{W}.total"), 31)
+        self.assertEqual(self.at("ty.ffibox.ffi.as.total"), 2)
 
     def test_every_mention_reports_its_place(self) -> None:
-        """`--sites` reaches all three families, and a counter's per-file
-        counts sum to it.
+        """`--sites` reaches both trees, and a counter's per-file counts sum
+        to it.
 
         Both halves are the point. The families are spelled from a variable in
         the driver (`ty.{tree}.{vis}`), so `test_counters`'s source scrape
@@ -318,10 +268,10 @@ class CellCounterTests(unittest.TestCase):
         remainder readable: the unsanctioned borrows are recovered by taking
         the share's places out of the arm's.
         """
-        wanted = ["ty.ffibox.wrapper.of_which.borrow.pub",
-                  "ty.ffibox.wrapper.of_which.borrow.of_which.self_in_ref_accessor.pub",
-                  "ty.ffibox.ffi.of_which.borrow.pub",
-                  "ty.ffibox.by_val.of_which.fn_sig.pub"]
+        wanted = [f"{W}.borrowed.std.pub",
+                  f"{W}.borrowed.std.of_which.self_in_ref_accessor.pub",
+                  "ty.ffibox.ffi.as.borrowed.std.pub",
+                  f"{W}.by_val.of_which.fn_sig.pub"]
         sites = scan.compose(FIXTURE, ffibox=True, sites=wanted)["sites"]
         for counter in wanted:
             with self.subTest(counter=counter):

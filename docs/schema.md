@@ -142,18 +142,32 @@ The types the crate defines, by what they hold and what they declare about it.
   emits, is skipped.
 - `ty.impl_trait.of_which.derived.{pub,priv}` -- the ones a `#[derive]` wrote.
   Nobody typed them, and they are most of the `std` arm.
-- `ty.impl_trait.of_which.send_sync.{send,sync}.{pub,priv}` -- the
-  `unsafe impl Send` and `unsafe impl Sync` claims, counted separately from
-  each other.
-- `ty.impl_trait.of_which.std.{pub,priv}` -- the impls of a standard-library
-  trait.
+- `ty.impl_trait.of_which.std.drop.{pub,priv}` -- the impls of a
+  standard-library trait, by trait: `Drop`, which runs code when an object is
+  released.
+- `ty.impl_trait.of_which.std.clone.{pub,priv}` -- `Clone`, which duplicates
+  one.
+- `ty.impl_trait.of_which.std.send.{pub,priv}` -- `Send`, the claim that an
+  object may move to another thread.
+- `ty.impl_trait.of_which.std.sync.{pub,priv}` -- `Sync`, the claim that it may
+  be shared between threads.
+- `ty.impl_trait.of_which.std.ref_forming.{pub,priv}` -- `Deref`, `DerefMut`,
+  `AsRef`, `AsMut`, `Borrow`, `BorrowMut`, `Index` and `IndexMut`, whose
+  method returns a reference of a type the impl chose.
+- `ty.impl_trait.of_which.std.other.{pub,priv}` -- every other std trait:
+  `Debug`, `PartialEq`, `Copy` and the rest.
 - `ty.impl_trait.of_which.local.{pub,priv}` -- the impls of a trait the crate
   declared itself: a shape it chose rather than adopted.
-- `ty.impl_trait.of_which.ffibox.{pub,priv}` -- the impls of an ffibox
-  contract.
-- `ty.impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}` -- those
-  by trait, split by whether a generator wrote the impl rather than by
+- `ty.impl_trait.of_which.ffibox.layout.{pub,priv}` -- the impls of an ffibox
+  trait that states a cell's layout or how it is reached and locked: the
+  layout, seam and guard groups of [ffibox.md](ffibox.md#1-the-vocabulary).
+- `ty.impl_trait.of_which.ffibox.layout.of_which.<trait>.{handwritten,macro}` --
+  those by trait, split by whether a generator wrote the impl rather than by
   visibility ([2.5](#25-deliberate-asymmetries)).
+- `ty.impl_trait.of_which.ffibox.policy.{pub,priv}` -- the impls of a lifecycle
+  policy: the allocate, release and clone groups.
+- `ty.impl_trait.of_which.ffibox.policy.of_which.<trait>.{handwritten,macro}` --
+  those by trait, likewise.
 - `ty.generic.{pub,priv}` -- types carrying a generic parameter.
 - `ty.generic.of_which.{lifetime,type}.{pub,priv}` -- of those, by kind of
   parameter. A lifetime ties the type to something it borrows; a type parameter
@@ -164,60 +178,61 @@ The types the crate defines, by what they hold and what they declare about it.
 - `ty.field.ffibox.<primitive>.{pub,priv}` -- fields holding an ffibox
   primitive, by primitive: the delegation `ty.storing_raw_ptr` deliberately
   does not count as the crate's own pointer.
-- `ty.ffibox.ccell.{pub,priv}` -- the layout types, those that implement
+- `ty.ffibox.wrapper.{pub,priv}` -- the cell types: those that implement
   `CCell`.
-- `ty.ffibox.ccell.of_which.no_seam_trait.{pub,priv}` -- of those, the cells
+- `ty.ffibox.wrapper.of_which.no_seam_trait.{pub,priv}` -- of those, the cells
   whose handles implement neither seam, so code generic over a handle has to
   special-case them.
-- `ty.ffibox.wrapper.{pub,priv}` -- MENTIONS of a cell in the crate's
-  declarations, counted where a qualifier below makes the mention a question:
-  a cell named in twenty signatures is twenty of these.
-- `ty.ffibox.wrapper.of_which.borrow.{pub,priv}` -- of those, the mentions
-  behind a reference, which the convention says should be a handle instead.
-- `ty.ffibox.wrapper.of_which.borrow.of_which.{field,fn_sig}.{pub,priv}` -- of
-  the borrows, where they sit: a field's type, or a signature's. These two
-  partition the borrows.
-- `ty.ffibox.wrapper.of_which.borrow.of_which.self_in_ref_accessor.{pub,priv}`
-  -- of the borrows in a signature, the receiver of an `as_ref` / `as_mut` accessor, which
+- `ty.ffibox.wrapper.as.borrowed.std.{pub,priv}` -- MENTIONS of a cell in the
+  crate's declarations, by what holds it: a cell named in twenty signatures is
+  twenty of these. Here, the mentions behind a reference, which the convention
+  says should be a handle instead.
+- `ty.ffibox.wrapper.as.borrowed.std.of_which.{field,fn_sig}.{pub,priv}` -- of
+  those, where they sit: a field's type, or a signature's. These two partition
+  each arm of `as`.
+- `ty.ffibox.wrapper.as.borrowed.std.of_which.self_in_ref_accessor.{pub,priv}`
+  -- of the references, the receiver of an `as_ref` / `as_mut` accessor, which
   ffibox's contract licenses.
-- `ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.{pub,priv}` --
+- `ty.ffibox.wrapper.as.borrowed.std.of_which.self_in_trait_impl.{pub,priv}` --
   the receiver of a trait impl's method, whose shape the trait fixed rather
-  than the crate. The remainder of the borrows is the unsanctioned surface.
-- `ty.ffibox.wrapper.of_which.std_owner.{pub,priv}` -- the mentions inside a
-  standard-library container that owns its storage (`Box`, `Vec`, a map).
-- `ty.ffibox.wrapper.of_which.std_owner.of_which.{field,fn_sig}.{pub,priv}` --
-  where those sit, as for the borrows.
-- `ty.ffibox.wrapper.of_which.slice.{pub,priv}` -- the mentions behind a slice.
-- `ty.ffibox.wrapper.of_which.slice.of_which.{field,fn_sig}.{pub,priv}` -- where
-  those sit, likewise.
-- `ty.ffibox.wrapper.of_which.field.{pub,priv}` -- the mentions that are a
-  field's type, which cuts across the other three.
-- `ty.ffibox.ffi.{pub,priv}` -- the same mentions for the raw `-sys` struct a
-  cell covers, its `CCell::C`: the C layout named where the wrapper could have
-  been.
-- `ty.ffibox.ffi.of_which.borrow.{pub,priv}` -- of those, the mentions behind a
-  reference.
-- `ty.ffibox.ffi.of_which.borrow.of_which.{field,fn_sig}.{pub,priv}` -- where
-  the borrows sit, as above.
-- `ty.ffibox.ffi.of_which.borrow.of_which.self_in_ref_accessor.{pub,priv}` --
-  the receiver of an accessor, as above.
-- `ty.ffibox.ffi.of_which.borrow.of_which.self_in_trait_impl.{pub,priv}` -- the
-  receiver of a trait impl's method, as above.
-- `ty.ffibox.ffi.of_which.std_owner.{pub,priv}` -- the mentions inside a
-  standard-library owner.
-- `ty.ffibox.ffi.of_which.std_owner.of_which.{field,fn_sig}.{pub,priv}` --
-  where those sit, as above.
-- `ty.ffibox.ffi.of_which.slice.{pub,priv}` -- the mentions behind a slice.
-- `ty.ffibox.ffi.of_which.slice.of_which.{field,fn_sig}.{pub,priv}` -- where
-  those sit, as above.
-- `ty.ffibox.ffi.of_which.field.{pub,priv}` -- the mentions that are a field's
-  type.
-- `ty.ffibox.by_val.{pub,priv}` -- mentions of a cell by value rather than
-  behind a reference.
-- `ty.ffibox.by_val.of_which.{field,fn_sig}.{pub,priv}` -- of those, where the
-  value sits: a field's type, or a signature's. These two partition the record.
-- `ty.ffibox.by_val.of_which.std_owner.{pub,priv}` -- the ones inside a
-  standard-library owner, which cuts across both.
+  than the crate. The remainder of the references is the unsanctioned surface.
+- `ty.ffibox.wrapper.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}`
+  -- of those, the receivers of a `ref_forming` std trait's method, which
+  returns a reference the impl chose.
+- `ty.ffibox.wrapper.as.borrowed.ffibox.{pub,priv}` -- the mentions held by an
+  ffibox borrow: `CBorrowedPtr`, `CSlice`, `CSliceMut`, `CGuardedRef`,
+  `CGuard`.
+- `ty.ffibox.wrapper.as.borrowed.ffibox.of_which.{field,fn_sig}.{pub,priv}` --
+  where they sit.
+- `ty.ffibox.wrapper.as.owned.std.{pub,priv}` -- the mentions held by a
+  standard-library owner of its own storage (`Box`, `Vec`, a map).
+- `ty.ffibox.wrapper.as.owned.std.of_which.{field,fn_sig}.{pub,priv}` -- where
+  they sit.
+- `ty.ffibox.wrapper.as.owned.ffibox.{pub,priv}` -- the mentions held by an
+  ffibox owner: `CBox`, `CArc`, `CVec`, `CVal`.
+- `ty.ffibox.wrapper.as.owned.ffibox.of_which.{field,fn_sig}.{pub,priv}` --
+  where they sit.
+- `ty.ffibox.wrapper.as.by_val.{pub,priv}` -- the mentions with nothing above
+  them: the cell's bytes sit in the mention's own place.
+- `ty.ffibox.wrapper.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- where
+  they sit.
+- `ty.ffibox.ffi.as.borrowed.std.{pub,priv}` -- the same mentions of the raw
+  `-sys` struct a cell covers, its `CCell::C`: the C layout named where the
+  wrapper could have been. `ffi` counts no types of its own.
+- `ty.ffibox.ffi.as.borrowed.std.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.borrowed.std.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}`
+  -- as above.
+- `ty.ffibox.ffi.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}`
+  -- as above.
+- `ty.ffibox.ffi.as.borrowed.ffibox.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.borrowed.ffibox.of_which.{field,fn_sig}.{pub,priv}` -- as
+  above.
+- `ty.ffibox.ffi.as.owned.std.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.owned.std.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.owned.ffibox.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.owned.ffibox.of_which.{field,fn_sig}.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.by_val.{pub,priv}` -- as above.
+- `ty.ffibox.ffi.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- as above.
 
 ### 1.3 `fn`
 
@@ -285,6 +300,11 @@ own `{pub,priv}` partition. A share may refine another share, and then it nests
 under it: `fn_sig_trait_impl.of_which.ffibox.of_which.<trait>` is the ffibox
 positions by trait.
 
+One child is of another unit: `as` holds the mentions of the types its parent
+counts -- `ty.ffibox.wrapper` is the cell types, `ty.ffibox.wrapper.as` the
+places they are named -- so it is never summed into the parent either, while
+it is a record with a total of its own, which its arms partition.
+
 Where a residual is wanted it is emitted as a share named for it --
 `ty.storing_raw_ptr.of_which.none`, `ty.total.of_which.no_trait` -- rather than
 left for a reader to subtract.
@@ -299,10 +319,10 @@ families rather than the parts of one quantity.
 
 A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts
 signature positions and `raw_ptr.deref` counts body sites, so their sum means
-nothing -- and three are namespaces a level down. `ty.ffibox` holds a type
-population (`ccell` counts types) beside three records of mentions (`wrapper`,
-`ffi` and `by_val` count places, and overlap each other, since a cell held in a
-field is in `wrapper` and in `by_val` both). `code.tests` holds four separate
+nothing -- and four are namespaces below it. `ty.ffibox` holds the cell types
+(`wrapper`) beside `ffi`, which counts no types and holds only the mentions of
+the structs the cells cover, under `as`, so `ty.ffibox.ffi` is a namespace too.
+`code.tests` holds four separate
 measurements of the test build: its lines, its unsafe lines -- a subset of them
 -- its unsafe blocks and its fns; their sum read 103840 on libgit2-bindings, a
 figure with no unit at all. `fn.sig` holds what a signature carries, in
@@ -320,8 +340,9 @@ those is exactly right.
 
 Every counter the invocation's flags turn on is in the document, at `0` when
 it never fired. A reader of one document cannot tell an absent counter from
-one the schema does not have -- no `std_owner` under `ty.ffibox.wrapper` could
-mean "no cell is held in a std collection" or "that arm was never written" --
+one the schema does not have -- no `owned.std` under `ty.ffibox.wrapper.as`
+could mean "no cell is held in a std collection" or "that arm was never
+written" --
 and the schema is too long to hold in the head, so the driver registers every
 path it can emit before the passes run and they count up from there.
 
@@ -355,22 +376,20 @@ predictably. The trait arms are declared, in the order
 the lifecycle it describes rather than alphabetically.
 `measure.KEY_ORDER` is one table for every level, since a name that earns an
 early rank in one record earns it in the others: `unsafe` is early as
-`fn.unsafe`, as `code.loc.unsafe` and as the unsafe trait impls. Two records
-cannot both be satisfied by it -- `field` leads `by_val`'s shares and trails
-`wrapper`'s, and it is ranked with the positions -- and `fn` is split out,
-being a prefix as well as one of `code.tests`'s three measurements.
+`fn.unsafe`, as `code.loc.unsafe` and as the unsafe trait impls. `fn` is the
+one name it cannot place for every record, being a prefix as well as one of
+`code.tests`'s measurements, so it is ranked for the latter. A type count's
+`as` comes after its `of_which`, since the mentions are read once the types
+are.
 
 ### 2.5 Deliberate asymmetries
 
 A split that is not carried where a reader might expect it, and why.
 
-`ty.impl_trait.of_which.ffibox.of_which.<trait>` splits `{handwritten,macro}`
-but not `{pub,priv}`: whether a generator was used does not vary with
-visibility, and the split would cost 68 cells for nothing.
-
-`ty.impl_trait.of_which.send_sync` splits `{pub,priv}` but not by origin:
-asserting `Send` on a public type is a claim to consumers, on a private one it
-is internal bookkeeping.
+`ty.impl_trait.of_which.ffibox.{layout,policy}.of_which.<trait>` splits
+`{handwritten,macro}` but not `{pub,priv}`: whether a generator was used does
+not vary with visibility, and the split would cost a cell per trait for
+nothing.
 
 `raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>` splits by neither:
 a trait method's safety and visibility are the trait declaration's, one
@@ -391,15 +410,16 @@ do with the pointer, and in a trait impl it chose neither.
 A report is leaves divided and subtracted, named by their paths. Three rules
 make the arithmetic sound:
 
-- a partition may be summed, an `of_which` may not. Two shares of one record
-  overlap, so `borrow + std_owner` is not a quantity, while
+- a partition may be summed, an `of_which` may not, and an `as` never with the
+  types above it. Two shares of one record overlap, so
+  `ty.storing_raw_ptr.of_which.impl_drop + impl_clone` is not a quantity, while
   `pub + priv` is the record;
 - a rate stays inside one record, or between a record and the denominator
   emitted for it: `fn.unsafe.pub / fn.total.pub`, `code.loc.unsafe /
   code.loc.total`, `ty.storing_raw_ptr.pub / ty.total.pub`. Dividing across
   prefixes mixes grains -- signature positions by lines of code says nothing;
 - a share is read against the record it cuts, and the remainder is a
-  subtraction: `wrapper.of_which.borrow.pub` less its two sanctioned shares is
+  subtraction: `wrapper.as.borrowed.std.pub` less its two sanctioned shares is
   the convention's unsanctioned surface.
 
 ### 3.1 The readings worth taking
@@ -438,11 +458,20 @@ rest declared -- `impl_drop`, `impl_clone`, `ffibox` -- and `pub_field` is the
 opposite of a declaration.
 
 **Whether a convention is kept.** Under `--ffibox`,
-`ty.ffibox.wrapper.of_which.borrow` less `self_in_ref_accessor` and
+`ty.ffibox.wrapper.as.borrowed.std` less `self_in_ref_accessor` and
 `self_in_trait_impl` is the bare `&Foo` surface the convention says should be a
-handle. `ty.ffibox.ccell.of_which.no_seam_trait` is the cells a generic handle
-has to special-case, and `fn.sig.of_which.ffibox` whether the vocabulary
-reaches the interface at all.
+handle. `as.owned.std` and `as.by_val` against `as.owned.ffibox` say how much
+of a cell's storage the crate holds itself rather than through ffibox's
+owners. `ty.ffibox.wrapper.of_which.no_seam_trait` is the cells a generic
+handle has to special-case, and `fn.sig.of_which.ffibox` whether the
+vocabulary reaches the interface at all.
+
+**What the trait impls do.** `ty.impl_trait.of_which.std`'s arms say which of
+the crate's adopted traits act on what it wraps: `drop` and `clone` run its
+lifecycle, `send` and `sync` are claims about threads, `ref_forming` can hand
+out a reference to it. Under `--ffibox`, `ty.impl_trait.of_which.ffibox`'s
+`layout` and `policy` say how much of the convention is the cells' layout and
+how much their lifecycle.
 
 **Whose shape the pointers in trait impls are.** `fn_sig_trait_impl` is read
 through its `of_which` arms, never bare: one crate's are a convention's

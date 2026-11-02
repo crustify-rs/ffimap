@@ -88,9 +88,9 @@ class RegistryTests(unittest.TestCase):
         """Absent, not zero: the scan did not look, and a 0 would say it
         looked and found none. The same holds for the seam shares, which are
         registered only when `--seams` names something."""
-        self.assertNotIn("ty.ffibox.ccell.pub", self.plain)
+        self.assertNotIn("ty.ffibox.wrapper.pub", self.plain)
         self.assertNotIn("fn.sig.of_which.ffibox.arg.CBox.pub", self.plain)
-        self.assertIn("ty.ffibox.ccell.pub", self.ffibox)
+        self.assertIn("ty.ffibox.wrapper.pub", self.ffibox)
         self.assertIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.plain)
         self.assertNotIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.ffibox)
 

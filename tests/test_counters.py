@@ -92,16 +92,15 @@ class OrderTests(unittest.TestCase):
         does, which is where the vocabulary arms land."""
         tree = measure.nest_ptr({
             "ty.impl_trait.pub": 1,
-            "ty.impl_trait.of_which.std.pub": 1,
-            "ty.impl_trait.of_which.ffibox.of_which.CDrop.macro": 1,
-            "ty.impl_trait.of_which.ffibox.of_which.CCell.macro": 1})
+            "ty.impl_trait.of_which.std.other.pub": 1,
+            "ty.impl_trait.of_which.ffibox.policy.of_which.CDrop.macro": 1,
+            "ty.impl_trait.of_which.ffibox.layout.of_which.CCell.macro": 1})
         self.assertEqual(list(tree["ty"]["impl_trait"]),
                          ["total", "pub", "of_which"])
         self.assertEqual(list(tree["ty"]["impl_trait"]["of_which"]),
                          ["std", "ffibox"])
-        self.assertEqual(
-            list(tree["ty"]["impl_trait"]["of_which"]["ffibox"]["of_which"]),
-            ["CCell", "CDrop"])
+        self.assertEqual(list(tree["ty"]["impl_trait"]["of_which"]["ffibox"]),
+                         ["total", "layout", "policy"])
 
     # The names `ty.total.of_which.{name}_trait` builds from a stem, which is
     # the only place a counter's segment is assembled rather than written.

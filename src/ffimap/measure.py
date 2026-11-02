@@ -55,17 +55,19 @@ TREE_SITE_FAMILIES = {
 
 # The nodes that are a NAMESPACE of families rather than a counter, so no
 # derived `total` is written there: summing their children mixes grains, which
-# is why a top-level prefix gets none either. `ty.ffibox` holds a type
-# population (`ccell`) beside three records of MENTIONS whose mentions overlap
-# -- a cell held in a field is in `wrapper` and in `by_val` both -- so no sum
-# of them is a quantity. `code.tests` holds four separate measurements of the
+# is why a top-level prefix gets none either. `ty.ffibox` holds the cell types
+# (`wrapper`) beside `ffi`, which holds only the mentions of the C structs they
+# cover, under `as`: no type count of its own, so a namespace one level down.
+# `code.tests` holds four separate measurements of the
 # test build: its lines, its unsafe lines (a subset of them), its unsafe
 # blocks and its fns. Summing those read 103840 on libgit2-bindings, a figure
 # of no unit at all. `fn.sig` holds what a signature
 # carries, in mentions -- a fn taking two `CBox` is two of them -- so it is a
 # share of no fn count, and `fn.total` beside it is the denominator a reader
 # divides by.
-NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests"), ("fn", "sig")})
+NAMESPACES = frozenset({
+    ("ty", "ffibox"), ("ty", "ffibox", "ffi"), ("code", "tests"), ("fn", "sig"),
+})
 
 
 def is_tree_counter(name: str) -> bool:
@@ -94,6 +96,10 @@ class DriverUnavailable(Exception):
 #     occurrences from another angle, so it must NEVER be summed in.
 #     `code.unsafe_block.of_which.ffi_export` is a subset of the blocks
 #     `code.unsafe_block.total` counted.
+#
+# And one child of another unit: `as` holds the MENTIONS of the types its
+# parent counts -- `ty.ffibox.wrapper.as` the places a cell is named -- so it
+# is never summed in either, but is a record with a total of its own.
 #
 # `sites` stays keyed by the leaf's dotted name: a site list belongs to one
 # leaf, not to a parent.
@@ -253,16 +259,17 @@ KEY_ORDER = (
     "lifetime", "type",
     "impl_drop", "impl_clone", "impl_deref", "impl_deref_mut",
     "impl_send_sync", "has_lifetime", "pub_field", "none",
-    "derived", "send_sync", "send", "sync",
+    "derived", "drop", "clone", "send", "sync", "ref_forming",
     # the shapes a pointer is adopted into, and the arms that adopt it
-    "owner", "string", "borrow", "std_owner", "slice", "other",
+    "owner", "string", "borrow", "slice", "other",
     "std", "local", "local_seam",
     # the cell records, and their arms
-    "ccell", "no_seam_trait", "wrapper", "ffi", "rust", "intrinsic", "by_val",
+    "no_seam_trait", "wrapper", "ffi", "rust", "intrinsic",
+    "borrowed", "owned", "by_val",
     "fn_sig", "self_in_ref_accessor", "self_in_trait_impl",
     "fn",
     # the vocabulary last: an arm is read against the figure it qualifies
-    "layout", "ref", "mut", "locked", "handwritten", "ffibox",
+    "layout", "policy", "ref", "mut", "locked", "handwritten", "ffibox",
     # ffibox's traits, in the order its vocabulary declares them rather than
     # alphabetically: the layout contract, then allocation, release and
     # cloning, then the seams and the guards. One breakdown reads as the
@@ -273,8 +280,9 @@ KEY_ORDER = (
     "CDupClone", "CRefClone", "CLenClone",
     "CRefSeam", "CMutSeam", "CLockedSeam",
     "CGuarded", "CGuardedAll", "LockScope",
-    # the shares, after the partition they cut across
-    "of_which",
+    # the shares, after the partition they cut across, and a type count's
+    # mentions after both
+    "of_which", "as",
 )
 _RANK = {name: i for i, name in enumerate(KEY_ORDER)}
 
@@ -296,11 +304,17 @@ def in_order(node: dict, depth: int = 0) -> dict:
     }
 
 
+# The children never summed into their parent: `of_which`'s shares, and `as`'s
+# mentions of the types the parent counts.
+UNSUMMED = frozenset({"of_which", "as"})
+
+
 def nest_ptr(flat: dict[str, int]) -> dict:
     """Nest the driver's dotted counter keys into the schema's tree.
 
     Derived ``total`` keys are added bottom-up, summing every child except
-    ``of_which``, whose children are overlapping shares and are never summed.
+    ``of_which``, whose children are overlapping shares, and ``as``, whose
+    children count mentions of the types its parent counts.
 
     The records come out in `KEY_ORDER`, not in the driver's sorted order.
 
@@ -330,9 +344,9 @@ def nest_ptr(flat: dict[str, int]) -> dict:
         for name, child in list(node.items()):
             if isinstance(child, dict):
                 got = totals(child, path + (name,), name == "of_which")
-                if name != "of_which":
+                if name not in UNSUMMED:
                     subtotal += got
-            elif name != "of_which":
+            elif name not in UNSUMMED:
                 subtotal += child
         # The `of_which` node itself gets none: its children are overlapping
         # shares, so their sum is not a quantity. Each share still does -- the

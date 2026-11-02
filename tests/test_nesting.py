@@ -62,27 +62,39 @@ class NestPtrTests(unittest.TestCase):
     def test_a_namespace_node_gets_no_derived_total(self) -> None:
         """`ty.ffibox` is a namespace of families, not a counter.
 
-        It holds a type population (`ccell` counts types) beside records of
-        mentions (`wrapper` and `by_val` count places, and overlap each other:
-        a cell held in a field is in both). Summing them mixes grains exactly
-        as summing across a top-level prefix would, so no total is written
-        there -- while every family under it keeps its own.
+        It holds the cell types (`wrapper`) beside `ffi`, which holds only
+        mentions, so `ffi` is a namespace one level down. Summing them mixes
+        grains exactly as summing across a top-level prefix would, so no total
+        is written there -- while every family under it keeps its own.
         """
         tree = measure.nest_ptr({
-            "ty.ffibox.ccell.pub": 32,
-            "ty.ffibox.wrapper.pub": 161,
-            "ty.ffibox.wrapper.of_which.borrow.pub": 161,
-            "ty.ffibox.by_val.pub": 109,
+            "ty.ffibox.wrapper.pub": 32,
+            "ty.ffibox.ffi.as.by_val.priv": 73,
         })
         ffibox = tree["ty"]["ffibox"]
         self.assertNotIn("total", ffibox)
-        self.assertEqual(ffibox["ccell"]["total"], 32)
-        self.assertEqual(ffibox["wrapper"]["total"], 161)
-        self.assertEqual(ffibox["by_val"]["total"], 109)
+        self.assertNotIn("total", ffibox["ffi"])
+        self.assertEqual(ffibox["wrapper"]["total"], 32)
+        self.assertEqual(ffibox["ffi"]["as"]["total"], 73)
         # The namespace is declared, not inferred: `ty` itself is the
         # top-level case of the same rule.
         self.assertIn(("ty", "ffibox"), measure.NAMESPACES)
         self.assertNotIn("total", tree["ty"])
+
+    def test_the_mentions_of_a_type_count_are_not_summed_into_it(self) -> None:
+        """`as` counts places and its parent types, so the parent's total is
+        its own `pub` and `priv`, while `as` keeps a total of its own -- the
+        `of_which` rule, for a child of another unit rather than a share."""
+        tree = measure.nest_ptr({
+            "ty.ffibox.wrapper.pub": 32,
+            "ty.ffibox.wrapper.priv": 1,
+            "ty.ffibox.wrapper.as.borrowed.std.pub": 161,
+            "ty.ffibox.wrapper.as.by_val.pub": 109,
+        })
+        wrapper = tree["ty"]["ffibox"]["wrapper"]
+        self.assertEqual(wrapper["total"], 33)
+        self.assertEqual(wrapper["as"]["total"], 270)
+        self.assertEqual(list(wrapper), ["total", "pub", "priv", "as"])
 
     def test_a_leaf_and_a_prefix_cannot_share_a_name(self) -> None:
         with self.assertRaises(ValueError):

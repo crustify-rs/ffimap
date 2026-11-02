@@ -84,7 +84,7 @@ bytes through the `Ref` and `Mut` handles, so a `&Foo` that is neither an
 accessor's receiver nor a trait method's receiver is the layout published
 directly:
 
-| | `borrow.pub` | `self_in_ref_accessor` | `self_in_trait_impl` | rest |
+| | `as.borrowed.std.pub` | `self_in_ref_accessor` | `self_in_trait_impl` | rest |
 |---|---|---|---|---|
 | libgit2-bindings | 161 | 90 | 54 | 17 |
 | ffmpeg-bindings | 215 | 116 | 77 | 22 |
@@ -96,6 +96,22 @@ remainder are distinct signatures, all `&[Foo]`, so it publishes no bare
 `&Foo`; ffmpeg-bindings' include a `&[Self]` and an `as_c_ptr(&self)`, the
 same conversion as an accessor under a name the convention did not give it.
 [`docs/ffibox.md`](../docs/ffibox.md) section 8 describes the arms.
+
+## What the trait impls do
+
+`ty.impl_trait.of_which.std`, by what an impl of the trait can do to the type:
+
+| | `drop` | `clone` | `send` | `sync` | `ref_forming` | `other` |
+|---|---|---|---|---|---|---|
+| git2-rs | 54 | 87 | 7 | 1 | 26 | 1538 |
+| libgit2-bindings | 6 | 225 | 73 | 71 | 0 | 1390 |
+| ffmpeg-bindings | 4 | 229 | 112 | 112 | 0 | 1386 |
+
+git2-rs releases its objects in 54 `Drop` impls of its own and has 26
+ref-forming impls; the campaigns release through ffibox's policies
+(`ty.impl_trait.of_which.ffibox.policy`: 59 on each) and implement no
+ref-forming trait at all, so no impl of theirs can hand out a reference of a
+type it chose.
 
 ## Reading them
 
