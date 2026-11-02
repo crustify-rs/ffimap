@@ -14,15 +14,11 @@ for building safe FFI bindings. ffimap is also the safety scan
 used by [crustify](https://github.com/crustify-rs/crustify).
 
 - **Deterministic.** The same tree gives the same bytes under a fixed
-  scanner, so a diff between two scans is a change in the crate -- or in the
-  ffimap revision and the flags it ran with, which the document records
-  because both decide what is counted.
+  scanner.
 - **Compiler-precise.** Counts are made after macro expansion, `cfg` selection
   and type resolution, which source-text tools cannot do.
 - **Fact-driven.** A counter is a declaration or one expression node, with no
   dataflow and no points-to analysis behind it.
-- **Counts, not verdicts.** It says how much unsafety there is and where, never
-  which of it is wrong.
 
 ## Requirements
 
