@@ -5,6 +5,19 @@ What is open: the work each entry proposes. What a counter holds is
 [`analysis.md`](analysis.md)'s, so an entry states its proposal and cites the
 measurement rather than repeating it.
 
+## `scanner.ffibox` says whether, not which
+
+A crate built on ffibox depends on it by path during a campaign, so its
+vocabulary, its primitives and the types they wrap move the figures as much as
+the scanned crate does -- and `scanner.ffibox` is a boolean, which records that
+the flag was passed and not which ffibox was underneath. A reader cannot tell
+two documents apart when the crate stood still and ffibox moved.
+
+The commit is what the field should carry when the dependency is a path or a
+git checkout: resolvable from the manifest's resolved source. A campaign
+records it beside the scan today, in a file of its own, which is a second
+record to keep in step with the first.
+
 ## `code.unsafe_call.rust` is dominated by the standard library
 
 Splitting the arm into own-crate and dependency, which is one `did.krate` test
