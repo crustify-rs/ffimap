@@ -44,11 +44,18 @@ ty.ffibox.wrapper.as.by_val.{pub,priv}
 ty.ffibox.wrapper.as.<arm>.of_which.{field,fn_sig}.{pub,priv}
 ty.ffibox.wrapper.as.borrowed.std.of_which.{self_in_ref_accessor,self_in_trait_impl}.{pub,priv}
 ty.ffibox.wrapper.as.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.{pub,priv}
+ty.ffibox.wrapper.fields.total
+ty.ffibox.wrapper.fields.of_which.unique
 ty.ffibox.sys.total
 ty.ffibox.sys.of_which.raw_ptr_in_sys.total
 ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.{used,wrapped}
 ty.ffibox.sys.as.<the arms of ty.ffibox.wrapper.as>
 fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}
+fn.ffibox.wrapper.{non_trait,other_trait}
+fn.ffibox.wrapper.policy.<trait>
+fn.ffibox.wrapper.of_which.unique
+fn.ffibox.sys.total
+fn.ffibox.sys.of_which.used
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>
 raw_ptr.casted_to.ffibox.{borrow,slice,string,owner,other}
@@ -374,3 +381,34 @@ empty -- `impl CRefSeam<'a> for FooRef<'a, 'o> { type Cell = Foo<'o>; }` -- so
 `as_ptr` and `from_ptr` are ffibox's provided methods and no local fn carries
 the name. A campaign's own seams are inherent methods, and they land in
 `fn_sig_arg` and `fn_sig_ret` with their seam shares.
+
+## 10. The wrappers an annotation names
+
+A cell says which C struct it covers in its `CCell::C`, but nothing in a
+function's types says which C function it stands in for: the safe `open` that
+a consumer imports may reach `git_repository_open` through a private helper,
+and two variants forked for two ownership contracts reach it alike. The
+Crustify conventions therefore annotate the item a consumer uses instead of
+the C one with `#[doc(alias = "<C name>")]`, and `fn.ffibox.wrapper` reads
+those aliases back. An alias resolves by name against the `-sys` inventory:
+to a function, it is a wrapper of it; to `<struct>.<field>`, a field accessor
+(`ty.ffibox.wrapper.fields`); to anything else, a type's name included, it
+counts nowhere, since the cells are already counted through `CCell`.
+
+The wrappers split by where the annotated fn sits. A lifecycle routine is
+annotated on the policy method ffibox calls, `CDrop::c_drop` for
+`git_repository_free`, so `policy.<trait>` is the C lifecycle the crate has
+turned into strategies; `non_trait` is the crate's free functions and inherent
+methods, the rest of its API; and `other_trait` a wrapper behind a trait of
+std's or the crate's own, an `Iterator::next` over a C iterator. Each alias
+counts once per fn, so `unique` is the number of C functions wrapped, and
+`fn.ffibox.sys` its denominator: every fn the `-sys` crates declare, and of
+those the ones the crate's compiled code calls or takes the address of.
+
+| | `sys` | `used` |
+|---|---|---|
+| libgit2-bindings | 703 | 431 |
+| ffmpeg-bindings | 529 | 492 |
+
+Both campaigns predate the alias, so their wrapper counts are zero until
+their annotations are migrated.

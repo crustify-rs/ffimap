@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "4fa783109006359cfb3441ac84c52ad14f041b32",
+    "ffimap": "f81e68dfbde28c21d9b05367e50c5cdaee41856c",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -741,6 +741,12 @@
                 }
               }
             }
+          },
+          "fields": {
+            "total": 0,
+            "of_which": {
+              "unique": 0
+            }
           }
         },
         "sys": {
@@ -1043,6 +1049,34 @@
                 "priv": 3
               }
             }
+          }
+        }
+      },
+      "ffibox": {
+        "wrapper": {
+          "total": 0,
+          "non_trait": 0,
+          "other_trait": 0,
+          "policy": {
+            "total": 0,
+            "CAlloc": 0,
+            "CAllocZeroed": 0,
+            "CNew": 0,
+            "CDrop": 0,
+            "CDispose": 0,
+            "CLenDrop": 0,
+            "CDupClone": 0,
+            "CRefClone": 0,
+            "CLenClone": 0
+          },
+          "of_which": {
+            "unique": 0
+          }
+        },
+        "sys": {
+          "total": 529,
+          "of_which": {
+            "used": 492
           }
         }
       }

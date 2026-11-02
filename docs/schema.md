@@ -216,6 +216,12 @@ The types the crate defines, by what they hold and what they declare about it.
   them: the cell's bytes sit in the mention's own place.
 - `ty.ffibox.wrapper.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- where
   they sit.
+- `ty.ffibox.wrapper.fields.total` -- the crate's fns annotated as accessors
+  of a C field: each `#[doc(alias = "<struct>.<field>")]` naming a field of a
+  struct or union the crates `--sys-crates` names declare, once per alias and
+  fn, so a getter and a setter of one field are two. Fns, not cells, so never
+  summed into `ty.ffibox.wrapper`, and no `{pub,priv}`, like `ty.ffibox.sys`.
+- `ty.ffibox.wrapper.fields.of_which.unique` -- the distinct fields they name.
 - `ty.ffibox.sys.total` -- the structs the crates `--sys-crates` names
   declare: the C aggregates the bindings expose. No `{pub,priv}`: they are
   another crate's types.
@@ -279,6 +285,21 @@ Every function the crate defines, the methods of its trait impls included
   inside a `Result`, an `Option` or a reference included
   ([analysis 9.4](analysis.md#94-functions-and-methods)): whether the
   vocabulary actually crosses the interface.
+- `fn.ffibox.sys.total` -- the fns the crates `--sys-crates` names declare:
+  the C functions the bindings expose, macro shims included. No `{pub,priv}`:
+  they are another crate's.
+- `fn.ffibox.sys.of_which.used` -- of those, the ones the crate's compiled code
+  names, by calling one or coercing it to a pointer.
+- `fn.ffibox.wrapper.{non_trait,other_trait}` -- the crate's fns annotated as
+  wrappers of a C function: each `#[doc(alias)]` naming a fn of the `-sys`
+  crates, once per alias and fn, so the variants a C function is forked into
+  count once each. By where the annotated fn sits: a free fn or an inherent
+  method (`non_trait`), or the method of a trait that is no ffibox policy
+  (`other_trait`). No `{pub,priv}`, like `fn.ffibox.sys`.
+- `fn.ffibox.wrapper.policy.<trait>` -- the method of an ffibox lifecycle
+  policy, such as `CDrop::c_drop`, by trait: the allocate, release and clone
+  groups of [ffibox.md](ffibox.md#1-the-vocabulary).
+- `fn.ffibox.wrapper.of_which.unique` -- the distinct C functions they name.
 
 ### 1.4 `code`
 
@@ -329,7 +350,9 @@ positions by trait.
 One child is of another unit: `as` holds the mentions of the types its parent
 counts -- `ty.ffibox.wrapper` is the cell types, `ty.ffibox.wrapper.as` the
 places they are named -- so it is never summed into the parent either, while
-it is a record with a total of its own, which its arms partition.
+it is a record with a total of its own, which its arms partition. So is
+`ty.ffibox.wrapper.fields`, the fns annotated as field accessors on those
+cells.
 
 Where a residual is wanted it is emitted as a share named for it --
 `ty.storing_raw_ptr.of_which.none`, `ty.total.of_which.no_trait` -- rather than
@@ -345,7 +368,7 @@ families rather than the parts of one quantity.
 
 A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts
 signature positions and `raw_ptr.deref` counts body sites, so their sum means
-nothing -- and three are namespaces a level down. `ty.ffibox` holds two type
+nothing -- and four are namespaces a level down. `ty.ffibox` holds two type
 counts, the cells (`wrapper`) and the `-sys` crates' types (`sys`), each with
 its mentions under `as`. `code.tests` holds four separate
 measurements of the test build: its lines, its unsafe lines -- a subset of them
@@ -354,7 +377,9 @@ figure with no unit at all. `fn.sig` holds what a signature carries, in
 mentions -- a fn taking two `CBox` is two of them -- so it is a share of no
 count of fns, and `fn.total` beside it is the denominator a reader divides by.
 Its own arms do carry totals: `fn.sig.of_which.ffibox` is `arg` plus `ret`,
-which are disjoint.
+which are disjoint. `fn.ffibox` holds two fn counts as `ty.ffibox` holds two
+type counts: the crate's annotated wrappers (`wrapper`) and the `-sys` crates'
+fns (`sys`).
 
 `nest_ptr` declares them in `NAMESPACES` rather than inferring them, since no
 shape distinguishes a namespace from a partition: `raw_ptr.fn_sig_arg`'s
@@ -463,6 +488,15 @@ that the crate has given a cell, and `used` against it the share the crate
 touches at all, so the gap between the two shares is the C it touches
 without a cell ([ffibox.md](ffibox.md#8-where-the-declarations-mention-a-cell)). Against `ty.ffibox.sys.total` it reads low by
 construction, since a by-value struct needs no cell.
+
+**How much of the C functions has a wrapper.** Under `--ffibox` with the
+`-sys` crates named, `fn.ffibox.wrapper.of_which.unique` against
+`fn.ffibox.sys.total` is the share of the C functions the bindings declare
+that the crate annotates a wrapper for, and `fn.ffibox.sys.of_which.used`
+against it the share it calls at all. The annotation is the only record of
+what a wrapper wraps, so an unannotated wrapper reads as none; the alias is
+the one the Crustify conventions require. `fn.ffibox.wrapper.total` against
+`unique` is how many variants a wrapped function was forked into on average.
 
 **Which `unsafe fn`s nothing required.** `fn.unsafe.of_which.other` is the
 unsafe surface the crate chose: no trait declared the method unsafe and no

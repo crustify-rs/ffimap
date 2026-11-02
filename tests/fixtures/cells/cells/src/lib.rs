@@ -11,6 +11,9 @@
 //! A mention is counted once per place, not once per type, so a signature
 //! naming the cell twice counts twice. A signature's mention is `fn_sig`, a
 //! field's `field`.
+//!
+//! The `#[doc(alias)]` annotations are the wrappers of `cells-sys`' fns
+//! (`fn.ffibox.wrapper`) and fields (`ty.ffibox.wrapper.fields`).
 
 #![allow(non_camel_case_types, reason = "stands in for a -sys declaration")]
 #![allow(dead_code, reason = "a fixture: the driver reads declarations")]
@@ -26,6 +29,9 @@ use ffibox::{CBorrowedPtr, CBox, CCell, CDrop, CNew};
 /// wrapper.pub, wrapper.of_which.no_seam_trait.pub -- its handles implement
 /// no seam. sys.as.by_val.field.priv -- its own field is the raw struct, and
 /// the field is private even though the type is not.
+///
+/// Its alias names a type, so it counts in neither annotation counter.
+#[doc(alias = "raw_widget")]
 #[repr(transparent)]
 pub struct Widget(raw_widget);
 
@@ -58,7 +64,9 @@ impl Widget {
     /// is the same `&self`. The share is a name rule, deliberately: an
     /// `as_c_ptr` is a conversion the convention did not name.
     ///
-    /// wrapper.as.borrowed.std.fn_sig.pub
+    /// wrapper.as.borrowed.std.fn_sig.pub, and a field accessor:
+    /// wrapper.fields, of_which.unique
+    #[doc(alias = "raw_widget.n")]
     pub fn peek(&self) -> i32 {
         self.0.n
     }
@@ -118,7 +126,10 @@ pub trait Poke {
 
 impl Poke for Widget {
     /// fn.unsafe.of_which.in_trait_impl.local.pub,
-    /// wrapper.as.borrowed.std.fn_sig.pub, of_which.self_in_trait_impl
+    /// wrapper.as.borrowed.std.fn_sig.pub, of_which.self_in_trait_impl, and
+    /// a wrapper in a trait that is no ffibox policy:
+    /// fn.ffibox.wrapper.other_trait
+    #[doc(alias = "slot_get")]
     unsafe fn poke(&mut self, v: i32) {
         self.0.n = v;
     }
@@ -297,6 +308,34 @@ impl Holder {
     }
 }
 
+/// The setter of the field `peek` reads: a second accessor of one field.
+///
+/// wrapper.fields, and not of_which.unique
+impl WidgetMut<'_> {
+    #[doc(alias = "raw_widget.n")]
+    pub fn set_n(&mut self, _n: i32) {}
+}
+
+/// A free wrapper, which names the fn it wraps in a statement.
+///
+/// fn.ffibox.wrapper.non_trait, of_which.unique; fn.ffibox.sys.of_which.used
+/// (`value_get`)
+#[doc(alias = "value_get")]
+pub fn value() -> bool {
+    let get: unsafe extern "C" fn() -> cells_sys::raw_value = cells_sys::value_get;
+    let _ = get;
+    true
+}
+
+/// A second variant of the same fn, its alias beside one naming nothing in
+/// `cells-sys`, which counts nowhere.
+///
+/// fn.ffibox.wrapper.non_trait, and not of_which.unique
+#[doc(alias("value_get", "nope"))]
+pub fn value_or(d: bool) -> bool {
+    d
+}
+
 /// Keeps `take` and `Holder` from being dead code.
 pub fn consume(h: PrivateHolder, o: &Holder) -> bool {
     h.take() == o.w
@@ -312,8 +351,10 @@ pub fn consume(h: PrivateHolder, o: &Holder) -> bool {
 /// raw_ptr.fn_sig_trait_impl.of_which.ffibox.unsafe.pub,
 /// raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CDrop,
 /// ty.impl_trait.of_which.ffibox.policy.pub,
-/// fn.unsafe.of_which.in_trait_impl.ffibox.pub
+/// fn.unsafe.of_which.in_trait_impl.ffibox.pub,
+/// fn.ffibox.wrapper.policy.CDrop (on the method)
 unsafe impl CDrop for Widget {
+    #[doc(alias = "widget_free")]
     unsafe fn c_drop(p: NonNull<raw_widget>) {
         let _ = p;
     }

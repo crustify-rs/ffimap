@@ -232,6 +232,28 @@ class CellCounterTests(unittest.TestCase):
         # The mentions are never summed into the types.
         self.assertEqual(self.tree["ty"]["ffibox"]["sys"]["total"], 5)
 
+    def test_the_sys_fns_and_the_wrappers_annotated_for_them(self) -> None:
+        """`cells-sys` declares five fns, and `cells` names one, `value_get`,
+        in `value`'s body. Four aliases name a fn: `value` and `value_or` both
+        `value_get`, as two variants of it, `Poke::poke` `slot_get` and
+        `CDrop::c_drop` `widget_free`, so three fns are wrapped. Two accessors
+        name the field `raw_widget.n`. The type alias on `Widget` and `nope`
+        name neither a fn nor a field."""
+        self.assertEqual(self.at("fn.ffibox.sys.total"), 5)
+        self.assertEqual(self.at("fn.ffibox.sys.of_which.used"), 1)
+        w = "fn.ffibox.wrapper"
+        self.assertEqual(self.at(f"{w}.total"), 4)
+        self.assertEqual(self.at(f"{w}.non_trait"), 2)
+        self.assertEqual(self.at(f"{w}.other_trait"), 1)
+        self.assertEqual(self.at(f"{w}.policy.CDrop"), 1)
+        self.assertEqual(self.at(f"{w}.policy.total"), 1)
+        self.assertEqual(self.at(f"{w}.of_which.unique"), 3)
+        self.assertNotIn("total", self.tree["fn"]["ffibox"])
+        self.assertEqual(self.at("ty.ffibox.wrapper.fields.total"), 2)
+        self.assertEqual(self.at("ty.ffibox.wrapper.fields.of_which.unique"), 1)
+        # The accessors are no cells: the wrapper count stays the cells'.
+        self.assertEqual(self.at("ty.ffibox.wrapper.total"), 1)
+
     def test_the_sys_inventory_needs_the_crates_named(self) -> None:
         """Without `--sys-crates` there is no inventory to take, so the counts
         are absent rather than zero; the mentions stay."""

@@ -48,7 +48,7 @@ TREE_SITE_FAMILIES = {
                 "total", "deref", "casted_to"),
     "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic",
            "ffibox", "wrapping_unsafe_cell", "total"),
-    "fn": ("safe", "unsafe", "sig", "total"),
+    "fn": ("safe", "unsafe", "sig", "ffibox", "total"),
     "code": ("loc", "tests", "unsafe_block", "unsafe_call"),
 }
 
@@ -63,8 +63,10 @@ TREE_SITE_FAMILIES = {
 # of no unit at all. `fn.sig` holds what a signature
 # carries, in mentions -- a fn taking two `CBox` is two of them -- so it is a
 # share of no fn count, and `fn.total` beside it is the denominator a reader
-# divides by.
-NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests"), ("fn", "sig")})
+# divides by. `fn.ffibox` holds two fn counts like `ty.ffibox`'s: the
+# crate's annotated wrappers (`wrapper`) and the `-sys` crates' fns (`sys`).
+NAMESPACES = frozenset({("ty", "ffibox"), ("code", "tests"), ("fn", "sig"),
+                        ("fn", "ffibox")})
 
 
 def is_tree_counter(name: str) -> bool:
@@ -262,7 +264,9 @@ KEY_ORDER = (
     "std", "local", "local_seam",
     # the cell records, and their arms
     "no_seam_trait", "wrapper", "sys", "ffi", "rust", "intrinsic",
-    "raw_ptr_in_sys", "used", "wrapped",
+    "raw_ptr_in_sys", "used", "wrapped", "unique",
+    # where an annotated wrapper fn sits, beside `policy.<trait>`
+    "non_trait", "other_trait",
     "borrowed", "owned", "by_val",
     "fn_sig", "self_in_ref_accessor", "self_in_trait_impl",
     "fn",
@@ -278,9 +282,9 @@ KEY_ORDER = (
     "CDupClone", "CRefClone", "CLenClone",
     "CRefSeam", "CMutSeam", "CLockedSeam",
     "CGuarded", "CGuardedAll", "LockScope",
-    # the shares, after the partition they cut across, and a type count's
-    # mentions after both
-    "of_which", "as",
+    # the shares, after the partition they cut across, a type count's
+    # mentions after both, and the field accessors its cells carry last
+    "of_which", "as", "fields",
 )
 _RANK = {name: i for i, name in enumerate(KEY_ORDER)}
 
@@ -302,9 +306,10 @@ def in_order(node: dict, depth: int = 0) -> dict:
     }
 
 
-# The children never summed into their parent: `of_which`'s shares, and `as`'s
-# mentions of the types the parent counts.
-UNSUMMED = frozenset({"of_which", "as"})
+# The children never summed into their parent: `of_which`'s shares, `as`'s
+# mentions of the types the parent counts, and `fields`, the field accessors
+# annotated on the cells `ty.ffibox.wrapper` counts, which are fns, not types.
+UNSUMMED = frozenset({"of_which", "as", "fields"})
 
 
 def nest_ptr(flat: dict[str, int]) -> dict:

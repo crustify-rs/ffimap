@@ -19,6 +19,7 @@
 #![feature(rustc_private)]
 
 extern crate rustc_abi;
+extern crate rustc_attr_ir;
 extern crate rustc_driver;
 extern crate rustc_hir;
 extern crate rustc_interface;
@@ -480,8 +481,20 @@ fn register_counters(ptr: &mut PtrTally) {
             "ty.ffibox.sys.of_which.raw_ptr_in_sys.total",
             "ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.used",
             "ty.ffibox.sys.of_which.raw_ptr_in_sys.of_which.wrapped",
+            "ty.ffibox.wrapper.fields.total",
+            "ty.ffibox.wrapper.fields.of_which.unique",
+            "fn.ffibox.sys.total",
+            "fn.ffibox.sys.of_which.used",
+            "fn.ffibox.wrapper.non_trait",
+            "fn.ffibox.wrapper.other_trait",
+            "fn.ffibox.wrapper.of_which.unique",
         ] {
             at(k.to_string());
+        }
+        for (name, _) in FFIBOX_TRAITS {
+            if ffibox_trait_group(name) == Some("policy") {
+                at(format!("fn.ffibox.wrapper.policy.{name}"));
+            }
         }
     }
     if is_ffibox() {
@@ -1620,6 +1633,13 @@ fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
 /// newtype over its integer (`is_newtype_enum`). Unions are out too, but not
 /// what they hold: a union's fields are declarations like a struct's, and a
 /// union behind a pointer puts its members there (`sys_pointees`).
+///
+/// The fns they declare likewise (`fn.ffibox.sys`), with the ones the crate
+/// names, and the crate's own fns annotated as standing in for one
+/// (`fn.ffibox.wrapper`) or for a field (`ty.ffibox.wrapper.fields`): each
+/// `#[doc(alias)]` resolved by name against the inventory, the only record of
+/// what a wrapper wraps. An alias that names neither, a type's included, is
+/// no wrapper of a fn or a field, and counts nowhere here.
 fn count_sys_types<'tcx>(
     tcx: TyCtxt<'tcx>,
     ptr: &mut PtrTally,
@@ -1627,6 +1647,10 @@ fn count_sys_types<'tcx>(
     cs: &HashSet<DefId>,
 ) {
     let mut types: Vec<DefId> = Vec::new();
+    let mut fns: Vec<DefId> = Vec::new();
+    // What an alias can name: a function, or a struct's or union's field.
+    let mut fn_names: HashSet<String> = HashSet::new();
+    let mut field_names: HashSet<String> = HashSet::new();
     let mut behind_ptr: HashSet<DefId> = HashSet::new();
     for &cnum in tcx.crates(()) {
         if !sys_crates().contains(tcx.crate_name(cnum).as_str()) {
@@ -1653,10 +1677,15 @@ fn count_sys_types<'tcx>(
                             types.push(did);
                         }
                         for f in tcx.adt_def(did).all_fields() {
+                            field_names.insert(format!("{}.{}", tcx.item_name(did), f.name));
                             decl(tcx.type_of(f.did).instantiate_identity().skip_norm_wip());
                         }
                     }
                     DefKind::Fn => {
+                        if !fns.contains(&did) {
+                            fns.push(did);
+                            fn_names.insert(tcx.item_name(did).to_string());
+                        }
                         let sig = tcx.fn_sig(did).skip_binder().skip_binder();
                         for t in sig.inputs_and_output {
                             decl(t);
@@ -1674,7 +1703,7 @@ fn count_sys_types<'tcx>(
         *ptr.entry(k.to_string()).or_default() += 1;
         sites.add(k.to_string(), span_site(tcx, tcx.def_span(did)));
     };
-    let named = named_adts(tcx);
+    let named = named_defs(tcx);
     for did in types {
         bump("ty.ffibox.sys.total", did);
         if behind_ptr.contains(&did) {
@@ -1687,21 +1716,96 @@ fn count_sys_types<'tcx>(
             }
         }
     }
+    for did in fns {
+        bump("fn.ffibox.sys.total", did);
+        if named.contains(&did) {
+            bump("fn.ffibox.sys.of_which.used", did);
+        }
+    }
+
+    // The annotations: each alias on one of the crate's fns that names a
+    // `-sys` fn or field, once per alias and item, so a C function forked
+    // into several variants counts once per variant, and once in `unique`.
+    let mut seen_fns: HashSet<String> = HashSet::new();
+    let mut seen_fields: HashSet<String> = HashSet::new();
+    for ld in tcx.hir_crate_items(()).definitions() {
+        let did = ld.to_def_id();
+        if !matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn)
+            || in_generated_file(tcx, tcx.def_span(did))
+        {
+            continue;
+        }
+        for alias in doc_aliases(tcx, ld) {
+            if fn_names.contains(&alias) {
+                bump(&format!("fn.ffibox.wrapper.{}", wrapper_arm(tcx, did)), did);
+                if seen_fns.insert(alias) {
+                    bump("fn.ffibox.wrapper.of_which.unique", did);
+                }
+            } else if field_names.contains(&alias) {
+                bump("ty.ffibox.wrapper.fields.total", did);
+                if seen_fields.insert(alias) {
+                    bump("ty.ffibox.wrapper.fields.of_which.unique", did);
+                }
+            }
+        }
+    }
 }
 
-/// Every ADT the crate's compiled code names: in a declaration -- a
-/// signature, a field, an alias, a constant or static, an impl's self type,
+/// The names `#[doc(alias = "...")]` gives the item `ld`, every attribute's.
+fn doc_aliases(tcx: TyCtxt<'_>, ld: rustc_span::def_id::LocalDefId) -> Vec<String> {
+    let mut out = Vec::new();
+    for a in tcx.hir_attrs(tcx.local_def_id_to_hir_id(ld)) {
+        if let rustc_attr_ir::Attribute::Parsed(rustc_attr_ir::AttributeKind::Doc(d)) = a {
+            out.extend(d.aliases.keys().map(ToString::to_string));
+        }
+    }
+    out
+}
+
+/// Where an annotated fn sits (`fn.ffibox.wrapper`): a method of an ffibox
+/// policy trait, by the trait (`policy.<trait>`); a method of any other
+/// trait, its impl or its declaration (`other_trait`); or a free fn or an
+/// inherent method (`non_trait`).
+fn wrapper_arm(tcx: TyCtxt<'_>, did: DefId) -> String {
+    if tcx.def_kind(did) == DefKind::AssocFn {
+        let parent = tcx.parent(did);
+        let tr = match tcx.def_kind(parent) {
+            DefKind::Impl { of_trait: true } => Some(tcx.impl_trait_ref(parent).skip_binder().def_id),
+            DefKind::Trait => Some(parent),
+            _ => None,
+        };
+        if let Some(tr) = tr {
+            let name = tcx.item_name(tr);
+            if is_ffibox_crate(tcx, tr) && ffibox_trait_group(name.as_str()) == Some("policy") {
+                return format!("policy.{name}");
+            }
+            return "other_trait".to_string();
+        }
+    }
+    "non_trait".to_string()
+}
+
+/// Every ADT and fn item the crate's compiled code names: in a declaration --
+/// a signature, a field, an alias, a constant or static, an impl's self type,
 /// trait arguments and associated types -- or as the type of any expression,
 /// pattern or binding in a body, which is every statement's. Read through
-/// every generic argument, pointer and fn-pointer signature. What `cfg(test)`
-/// leaves out of the build is not compiled, so not here.
-fn named_adts<'tcx>(tcx: TyCtxt<'tcx>) -> HashSet<DefId> {
+/// every generic argument, pointer and fn-pointer signature. A fn is named by
+/// the path to it, whose type is the fn item's, whether it is called or
+/// coerced to a pointer. What `cfg(test)` leaves out of the build is not
+/// compiled, so not here.
+fn named_defs<'tcx>(tcx: TyCtxt<'tcx>) -> HashSet<DefId> {
     let mut out = HashSet::new();
     let mut add = |t: Ty<'tcx>| {
         for g in t.walk() {
             if let Some(t) = g.as_type() {
-                if let ty::TyKind::Adt(d, _) = t.kind() {
-                    out.insert(d.did());
+                match t.kind() {
+                    ty::TyKind::Adt(d, _) => {
+                        out.insert(d.did());
+                    }
+                    ty::TyKind::FnDef(d, _) => {
+                        out.insert(*d);
+                    }
+                    _ => {}
                 }
             }
         }
