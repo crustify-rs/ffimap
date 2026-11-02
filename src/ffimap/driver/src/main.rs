@@ -100,39 +100,56 @@ fn count_ptr_fields(
     }
 }
 
-/// The pointees of every raw pointer position in `t`: `t` itself when it is a
-/// raw pointer, a `NonNull<T>` (a `*const T` that is never null) or an
-/// `AtomicPtr<T>` (a `*mut T` behind an atomic), else those
-/// reached through references, generic arguments (`Option<*const T>`), tuples,
-/// arrays and slices. A raw pointer is one
-/// position whatever it points to (`*mut *mut T` counts once), and fn-pointer
-/// types are not entered: their parameters are the callback's interface, not
-/// data this signature passes.
-fn raw_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut Vec<Ty<'tcx>>) {
+/// True for std's raw-pointer ADTs: `NonNull<T>`, a `*const T` that is never
+/// null, and `AtomicPtr<T>`, a `*mut T` behind an atomic.
+fn is_raw_ptr_adt(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    is_std_crate(tcx, did) && matches!(tcx.item_name(did).as_str(), "NonNull" | "AtomicPtr")
+}
+
+/// Every type a value of `t` holds or borrows, `t` first: the generic
+/// arguments of an ADT (`Option<*const T>`, `Result<CBox<T>, E>`), a
+/// reference's pointee, and the elements of a tuple, array or slice.
+///
+/// A raw pointer, `NonNull` and `AtomicPtr` are visited but not entered: they
+/// are where the walk meets a raw pointer, not data the value holds.
+/// `PhantomData` is not entered either, being a zero-sized marker (opting out
+/// of `Send`/`Sync`, say) that holds nothing. Nor are fn pointers, closures,
+/// trait objects and opaque types: a fn pointer's parameters are the
+/// callback's interface, not data this value passes, and a trait's bounds say
+/// what a hidden type does, not what it holds. A named type's fields are not
+/// entered either: they are counted where the type is defined.
+fn walk_held<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, f: &mut impl FnMut(Ty<'tcx>)) {
+    f(t);
     match t.kind() {
-        ty::TyKind::RawPtr(p, _) => out.push(*p),
-        ty::TyKind::Adt(d, args)
-            if is_std_crate(tcx, d.did()) && matches!(tcx.item_name(d.did()).as_str(), "NonNull" | "AtomicPtr") =>
-        {
-            out.extend(args.types().next())
-        }
-        ty::TyKind::Ref(_, inner, _) => raw_pointees(tcx, *inner, out),
-        // `PhantomData<*const T>` is a zero-sized marker (opting out of
-        // `Send`/`Sync`, say): it stores no pointer.
+        ty::TyKind::Adt(d, _) if is_raw_ptr_adt(tcx, d.did()) => {}
         ty::TyKind::Adt(d, _) if tcx.item_name(d.did()).as_str() == "PhantomData" => {}
         ty::TyKind::Adt(_, args) => {
             for a in args.types() {
-                raw_pointees(tcx, a, out)
+                walk_held(tcx, a, f)
             }
         }
+        ty::TyKind::Ref(_, inner, _) => walk_held(tcx, *inner, f),
         ty::TyKind::Tuple(tys) => {
             for a in tys.iter() {
-                raw_pointees(tcx, a, out)
+                walk_held(tcx, a, f)
             }
         }
-        ty::TyKind::Array(e, _) | ty::TyKind::Slice(e) => raw_pointees(tcx, *e, out),
+        ty::TyKind::Array(e, _) | ty::TyKind::Slice(e) => walk_held(tcx, *e, f),
         _ => {}
     }
+}
+
+/// The pointees of every raw pointer position in `t`, as `walk_held` reaches
+/// them: a raw pointer, `NonNull<T>` or `AtomicPtr<T>`. A raw pointer is one
+/// position whatever it points to (`*mut *mut T` counts once).
+fn raw_pointees<'tcx>(tcx: TyCtxt<'tcx>, t: Ty<'tcx>, out: &mut Vec<Ty<'tcx>>) {
+    walk_held(tcx, t, &mut |t| match t.kind() {
+        ty::TyKind::RawPtr(p, _) => out.push(*p),
+        ty::TyKind::Adt(d, args) if is_raw_ptr_adt(tcx, d.did()) => {
+            out.extend(args.types().next())
+        }
+        _ => {}
+    });
 }
 
 /// True if `p` (a pointee) is `c_void`.
@@ -2224,20 +2241,25 @@ impl Callbacks for MetricsCallbacks {
                     // their short names: one vocabulary for where a type
                     // sits in a signature, whether the type is a raw pointer
                     // or the primitive that replaced one. These are MENTIONS,
-                    // so a fn taking two `CBox` bumps twice and the record is
-                    // not a share of `fn.total`.
+                    // every primitive `walk_held` reaches, so the `CBox` of a
+                    // constructor's `Result<CBox<T>, Error>` is one and the
+                    // record is not a share of `fn.total`. A method's
+                    // receiver is skipped: its impl fixed the type, so a
+                    // trait impl on a primitive does not count its `&self`.
                     if is_ffibox() {
-                        for (ts, pos) in [
-                            (sig.inputs().to_vec(), "arg"),
-                            (vec![sig.output()], "ret"),
-                        ] {
+                        let receiver = matches!(tcx.def_kind(did), DefKind::AssocFn)
+                            && tcx.associated_item(did).is_method();
+                        let args = &sig.inputs()[usize::from(receiver)..];
+                        for (ts, pos) in [(args, "arg"), (&[sig.output()][..], "ret")] {
                             for t in ts {
-                                if let ty::TyKind::Adt(d, _) = t.kind() {
-                                    if let Some((name, _)) = ffibox_primitive(tcx, d.did()) {
-                                        bump(&mut ptr, &mut sites,
-                                             format!("fn.sig.of_which.ffibox.{pos}.{name}.{vis}"));
+                                walk_held(tcx, *t, &mut |t| {
+                                    if let ty::TyKind::Adt(d, _) = t.kind() {
+                                        if let Some((name, _)) = ffibox_primitive(tcx, d.did()) {
+                                            bump(&mut ptr, &mut sites, format!(
+                                                "fn.sig.of_which.ffibox.{pos}.{name}.{vis}"));
+                                        }
                                     }
-                                }
+                                });
                             }
                         }
                     }

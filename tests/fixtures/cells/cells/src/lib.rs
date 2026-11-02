@@ -189,6 +189,22 @@ pub fn nested_owner(_w: CBox<Vec<Widget>>) {}
 /// storage.
 pub fn owners_in_vec(_w: Vec<CBox<Widget>>) {}
 
+/// A primitive returned inside a `Result`, as a constructor returns it.
+///
+/// fn.sig.of_which.ffibox.ret.CBox.pub
+pub fn opened() -> Result<CBox<Widget>, i32> {
+    Err(0)
+}
+
+/// A primitive borrowed, inside an `Option`.
+///
+/// fn.sig.of_which.ffibox.arg.CBox.pub
+pub fn peeked(_w: Option<&CBox<Widget>>) {}
+
+/// NOT counted in `fn.sig`: a fn pointer's parameters are the callback's
+/// interface, not data this signature passes.
+pub fn called_back(_f: fn(CBox<Widget>) -> Widget) {}
+
 /// A public field holding a cell inline.
 ///
 /// ty.ffibox.wrapper.of_which.field.pub, ty.ffibox.by_val.of_which.field.pub

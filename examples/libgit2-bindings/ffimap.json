@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "00842721048b944292e1a00acd32b873ad89e7f7",
+    "ffimap": "9bfa7260f9a64b4940e3198cb51dbb6c2dc33b04",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -736,13 +736,13 @@
       "sig": {
         "of_which": {
           "ffibox": {
-            "total": 70,
+            "total": 284,
             "arg": {
-              "total": 29,
+              "total": 55,
               "CArc": {
-                "total": 14,
-                "pub": 13,
-                "priv": 1
+                "total": 27,
+                "pub": 23,
+                "priv": 4
               },
               "CBorrowedPtr": {
                 "total": 0,
@@ -750,9 +750,9 @@
                 "priv": 0
               },
               "CBox": {
-                "total": 5,
+                "total": 17,
                 "pub": 3,
-                "priv": 2
+                "priv": 14
               },
               "CGuard": {
                 "total": 0,
@@ -775,8 +775,8 @@
                 "priv": 0
               },
               "CStrBox": {
-                "total": 6,
-                "pub": 5,
+                "total": 7,
+                "pub": 6,
                 "priv": 1
               },
               "CVal": {
@@ -791,11 +791,11 @@
               }
             },
             "ret": {
-              "total": 41,
+              "total": 229,
               "CArc": {
-                "total": 14,
-                "pub": 12,
-                "priv": 2
+                "total": 57,
+                "pub": 53,
+                "priv": 4
               },
               "CBorrowedPtr": {
                 "total": 0,
@@ -803,9 +803,9 @@
                 "priv": 0
               },
               "CBox": {
-                "total": 4,
-                "pub": 1,
-                "priv": 3
+                "total": 106,
+                "pub": 86,
+                "priv": 20
               },
               "CGuard": {
                 "total": 0,
@@ -828,18 +828,18 @@
                 "priv": 0
               },
               "CStrBox": {
-                "total": 0,
-                "pub": 0,
-                "priv": 0
+                "total": 9,
+                "pub": 7,
+                "priv": 2
               },
               "CVal": {
-                "total": 12,
-                "pub": 12,
-                "priv": 0
+                "total": 43,
+                "pub": 42,
+                "priv": 1
               },
               "CVec": {
-                "total": 3,
-                "pub": 2,
+                "total": 6,
+                "pub": 5,
                 "priv": 1
               }
             }

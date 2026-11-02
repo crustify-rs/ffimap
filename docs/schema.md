@@ -221,7 +221,9 @@ Every function the crate defines, the methods of its trait impls included
 - `fn.unsafe.{pub,priv}` -- the `unsafe fn`s. `fn.unsafe.pub` is the unsafe
   surface a consumer meets.
 - `fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}` -- mentions of an
-  ffibox primitive in a signature, by position and by primitive: whether the
+  ffibox primitive in a signature, by position and by primitive, the ones
+  inside a `Result`, an `Option` or a reference included
+  ([analysis 9.4](analysis.md#94-functions-and-methods)): whether the
   vocabulary actually crosses the interface.
 
 ### 1.4 `code`

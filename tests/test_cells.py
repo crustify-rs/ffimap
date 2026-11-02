@@ -217,6 +217,21 @@ class CellCounterTests(unittest.TestCase):
                          + self.at("ty.ffibox.by_val.of_which.field.pub")
                          + self.at("ty.ffibox.by_val.of_which.field.priv"))
 
+    # ---------------------------------------------------------------- fn.sig
+
+    def test_a_primitive_counts_wherever_the_signature_holds_it(self) -> None:
+        """Bare, inside a `Result` or an `Option`, behind a reference, and
+        above or below a std owner: `in_ffibox_owner`, `nested_owner`,
+        `owners_in_vec` and `peeked` take a `CBox`, `in_ffibox_borrow` a
+        `CBorrowedPtr`, and `opened` returns a `Result<CBox<_>, _>`.
+        `called_back`'s fn pointer is not entered.
+        """
+        sig = self.tree["fn"]["sig"]["of_which"]["ffibox"]
+        self.assertEqual(self.at("fn.sig.of_which.ffibox.arg.CBox.pub"), 4)
+        self.assertEqual(self.at("fn.sig.of_which.ffibox.arg.CBorrowedPtr.pub"), 1)
+        self.assertEqual(self.at("fn.sig.of_which.ffibox.ret.CBox.pub"), 1)
+        self.assertEqual(sig["total"], 6)
+
     # ----------------------------------------------------------- the negatives
 
     def test_what_ffibox_manages_is_not_the_crates_own_mention(self) -> None:

@@ -249,6 +249,20 @@ runs like a hand-written method, the grounds `code.unsafe_block` already
 stands on -- and `fn.total.of_which.macro` carries the share, so a reader
 after the hand-written total subtracts it.
 
+`fn.sig.of_which.ffibox` reads every type a value of an argument or the return
+holds or borrows, the type itself first: through the generic arguments of an
+ADT, a reference's pointee, and the elements of a tuple, array or slice. That
+is the walk `raw_ptr.fn_sig_arg` and `fn_sig_ret` find their pointers by, so
+the two families agree on what a signature carries. It does not enter a raw
+pointer, `NonNull` or `AtomicPtr`, which are positions of `raw_ptr`'s;
+`PhantomData`, which holds nothing; a fn pointer, whose parameters are the
+callback's interface; a trait object or an opaque type, whose bounds say what
+a hidden type does rather than what it holds; or a named type's fields, which
+are counted where the type is defined. Aliases are no step: the walk reads the
+types typeck resolved, so a constructor returning `Result<Repository, Error>`,
+with `type Repository = CBox<git_repository>`, is a `CBox` mention. A method's
+receiver is not read, since its impl fixed the type.
+
 ### 9.5 Types and impls
 
 `ty.impl_block` counts an inherent `impl T` and `ty.impl_trait` an

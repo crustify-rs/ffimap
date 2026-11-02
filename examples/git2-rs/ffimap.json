@@ -8,7 +8,7 @@
     "openssl_sys"
   ],
   "scanner": {
-    "ffimap": "00842721048b944292e1a00acd32b873ad89e7f7",
+    "ffimap": "9bfa7260f9a64b4940e3198cb51dbb6c2dc33b04",
     "toolchain": "nightly-2026-10-07",
     "ffibox": false,
     "seams": [

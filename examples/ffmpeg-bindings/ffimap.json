@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "00842721048b944292e1a00acd32b873ad89e7f7",
+    "ffimap": "9bfa7260f9a64b4940e3198cb51dbb6c2dc33b04",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -742,12 +742,12 @@
       "sig": {
         "of_which": {
           "ffibox": {
-            "total": 62,
+            "total": 207,
             "arg": {
-              "total": 34,
+              "total": 51,
               "CArc": {
-                "total": 1,
-                "pub": 1,
+                "total": 5,
+                "pub": 5,
                 "priv": 0
               },
               "CBorrowedPtr": {
@@ -756,9 +756,9 @@
                 "priv": 0
               },
               "CBox": {
-                "total": 18,
-                "pub": 14,
-                "priv": 4
+                "total": 26,
+                "pub": 21,
+                "priv": 5
               },
               "CGuard": {
                 "total": 0,
@@ -781,8 +781,8 @@
                 "priv": 0
               },
               "CStrBox": {
-                "total": 2,
-                "pub": 2,
+                "total": 3,
+                "pub": 3,
                 "priv": 0
               },
               "CVal": {
@@ -791,16 +791,16 @@
                 "priv": 1
               },
               "CVec": {
-                "total": 8,
-                "pub": 8,
-                "priv": 0
+                "total": 12,
+                "pub": 10,
+                "priv": 2
               }
             },
             "ret": {
-              "total": 28,
+              "total": 156,
               "CArc": {
-                "total": 2,
-                "pub": 2,
+                "total": 3,
+                "pub": 3,
                 "priv": 0
               },
               "CBorrowedPtr": {
@@ -809,44 +809,44 @@
                 "priv": 0
               },
               "CBox": {
+                "total": 78,
+                "pub": 71,
+                "priv": 7
+              },
+              "CGuard": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CGuardedRef": {
+                "total": 0,
+                "pub": 0,
+                "priv": 0
+              },
+              "CSlice": {
+                "total": 8,
+                "pub": 6,
+                "priv": 2
+              },
+              "CSliceMut": {
                 "total": 6,
                 "pub": 6,
                 "priv": 0
               },
-              "CGuard": {
-                "total": 0,
-                "pub": 0,
-                "priv": 0
-              },
-              "CGuardedRef": {
-                "total": 0,
-                "pub": 0,
-                "priv": 0
-              },
-              "CSlice": {
-                "total": 5,
-                "pub": 4,
-                "priv": 1
-              },
-              "CSliceMut": {
-                "total": 4,
-                "pub": 4,
-                "priv": 0
-              },
               "CStrBox": {
-                "total": 0,
-                "pub": 0,
-                "priv": 0
+                "total": 17,
+                "pub": 14,
+                "priv": 3
               },
               "CVal": {
-                "total": 7,
-                "pub": 5,
-                "priv": 2
+                "total": 17,
+                "pub": 14,
+                "priv": 3
               },
               "CVec": {
-                "total": 4,
-                "pub": 3,
-                "priv": 1
+                "total": 27,
+                "pub": 24,
+                "priv": 3
               }
             }
           }
