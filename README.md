@@ -47,8 +47,7 @@ ffimap path/to/workspace --sys-crates libgit2-sys > scan.json
 
 `WORKSPACE` is the directory holding the Cargo workspace or package to scan.
 ffimap writes no files: the JSON document goes to stdout, and progress and
-errors go to stderr. There is no prose rendering of the counters:
-`docs/schema.md` describes them and the document carries them.
+errors go to stderr.
 
 ## CLI
 
