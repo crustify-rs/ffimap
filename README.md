@@ -74,7 +74,7 @@ The JSON document has these top-level fields:
 | `crate_path` | The scanned workspace. |
 | `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's, as `--sys-crates` named them. |
 | `scanner` | What scanned: the ffimap commit, the pinned toolchain, and the `--ffibox` and `--seams` inputs. A figure is comparable with another only under the same ones. |
-| `counts` | The counter tree of `docs/schema.md`, or `null` when the workspace could not be built. Every counter lives here; there is no second, flat block. |
+| `counts` | The counters of `docs/schema.md`, or `null` when the workspace could not be built. Every counter lives here; there is no second, flat block. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `sites` | With `--sites`: source locations per requested counter. |
 
@@ -86,8 +86,8 @@ is test code: it has `code.tests` to itself.
 
 | | |
 |---|---|
-| [docs/schema.md](docs/schema.md) | the counters: the tree, what each one counts, and how it is decided |
-| [docs/scanning.md](docs/scanning.md) | how a scan runs: the toolchain, the build, the emission protocol, the flags that change what is counted |
+| [docs/schema.md](docs/schema.md) | the counters: what each one holds, how a record is shaped, and how a report is built from them |
+| [docs/analysis.md](docs/analysis.md) | the analysis: how a scan runs, and what each counter is decided from |
 | [docs/ffibox.md](docs/ffibox.md) | the `--ffibox` arms and the conventions they read |
 
 [examples/](examples) has full documents from three real wrappers: two that

@@ -17,7 +17,7 @@ campaign found it.
 ## How they were scanned
 
 Both inputs that change the figures are recorded, as
-[`docs/scanning.md`](../docs/scanning.md)'s flags section explains: the peel
+[`docs/analysis.md`](../docs/analysis.md)'s flags section explains: the peel
 set is named rather than discovered, and the seam names are declared per
 crate.
 
@@ -101,9 +101,10 @@ same conversion as an accessor under a name the convention did not give it.
 
 ## Reading them
 
-Every counter is described in [`docs/schema.md`](../docs/schema.md), the
-`--ffibox` arms in [`docs/ffibox.md`](../docs/ffibox.md), and how a scan is
-produced in [`docs/scanning.md`](../docs/scanning.md).
+Every counter is described in [`docs/schema.md`](../docs/schema.md), which
+also gives the arithmetic a report may do with them; the `--ffibox` arms are
+in [`docs/ffibox.md`](../docs/ffibox.md), and how a scan is produced and what
+each counter is decided from in [`docs/analysis.md`](../docs/analysis.md).
 
 A figure is comparable with another only under the same ffimap commit, peel
 set and seam list. These three are not comparable with any document scanned

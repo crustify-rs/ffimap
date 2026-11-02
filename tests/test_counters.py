@@ -169,7 +169,7 @@ class SysCrateTests(unittest.TestCase):
         set is named and nothing is read from the build graph: `prettyplease`
         sets `links` to detect duplicate versions of itself, and bindgen's
         `clang_sys` matches the name, yet neither is part of the scanned
-        crate's C surface. See docs/schema.md, The peel set."""
+        crate's C surface. See docs/analysis.md, The peel set."""
         from unittest import mock
         with mock.patch("ffimap.measure.subprocess.run") as run:
             self.assertEqual(measure.sys_crates(["libc"]), ["libc"])

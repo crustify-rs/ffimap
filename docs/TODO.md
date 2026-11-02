@@ -1,8 +1,8 @@
 # TODO
 
 What is open. Anything resolved by a counter's retirement is in
-[`schema.md`](schema.md)'s Retired counters and Rules that were tried and
-rejected; this file is only the live work.
+[`schema.md`](schema.md)'s Retired counters, and a rule tried and rejected in
+[`analysis.md`](analysis.md)'s; this file is only the live work.
 
 ## `code.unsafe_call.rust` is dominated by the standard library
 

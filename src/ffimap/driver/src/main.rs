@@ -8,7 +8,8 @@
 //! so `*Box`, `*&` and a `Deref` impl are not one, and a call's FFI-ness is
 //! read from the callee's ABI rather than from its declaration site.
 //!
-//! The counters it emits, and the rule behind each, are `docs/schema.md`.
+//! The counters it emits are `docs/schema.md`; the rule behind each is
+//! `docs/analysis.md`.
 //! They go out as one JSON object per crate, `{"crate", "counts", "sites"}`,
 //! where `counts` is that document's tree keyed by dotted path. Nothing here
 //! describes them a second time.
@@ -142,7 +143,7 @@ fn is_c_void(tcx: TyCtxt<'_>, p: Ty<'_>) -> bool {
 /// The crates whose `#[repr(C)]` types are C's and whose types the field walk
 /// descends through, by crate name: `UM_SYS_CRATES`, comma-separated, which
 /// `ffimap` sets from `--sys-crates` alone. Nothing is discovered; see
-/// docs/scanning.md.
+/// docs/analysis.md.
 fn sys_crates() -> &'static HashSet<String> {
     static SYS: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
     SYS.get_or_init(|| {
@@ -195,7 +196,7 @@ fn is_std_crate(tcx: TyCtxt<'_>, did: DefId) -> bool {
 /// A `-sys` crate left unnamed drops out of the walk and the counter reads low
 /// for a reason that is not in the code. That is not diagnosed: most crates
 /// that stop the walk do so legitimately, so a warning would be noise. See
-/// docs/schema.md, The peel set.
+/// docs/analysis.md, The peel set.
 fn in_peel_set(tcx: TyCtxt<'_>, did: DefId) -> bool {
     did.is_local() || sys_crates().contains(tcx.crate_name(did.krate).as_str())
 }

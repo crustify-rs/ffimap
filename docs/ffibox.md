@@ -2,8 +2,8 @@
 
 What `--ffibox` adds, and the conventions each arm reads. These are the only
 conditional counters in the tree: without the flag they are absent, not zero.
-The tree itself is [`schema.md`](schema.md); how a scan runs is
-[`scanning.md`](scanning.md).
+The counters themselves are [`schema.md`](schema.md); how a scan runs and
+what each counter is decided from is [`analysis.md`](analysis.md).
 
 The arms are generated from a vocabulary rather than enumerated, so a trait or
 primitive ffibox adds appears without a change here. That is why `--sites`

@@ -36,7 +36,7 @@ _DRIVER_CRATE = Path(__file__).resolve().parent / "driver"
 _TOOLCHAIN = tomllib.loads(
     (_DRIVER_CRATE / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
 
-# The tree counters of docs/schema.md, by prefix and the family under it.
+# The counters of docs/schema.md, by prefix and the family under it.
 #
 # `--sites` validates a dotted name against this rather than against a list of
 # every leaf. The leaves below a family are open on purpose: the ffibox arms

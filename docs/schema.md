@@ -1,306 +1,280 @@
 # Counter schema
 
-The counters ffimap reports, what each one counts, and how it is decided. Every
-counter is determined from declarations and single expression nodes: no value is
-followed, no cast chain is composed, and no dataflow is performed.
+The counters ffimap reports: what each one holds, how a record is shaped, and
+how a report is built from them. Every counter is determined from declarations
+and single expression nodes -- no value is followed, no cast chain is composed,
+and no dataflow is performed.
 
-How a scan runs and what it requires is [`scanning.md`](scanning.md); the
-`--ffibox` arms and the conventions they read are [`ffibox.md`](ffibox.md).
+What each counter is decided FROM, and how a scan runs, is
+[`analysis.md`](analysis.md); the ffibox vocabulary the `<trait>` and
+`<primitive>` arms are generated from is [`ffibox.md`](ffibox.md).
 
-## 1. The tree
+## 1. The counters
 
-```
-raw_ptr.
-  fn_sig_arg.{safe,unsafe}.{pub,priv}
-  fn_sig_arg.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
-  fn_sig_ret.{safe,unsafe}.{pub,priv}
-  fn_sig_ret.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
-  fn_sig_trait_impl.{safe,unsafe}.{pub,priv}
-  fn_sig_trait_impl.of_which.{seam,void}.{safe,unsafe}.{pub,priv}
-  fn_sig_trait_impl.of_which.{std,local}.{safe,unsafe}.{pub,priv}
-  fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}        --ffibox
-  fn_sig_trait_impl.of_which.ffibox.of_which.<trait>                --ffibox
-  field.{pub,priv}
-  field.of_which.void.{pub,priv}
-  total.{safe,unsafe}.{pub,priv}
-  deref.{rd,wr}
-  casted_to.{std,ffibox,local_seam}.{borrow,slice,string,owner,other}
-
-ty.
-  storing_raw_ptr.{pub,priv}
-  storing_raw_ptr.of_which.{pub,priv}
-    impl_drop · impl_clone · has_lifetime
-    impl_deref · impl_deref_mut · impl_send_sync
-    ffibox                                           --ffibox
-    pub_field · none
-  field.ffibox.<primitive>.{pub,priv}                --ffibox
-
-  ffibox.ccell.{pub,priv}                            --ffibox
-  ffibox.ccell.of_which.no_seam_trait.{pub,priv}     --ffibox
-  ffibox.{wrapper,ffi}.{pub,priv}                    --ffibox
-  ffibox.{wrapper,ffi}.of_which.{pub,priv}           --ffibox
-    borrow · std_owner · slice · field
-  ffibox.{wrapper,ffi}.of_which.borrow.of_which.{pub,priv}         --ffibox
-    self_in_ref_accessor · self_in_trait_impl
-  ffibox.by_val.{pub,priv}                           --ffibox
-  ffibox.by_val.of_which.{field,fn_sig,std_owner}.{pub,priv}       --ffibox
-
-  impl_block.{pub,priv}
-  impl_block.of_which.other.{pub,priv}
-  impl_block.of_which.ffibox.{layout,ref,mut,locked}.{pub,priv}   --ffibox
-
-  impl_trait.{pub,priv}
-  impl_trait.of_which.unsafe
-  impl_trait.of_which.derived.{pub,priv}
-  impl_trait.of_which.{std,local}.{pub,priv}
-  impl_trait.of_which.ffibox.{pub,priv}              --ffibox
-  impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}  --ffibox
-  impl_trait.of_which.send_sync.{send,sync}.{pub,priv}
-
-  generic.{pub,priv}
-  generic.of_which.{lifetime,type}.{pub,priv}
-  generic.of_which.storing_raw_ptr.{pub,priv}
-
-  wrapping_unsafe_cell.{pub,priv}
-  total.{pub,priv}
-  total.of_which.{std_trait,local_trait,no_trait}.{pub,priv}
-  total.of_which.ffibox_trait.{pub,priv}             --ffibox
-
-fn.
-  safe.{pub,priv}
-  safe.of_which.with_unsafe.{pub,priv}
-  unsafe.{pub,priv}
-  sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}   --ffibox
-  total.{pub,priv}
-  total.of_which.macro.{pub,priv}
-
-code.
-  loc.{total,unsafe}
-  tests.loc.{total,unsafe}
-  tests.{fn,unsafe_block}
-  unsafe_block.total
-  unsafe_block.of_which.ffi_export
-  unsafe_call.{ffi,intrinsic,rust}
-```
+Each row below is one counter, named by its dotted path into the document's
+`counts`. A `{a,b}` is a split the counter carries: `raw_ptr.field.{pub,priv}`
+is two leaves, and every row's leaves are integers. Each partition also carries
+a `total`, derived from its children unless the driver emits it, so
+`raw_ptr.field.total` exists and `raw_ptr.field.pub + raw_ptr.field.priv`
+equals it; the `of_which` rows are shares of the row above them and are never
+summed ([2.1](#21-partitions-and-shares)).
 
 The counters are the whole of the document's `counts`. There is no second,
 flat counter block beside them, and no prose rendering of them: a reader who
 wants a rate divides the leaves it names.
 
-`raw_ptr.total` is the denominator, emitted rather than derived: the positions
-the crate CHOSE, by safety and visibility. `fn_sig_arg` and `fn_sig_ret` are
-in it, `fn_sig_trait_impl` is not -- for the reason that family exists, since a reader comparing
-crates would otherwise be reading how often a trait is implemented -- and a
-`field` counts on the `safe` arm, because reading a field that holds a pointer
-takes no `unsafe`, so a public one on a public type is a pointer the interface
-hands over without asking for any. `deref` and `casted_to` are body sites, not
-positions, and are outside it.
+Across the tree, `unsafe` and `safe` are the safety of the *function* the
+position or site is in, `pub` and `priv` whether a consumer of the crate can
+reach the item, and `void` a pointer whose pointee is erased (`*c_void`). A row
+naming `ffibox`, a `<trait>` or a `<primitive>` is present only under
+`--ffibox`, and an `of_which.seam` row only with `--seams`; both are absent
+rather than zero otherwise ([2.3](#23-zero-and-absent)).
 
-`raw_ptr.total.safe.pub` is therefore the raw pointers a consumer meets
-without writing `unsafe`: 5 on libgit2-bindings and 5 on git2-rs. It is not a
-sum of the families beside it, the same way `ty.total` is not a sum of its
-shares.
+### 1.1 `raw_ptr`
 
-A `*c_void` is a raw pointer whose pointee is erased, so it is the `void`
-share of the position it sits in, not a family beside it: a reader asking how
-many raw pointers a signature carries does not have to add two trees, and one
-asking how many are typed subtracts the share. The former top-level
-`void_ptr.*` is gone.
+The raw pointers the crate declares in its signatures and types, and what its
+bodies do with them.
 
-`raw_ptr.fn_sig_trait_impl` holds the positions in a trait impl's method, both
-directions in one counter. The three names say where the position IS -- an
-argument of a signature, its return, or a signature a trait fixed -- rather
-than what the fn does with the pointer, which `taken` and `returned` read as
-until they were renamed: a reader had to know that the two were signature
-positions while `field` was a type's and `deref` a body's. The crate did not choose the position there: the
-trait fixed the signature, one declaration dictating a position in every impl
-of it, and no consumer of the safe API is routed to it -- ffibox's
-`CDrop::c_drop(NonNull<T>)` is the strategy that exists so a consumer never
-holds a pointer. Mixing them into `fn_sig_arg` or `fn_sig_ret` makes the hazard count
-move with how many types a trait is implemented for, which is what read 61 of
-git2-rs' 66 pointers "returned by a public safe fn": its `Binding` trait,
-once. The direction is dropped with the choice: what is left to say is that
-the trait's shape reaches a pointer here.
+- `raw_ptr.total.{safe,unsafe}.{pub,priv}` -- the denominator: every
+  raw-pointer position the crate CHOSE, which is `fn_sig_arg` plus
+  `fn_sig_ret` plus `field`. Emitted rather than derived, so it is not a sum of
+  the families beside it ([analysis 9.2](analysis.md#92-what-raw_ptrtotal-admits)).
+- `raw_ptr.fn_sig_arg.{safe,unsafe}.{pub,priv}` -- raw pointers an argument of
+  a signature takes. Taking is the hazard: a safe fn that takes one lets a
+  caller pass anything with no `unsafe` at the call site.
+- `raw_ptr.fn_sig_arg.of_which.void.{safe,unsafe}.{pub,priv}` -- of those, the
+  erased ones. Subtract the share for the typed ones.
+- `raw_ptr.fn_sig_arg.of_which.seam.{safe,unsafe}.{pub,priv}` -- of those, the
+  ones in a function `--seams` declared to be nothing but a conversion between
+  a wrapper and its raw pointer.
+- `raw_ptr.fn_sig_ret.{safe,unsafe}.{pub,priv}` -- raw pointers a signature
+  returns. Returning one still forces the caller to write `unsafe` before it
+  means anything, which is why it is counted apart from `fn_sig_arg`.
+- `raw_ptr.fn_sig_ret.of_which.void.{safe,unsafe}.{pub,priv}` -- as above.
+- `raw_ptr.fn_sig_ret.of_which.seam.{safe,unsafe}.{pub,priv}` -- as above.
+- `raw_ptr.fn_sig_trait_impl.{safe,unsafe}.{pub,priv}` -- positions in a trait
+  impl's method, both directions in one counter: a trait declaration fixed the
+  signature, so the crate did not choose the position, and the figure would
+  otherwise move with how many types a trait is implemented for
+  ([analysis 9.3](analysis.md#93-positions-a-trait-fixed)).
+- `raw_ptr.fn_sig_trait_impl.of_which.void.{safe,unsafe}.{pub,priv}` -- as above.
+- `raw_ptr.fn_sig_trait_impl.of_which.seam.{safe,unsafe}.{pub,priv}` -- as above.
+- `raw_ptr.fn_sig_trait_impl.of_which.std.{safe,unsafe}.{pub,priv}` -- of
+  those, the ones a standard-library trait fixed.
+- `raw_ptr.fn_sig_trait_impl.of_which.local.{safe,unsafe}.{pub,priv}` -- the
+  ones a trait the crate declared itself fixed.
+- `raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}` -- the
+  ones an ffibox contract fixed, which for a crate built on the convention is
+  its lifecycle strategies.
+- `raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>` -- those by
+  trait, over the whole vocabulary, so a document says which contracts reach a
+  raw pointer and which do not. No safety or visibility split: a trait method's
+  are the declaration's ([2.5](#25-deliberate-asymmetries)).
+- `raw_ptr.field.{pub,priv}` -- struct and union fields declared with a raw
+  pointer. `pub` is one reachability question, the type exported AND the field
+  exported, rather than two levels a reader has to combine.
+- `raw_ptr.field.of_which.void.{pub,priv}` -- of those, the erased ones.
+- `raw_ptr.deref.{rd,wr}` -- dereference sites in bodies, by whether the place
+  is read or written. Sites, not positions, so they are outside `raw_ptr.total`.
+- `raw_ptr.casted_to.std.{owner,string,borrow,slice,other}` -- a raw pointer
+  converted into a standard-library shape, by the shape it became: an owner
+  (`Box`, `Vec`, `Rc`, `Arc`), a string (`CStr`, `CString`, `String`), a
+  borrow, a slice. `other` is structurally zero, so a nonzero reading means the
+  name table and the shape classifier have drifted apart.
+- `raw_ptr.casted_to.ffibox.{owner,string,borrow,slice}` -- adopted into an
+  ffibox primitive, by the primitive's group. There is no `other` arm: every
+  primitive maps to a shape.
+- `raw_ptr.casted_to.local_seam.{owner,string,borrow,slice,other}` -- converted
+  through a function `--seams` named, by the seam's return type. `other` is a
+  seam returning a bespoke handle.
 
-Which is why the family carries whose trait it was, in the same three arms as
-`ty.impl_trait.of_which`: `std` for one the crate adopted, `local` for one it
-declared itself, `ffibox` for the convention's, and the ffibox arm broken down
-by trait. Without them the figure is a number with no reading -- on
-libgit2-bindings all 64 of its positions are ffibox lifecycle strategies
-(`CDrop` 36, `CDupClone` 8, `CDispose` and `CNew` and `CRefClone` 5 each,
-`CLenClone` 2, `CAlloc`, `CAllocZeroed` and `CLenDrop` 1 each), on
-ffmpeg-bindings 67 of 93 are, the other 26 being private helper traits of its
-own (`into_void`, `to_c`, an element-adoption pair), and on git2-rs all 134 are
-its one local `Binding` trait, 125 of them seams. The same count, three
-different things.
+### 1.2 `ty`
 
-`std` is zero on all three, and that is a reading too: std's traits do not put
-a raw pointer in a signature -- `Drop::drop` takes `&mut self` and
-`Deref::deref` returns a reference -- so a nonzero `std` arm would be a `From<*mut
-T>`-shaped conversion worth looking at.
+The types the crate defines, by what they hold and what they declare about it.
 
-The per-trait leaves are the closed vocabulary [`ffibox.md`](ffibox.md) lists,
-so a trait ffibox adds and the vocabulary does not have is in the `ffibox` arm
-and in no leaf below it; the three `whose` arms leave the same hole for a
-fourth crate's trait, exactly as `ty.impl_trait.of_which` does.
+- `ty.total.{pub,priv}` -- every type the crate defines. Emitted, and the
+  denominator its shares are read against.
+- `ty.total.of_which.std_trait.{pub,priv}` -- of those, the types that
+  implement a standard-library trait.
+- `ty.total.of_which.local_trait.{pub,priv}` -- the types that implement a
+  trait the crate declared itself.
+- `ty.total.of_which.ffibox_trait.{pub,priv}` -- the types that implement an
+  ffibox contract.
+- `ty.total.of_which.no_trait.{pub,priv}` -- the residual: types that
+  implement no trait at all.
+- `ty.storing_raw_ptr.{pub,priv}` -- types whose fields reach a raw pointer,
+  within the peel set, so these are the types that manage one themselves
+  rather than delegating to `Vec` or to an ffibox owner
+  ([analysis 9.1](analysis.md#91-the-peel-set)).
+- `ty.storing_raw_ptr.of_which.impl_drop.{pub,priv}` -- of those, the ones that
+  implement `Drop`: they free memory Rust did not allocate.
+- `ty.storing_raw_ptr.of_which.impl_clone.{pub,priv}` -- the ones that
+  implement `Clone`, where a shallow clone duplicates the pointer and, with
+  `Drop`, double-frees it.
+- `ty.storing_raw_ptr.of_which.{impl_deref,impl_deref_mut}.{pub,priv}` -- the
+  ones that hand out a reference derived from the pointer implicitly, at every
+  call site.
+- `ty.storing_raw_ptr.of_which.impl_send_sync.{pub,priv}` -- the ones that
+  assert thread safety for memory no type system checked.
+- `ty.storing_raw_ptr.of_which.has_lifetime.{pub,priv}` -- the ones that tie
+  the pointer to a lifetime parameter.
+- `ty.storing_raw_ptr.of_which.ffibox.{pub,priv}` -- the ones that declare
+  their lifecycle through an ffibox contract, which none of the std shares can
+  see.
+- `ty.storing_raw_ptr.of_which.pub_field.{pub,priv}` -- the ones that publish
+  the pointer as a public field. Not a declaration: an access the type does not
+  govern.
+- `ty.storing_raw_ptr.of_which.none.{pub,priv}` -- the residual: the type
+  stores a pointer and declares nothing about it, in any vocabulary.
+- `ty.wrapping_unsafe_cell.{pub,priv}` -- types holding an `UnsafeCell`, the
+  one way to hold a value C may write while Rust holds a shared reference to it.
+- `ty.impl_block.{pub,priv}` -- inherent `impl T` blocks: the API the crate
+  wrote for its own type.
+- `ty.impl_block.of_which.ffibox.{layout,ref,mut,locked}.{pub,priv}` -- of
+  those, the blocks on a cell and on each of its handles, which are different
+  surfaces: the layout type carries the constructors, the shared handle the
+  getters, the exclusive handle the setters.
+- `ty.impl_block.of_which.other.{pub,priv}` -- the blocks on everything else.
+- `ty.impl_trait.{pub,priv}` -- `impl Tr for T` blocks: satisfying someone
+  else's shape.
+- `ty.impl_trait.of_which.unsafe` -- of those, the `unsafe impl`s, which assert
+  what the compiler cannot check. `TrivialClone`, which `#[derive(Clone)]`
+  emits, is skipped.
+- `ty.impl_trait.of_which.derived.{pub,priv}` -- the ones a `#[derive]` wrote.
+  Nobody typed them, and they are most of the `std` arm.
+- `ty.impl_trait.of_which.send_sync.{send,sync}.{pub,priv}` -- the
+  `unsafe impl Send` and `unsafe impl Sync` claims, counted separately from
+  each other.
+- `ty.impl_trait.of_which.std.{pub,priv}` -- the impls of a standard-library
+  trait.
+- `ty.impl_trait.of_which.local.{pub,priv}` -- the impls of a trait the crate
+  declared itself: a shape it chose rather than adopted.
+- `ty.impl_trait.of_which.ffibox.{pub,priv}` -- the impls of an ffibox
+  contract.
+- `ty.impl_trait.of_which.ffibox.of_which.<trait>.{handwritten,macro}` -- those
+  by trait, split by whether a generator wrote the impl rather than by
+  visibility ([2.5](#25-deliberate-asymmetries)).
+- `ty.generic.{pub,priv}` -- types carrying a generic parameter.
+- `ty.generic.of_which.{lifetime,type}.{pub,priv}` -- of those, by kind of
+  parameter. A lifetime ties the type to something it borrows; a type parameter
+  makes it a family rather than one layout, so each instantiation is a separate
+  question about C's bytes. A type may carry both.
+- `ty.generic.of_which.storing_raw_ptr.{pub,priv}` -- the generic types that
+  hold a raw pointer.
+- `ty.field.ffibox.<primitive>.{pub,priv}` -- fields holding an ffibox
+  primitive, by primitive: the delegation `ty.storing_raw_ptr` deliberately
+  does not count as the crate's own pointer.
+- `ty.ffibox.ccell.{pub,priv}` -- the layout types, those that implement
+  `CCell`.
+- `ty.ffibox.ccell.of_which.no_seam_trait.{pub,priv}` -- of those, the cells
+  whose handles implement neither seam, so code generic over a handle has to
+  special-case them.
+- `ty.ffibox.wrapper.{pub,priv}` -- MENTIONS of a cell in the crate's
+  declarations, counted where a qualifier below makes the mention a question:
+  a cell named in twenty signatures is twenty of these.
+- `ty.ffibox.wrapper.of_which.borrow.{pub,priv}` -- of those, the mentions
+  behind a reference, which the convention says should be a handle instead.
+- `ty.ffibox.wrapper.of_which.borrow.of_which.self_in_ref_accessor.{pub,priv}`
+  -- of the borrows, the receiver of an `as_ref` / `as_mut` accessor, which
+  ffibox's contract licenses.
+- `ty.ffibox.wrapper.of_which.borrow.of_which.self_in_trait_impl.{pub,priv}` --
+  the receiver of a trait impl's method, whose shape the trait fixed rather
+  than the crate. The remainder of the borrows is the unsanctioned surface.
+- `ty.ffibox.wrapper.of_which.std_owner.{pub,priv}` -- the mentions inside a
+  standard-library container that owns its storage (`Box`, `Vec`, a map).
+- `ty.ffibox.wrapper.of_which.slice.{pub,priv}` -- the mentions behind a slice.
+- `ty.ffibox.wrapper.of_which.field.{pub,priv}` -- the mentions that are a
+  field's type, which cuts across the other three.
+- `ty.ffibox.ffi.{pub,priv}` -- the same mentions for the raw `-sys` struct a
+  cell covers, its `CCell::C`: the C layout named where the wrapper could have
+  been.
+- `ty.ffibox.ffi.of_which.borrow.{pub,priv}` -- of those, the mentions behind a
+  reference.
+- `ty.ffibox.ffi.of_which.borrow.of_which.self_in_ref_accessor.{pub,priv}` --
+  the receiver of an accessor, as above.
+- `ty.ffibox.ffi.of_which.borrow.of_which.self_in_trait_impl.{pub,priv}` -- the
+  receiver of a trait impl's method, as above.
+- `ty.ffibox.ffi.of_which.std_owner.{pub,priv}` -- the mentions inside a
+  standard-library owner.
+- `ty.ffibox.ffi.of_which.slice.{pub,priv}` -- the mentions behind a slice.
+- `ty.ffibox.ffi.of_which.field.{pub,priv}` -- the mentions that are a field's
+  type.
+- `ty.ffibox.by_val.{pub,priv}` -- mentions of a cell by value rather than
+  behind a reference.
+- `ty.ffibox.by_val.of_which.{field,fn_sig}.{pub,priv}` -- of those, where the
+  value sits: a field's type, or a signature's. These two partition the record.
+- `ty.ffibox.by_val.of_which.std_owner.{pub,priv}` -- the ones inside a
+  standard-library owner, which cuts across both.
 
-`ty.impl_block` counts an inherent `impl T` and `ty.impl_trait` an
-`impl Tr for T`, which `ty.impl` used to merge. The split is the one the
-counters were already asking either side of: a trait impl satisfies someone
-else's shape, an inherent block is the API the crate wrote for its own type.
-Under `--ffibox` an inherent block is also split by the self type's role in
-the convention, since those are different surfaces: the layout type carries
-the constructors, its shared handle the getters, its exclusive handle the
-setters. On libgit2-bindings: 408 blocks, 100 on layout types, 86 on shared
-handles, 103 on exclusive ones, 119 on everything else -- the handles
-outnumbering the layout types, which is what a convention routing every field
-access through them implies.
+### 1.3 `fn`
 
-`ty.ffibox.ccell` is the layout types, and `of_which.no_seam_trait` those whose
-handles implement neither `CRefSeam` nor `CMutSeam`. Those handles sit outside
-the generic seam -- `from_ptr`, `from_void_ptr`, `as_ptr`, `as_void_ptr` on the
-handle type -- so code generic over a handle has to special-case them. On
-libgit2-bindings it reads 32 of 65, exactly the hand-written `CCell` impls: the
-macro writes both seams and a hand-written cell gets neither. The trait does
-not forbid it -- `impl<'a, 'r: 'a> CRefSeam<'a> for FooRef<'a, 'r>` with
-`type Cell = Foo<'r>` compiles -- so it is an omission, not a limit.
+Every function the crate defines, the methods of its trait impls included
+([analysis 9.4](analysis.md#94-functions-and-methods)).
 
-The role is read from `CCell`'s own `Ref<'a>` and `Mut<'a>` associated types,
-not from the seam trait a type implements. `define_ctype!` generates
-`CRefSeam` and `CMutSeam` only for a cell with no parameters of its own; a
-lifetime-carrying cell such as `Blob<'r>` hand-writes `CCell` and no seam at
-all, so reading the seams missed every hand-written cell's handles -- 49 `*Ref`
-and 40 `*Mut` blocks, which landed under `other`. The associated types name
-the handles whatever wrote the impl.
+- `fn.total.{pub,priv}` -- the denominator, emitted: every function with a body.
+- `fn.total.of_which.macro.{pub,priv}` -- of those, the ones a macro wrote.
+  Subtract for the hand-written total.
+- `fn.safe.{pub,priv}` -- the safe ones.
+- `fn.safe.of_which.with_unsafe.{pub,priv}` -- of those, the ones whose body
+  contains an `unsafe` block: a safe fn discharging an obligation internally.
+  Counted on the safe arm only ([2.5](#25-deliberate-asymmetries)).
+- `fn.unsafe.{pub,priv}` -- the `unsafe fn`s. `fn.unsafe.pub` is the unsafe
+  surface a consumer meets.
+- `fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}` -- mentions of an
+  ffibox primitive in a signature, by position and by primitive: whether the
+  vocabulary actually crosses the interface.
 
-`ty.impl_trait.of_which.{std,local,ffibox}` is whose trait it is. A local one
-is a shape the crate chose; a std or framework one it adopted. On
-libgit2-bindings 1765 std, 193 ffibox, 2 local; on git2-rs 1704 std and 115
-local, the latter mostly its own `Binding`.
+### 1.4 `code`
 
-The `std` arm is that large because of `#[derive]`, not because the crates
-implement std by hand: `of_which.derived` is 1171 of libgit2-bindings' 1960
-trait impls and 630 of git2-rs' 1863, so the hand-written std impls are 594
-and 1074. Without that share a reader comparing vocabularies is reading how
-many derives each crate spells. It is the counterpart of
-`fn.total.of_which.macro`, and the reason `of_which.unsafe` has always skipped
-`TrivialClone`.
+The size of the crate and what its bodies do, as the denominators the rest is
+read against.
 
-Every sub-classification of the same impls sits under `of_which`, nested where
-it refines another share: `of_which.ffibox.of_which.<trait>` is the ffibox
-impls by trait. That is not cosmetic. `ty.impl` used to carry an emitted
-`total`, which protected it; splitting it into `{pub,priv}` let `nest_ptr`
-derive the total from every child, and the two sub-classifications beside it
-pushed `impl_trait.total` to 2297 against the 1960 impls there are. It is 1960
-now, and `impl_block` 408 + `impl_trait` 1960 = 2368, the old merged figure.
+- `code.loc.total` -- lines of code, from the compiled crate: the union of HIR
+  definition spans, blanks and comments excluded, so items `cfg` removed are
+  not in the denominator.
+- `code.loc.unsafe` -- of those, the lines inside an `unsafe` block, filtered
+  the same way so the two are comparable.
+- `code.unsafe_block.total` -- `unsafe` blocks, however many lines each holds.
+- `code.unsafe_block.of_which.ffi_export` -- of those, the ones inside an
+  `ffi_export` gateway module, which a port campaign generates rather than
+  writes.
+- `code.unsafe_call.ffi` -- unsafe calls whose callee carries a foreign ABI:
+  the real crossings, counted by the callee's type rather than by its
+  declaration site, so calls through a stored function pointer are in
+  ([analysis 10](analysis.md#10-calls)).
+- `code.unsafe_call.rust` -- unsafe calls to a Rust-ABI function, the crate's
+  own `unsafe fn`s and the standard library's unsafe constructors alike.
+- `code.unsafe_call.intrinsic` -- unsafe calls to a compiler intrinsic,
+  `transmute` among them.
+- `code.tests.loc.{total,unsafe}` -- the same two line counts for the test
+  code, which no other counter includes
+  ([analysis 9.6](analysis.md#96-test-code)).
+- `code.tests.unsafe_block` -- `unsafe` blocks in the test code.
+- `code.tests.fn` -- functions in the test code, including one generated
+  harness `main` per test binary.
 
-`ty.total.of_which.{std_trait,local_trait,ffibox_trait,no_trait}` asks the
-same of TYPES rather than impls, and is the denominator the
-`ty.storing_raw_ptr` shares lacked: that family says 29 of the pointer
-holders implement a std trait, and this says 317 types do. Shares, not a
-partition -- a type may implement std's `Drop`, ffibox's `CDrop` and one of
-the crate's own traits -- with `no_trait` the residual.
+## 2. The shape of a record
 
-The cross-tabulation is recorded once, in `ty.storing_raw_ptr.of_which`, which
-is the finer direction: it separates `impl_drop` from `impl_clone` from
-`impl_send_sync`, which a single `std` arm would collapse.
+### 2.1 Partitions and shares
 
-`ty.generic` is the types carrying a generic parameter, by kind. A lifetime
-ties the type to something it borrows; a type parameter makes it a family
-rather than one layout, so each instantiation is a separate question about C's
-bytes. A type may carry both, so these are shares. On libgit2-bindings 199 of
-374 are generic, 195 over a lifetime and 5 over a type, and 23 of them hold a
-raw pointer.
-
-`raw_ptr.field.pub` is one reachability question -- can a consumer of
-the crate touch the field -- so it is the type being exported AND the field
-being exported, rather than two levels a reader has to combine.
-
-`fn.total` and `code.unsafe_call` totals are derived from their partitions.
-
-`code.tests` is the test code, and every other counter is the library without
-it. `cargo build` enables no `cfg(test)` and builds nothing under `tests/`, so
-the test code was invisible rather than excluded by a rule -- on
-libgit2-bindings 92693 lines against the library's 16081, and 4909 fns against
-2755. The scan runs `cargo check --all-targets` and the driver tells a test target
-apart by the `--test` cargo passes it, reporting it under `code.tests` so that
-no library counter moves. `check` rather than `build`: the driver reports from
-`after_analysis`, so HIR and typeck are all it needs, and `--emit=metadata`
-does not link -- a test binary links the C library, and declarations with no
-implementation at all would make the scan fail where it used to succeed.
-
-The exclusion is two mechanisms, not one rule. In the library build `cfg(test)`
-is off, so rustc strips those items during expansion and they never reach HIR:
-there is nothing to traverse. In the `--test` build they are there and the
-driver does walk them -- along with the whole library, which a lib test target
-recompiles -- but only `code.tests.*` is emitted and the library-shaped
-counters are computed and discarded. So a test's own types, signatures and
-conversions are nowhere: a type that holds a raw pointer inside
-`#[cfg(test)]` is in no `ty` population, and its unsafe blocks and FFI calls
-are in no `code` total.
-
-Only the quantities that mean the same thing for a test as for a library are
-there: its size, its fns and its unsafe. The rest of the tree asks what a
-crate's API hands its consumers, which a test harness has none of.
-
-A lib's test target recompiles the library with `cfg(test)` on, so its figures
-include the library's; they are subtracted, keyed on the crate name it shares
-with the non-test emission. An integration test crate shares its name with no
-library, so nothing is subtracted from it, and a build script is skipped --
-under `--all-targets` it is its own crate, and it builds the crate rather than
-being part of it. `code.tests.fn` carries one generated harness `main` per test
-binary.
-
-`fn.*` counts every function the crate defines, the methods of its trait impls
-included. A method implementing another crate's trait is still this crate's
-code: that crate fixed the signature's shape, not what the body does, and
-`impl Drop for Foo { fn drop }` is where a wrapper's unsafe free lives -- the
-one case `fn.safe.of_which.with_unsafe` exists for. A foreign *declaration*,
-an item in an `extern` block, is excluded by having no body to walk.
-
-Counting them makes the family sensitive to boilerplate a macro wrote:
-`#[derive]`, `bitflags!`, ffibox's `define_ctype!`. On libgit2-bindings that is
-802 of 2755 and on git2-rs 2350 of 3977, most of the latter from `bitflags!`.
-It is counted anyway -- what a macro emitted is compiled into the crate and
-runs like a hand-written method, the grounds `code.unsafe_block` already
-stands on -- and `fn.total.of_which.macro` carries the share, so a reader
-after the hand-written total subtracts it.
-
-### 1.1 Vocabularies
-
-The `<trait>` and `<primitive>` arms are generated from ffibox's vocabulary,
-which [`ffibox.md`](ffibox.md) lists. They are present only under `--ffibox`,
-absent rather than zero without it.
-
-### 1.2 Partitions and shares
-
-A `partition` node's children are disjoint and sum to it; an `of_which` node's
+A partition's children are disjoint and sum to it; an `of_which` node's
 children are subsets that overlap and are never summed. `nest_ptr` derives
 every partition `total` bottom-up and skips `of_which` when summing, so no sum
 is written by the driver and none can disagree with its parts.
 
-`ty.storing_raw_ptr.of_which` is a share family, not a partition: a type may
-implement both `Drop` and `Clone`. `none` is the residual, the types matching
-no declaration share.
+`ty.storing_raw_ptr.of_which` is a share family: a type may implement both
+`Drop` and `Clone`, so its arms overlap and only the record itself is a
+population. An `of_which` node therefore carries no `total` of its own --
+summing two shares is not a quantity -- while each share keeps the total of its
+own `{pub,priv}` partition. A share may refine another share, and then it nests
+under it: `fn_sig_trait_impl.of_which.ffibox.of_which.<trait>` is the ffibox
+positions by trait.
 
-The first six shares read std traits, so a crate that declares its lifecycle
-through a framework instead -- ffibox's `CDrop`, `CDispose`, `CDupClone` --
-said something none of them can see. `ffibox` is that statement, counted
-beside them, so the residual means what it says: on libgit2-bindings `none`
-read 12 of 41 while 8 of those 12 were `define_ctype!` layout newtypes whose
-release and clone sit on ffibox traits and whose lifetimes sit on their
-handles. It reads 4 now, against git2-rs' 15 of 97, which is the direction
-every other share points. `no_ffibox_trait` is gone with it: it was the exact
-complement of this share, 13 against 28 of 41.
+Where a residual is wanted it is emitted as a share named for it --
+`ty.storing_raw_ptr.of_which.none`, `ty.total.of_which.no_trait` -- rather than
+left for a reader to subtract.
 
-`pub_field` is not a declaration and does not rescue a type from the residual
--- it is the opposite, an access the type does not govern.
-
-An `of_which` node therefore carries no `total` of its own -- summing two
-shares is not a quantity -- while each share keeps the total of its own
-`{pub,priv}` partition.
-
-### 1.3 Namespaces
+### 2.2 Namespaces
 
 Three kinds of node carry no derived `total`: an `of_which` node, as above; a
 node that already carries an emitted one, which is how the denominators
@@ -308,26 +282,26 @@ node that already carries an emitted one, which is how the denominators
 would otherwise take their name; and a NAMESPACE, a node whose children are
 families rather than the parts of one quantity.
 
-A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts signature
-positions and `raw_ptr.deref` counts body sites, so their sum means nothing --
-and three are namespaces a level down. `ty.ffibox` holds a type population
-(`ccell` counts types) beside three records of mentions (`wrapper`, `ffi` and
-`by_val` count places, and overlap each other, since a cell held in a field is
-in `wrapper` and in `by_val` both). `code.tests` holds four separate
-measurements of the test build: its lines, its unsafe lines -- a subset of
-them -- its unsafe blocks and its fns; their sum read 103840 on
-libgit2-bindings, a figure with no unit at all. `fn.sig` holds what a
-signature carries, in mentions -- a fn taking two `CBox` is two of them -- so
-it is a share of no count of fns, and `fn.total` beside it is the denominator
-a reader divides by. Its own arms do carry totals: `fn.sig.of_which.ffibox` is
-`arg` plus `ret`, which are disjoint.
+A top-level prefix is always a namespace -- `raw_ptr.fn_sig_arg` counts
+signature positions and `raw_ptr.deref` counts body sites, so their sum means
+nothing -- and three are namespaces a level down. `ty.ffibox` holds a type
+population (`ccell` counts types) beside three records of mentions (`wrapper`,
+`ffi` and `by_val` count places, and overlap each other, since a cell held in a
+field is in `wrapper` and in `by_val` both). `code.tests` holds four separate
+measurements of the test build: its lines, its unsafe lines -- a subset of them
+-- its unsafe blocks and its fns; their sum read 103840 on libgit2-bindings, a
+figure with no unit at all. `fn.sig` holds what a signature carries, in
+mentions -- a fn taking two `CBox` is two of them -- so it is a share of no
+count of fns, and `fn.total` beside it is the denominator a reader divides by.
+Its own arms do carry totals: `fn.sig.of_which.ffibox` is `arg` plus `ret`,
+which are disjoint.
 
 `nest_ptr` declares them in `NAMESPACES` rather than inferring them, since no
 shape distinguishes a namespace from a partition: `raw_ptr.fn_sig_arg`'s
 `{safe,unsafe}` children are records with their own totals too, and summing
 those is exactly right.
 
-### 1.4 Zero, and absent
+### 2.3 Zero, and absent
 
 Every counter the invocation's flags turn on is in the document, at `0` when
 it never fired. A reader of one document cannot tell an absent counter from
@@ -347,7 +321,7 @@ it. `RegistryTests` reads the registry off a scan of
 `tests/fixtures/empty/` -- a crate with nothing in it, whose every counter is
 therefore 0 -- and holds the other fixtures' fired counters to it.
 
-### 1.5 The order of a record
+### 2.4 The order of a record
 
 A record's children are written in a declared order, most salient first: the
 record's own `total`, then the splits it is cut by (`unsafe` before `safe`,
@@ -356,149 +330,32 @@ record's own `total`, then the splits it is cut by (`unsafe` before `safe`,
 The prefixes come in this document's order: `raw_ptr`, `ty`, `fn`, `code`.
 
 The driver emits a sorted map, so the alternative is alphabetical: `fn` would
-read `{ffibox, safe, total, unsafe}`, with the denominator in the middle and
-the vocabulary before the figures it qualifies.
+read `{safe, sig, total, unsafe}`, with the denominator in the middle.
 
 A name the order does not hold comes after every name it does, alphabetically.
-That is where the vocabulary arms land -- `CArc`, `CBorrowedPtr`, `CBox`, and
-the trait arms likewise -- so a primitive or trait added to ffibox needs no
-change to the order and still reads predictably. `measure.KEY_ORDER` is one
-table for every level, since a name that earns an early rank in one record
-earns it in the others: `unsafe` is early as `fn.unsafe`, as `code.loc.unsafe`
-and as the unsafe trait impls. Two records cannot both be satisfied by it --
-`field` leads `by_val`'s shares and trails `wrapper`'s, and it is ranked with
-the positions -- and `fn` is split out, being a prefix as well as one of
-`code.tests`'s three measurements.
+That is where the primitive arms land -- `CArc`, `CBorrowedPtr`, `CBox` -- so a
+primitive added to ffibox needs no change to the order and still reads
+predictably. The trait arms are declared, in the order
+[`ffibox.md`](ffibox.md) gives the vocabulary, so a breakdown by trait reads as
+the lifecycle it describes rather than alphabetically.
+`measure.KEY_ORDER` is one table for every level, since a name that earns an
+early rank in one record earns it in the others: `unsafe` is early as
+`fn.unsafe`, as `code.loc.unsafe` and as the unsafe trait impls. Two records
+cannot both be satisfied by it -- `field` leads `by_val`'s shares and trails
+`wrapper`'s, and it is ranked with the positions -- and `fn` is split out,
+being a prefix as well as one of `code.tests`'s three measurements.
 
-## 2. The peel set
+### 2.5 Deliberate asymmetries
 
-A type stores a raw pointer when the walk over its fields reaches one. The walk
-descends through types defined in the scanned crate and in the `-sys` crates
-named on the command line, and stops at every other crate, the standard library
-included.
+A split that is not carried where a reader might expect it, and why.
 
-The rule is deliberately narrow, and it decides what the counter means. A
-pointer inside `Vec` is the standard library's to manage, not the crate's. A
-pointer inside an ffibox owner is ffibox's, so a type holding a `CBox` is not a
-`ty.storing_raw_ptr` -- it appears under `ty.field.ffibox` instead. The
-population is therefore the types that manage a pointer themselves, and
-delegation is counted separately rather than silently folded in.
+`ty.impl_trait.of_which.ffibox.of_which.<trait>` splits `{handwritten,macro}`
+but not `{pub,priv}`: whether a generator was used does not vary with
+visibility, and the split would cost 68 cells for nothing.
 
-The set is named, by `--sys-crates`, and never discovered. A Cargo `links`
-key and a `*-sys` name both over-report: `prettyplease` sets `links` to detect
-duplicate versions of itself, and bindgen's `clang_sys` matches the name, yet
-neither is any part of the scanned crate's C surface. Discovery put both in the
-peel set of libgit2-bindings and had their `#[repr(C)]` types taken for C's,
-which contradicts a rule whose whole value is being narrow.
-
-A `-sys` crate left unnamed therefore drops its types out of the walk, and the
-counter reads low for a reason that is not in the code. The document's
-`sys_crates` field records the set it ran with, so the omission is readable
-beside the figures it explains.
-
-## 3. Calls
-
-### 3.1 Classifying a call
-
-The callee's signature is read from the type of the callee expression, which
-carries an ABI and a safety whether or not the callee resolves to an item:
-
-```rust
-match typeck.expr_ty_adjusted(callee).kind() {
-    ty::FnDef(did, args) => { /* tcx.fn_sig(did).instantiate(..) */ }
-    ty::FnPtr(_, hdr)    => { /* hdr.abi(), hdr.safety */ }
-    _ => None,                       // Fn-trait call, not a direct call
-}
-```
-
-A `MethodCall` has no callee expression; its `DefId` comes from
-`typeck.type_dependent_def_id` and takes the `FnDef` path.
-
-`is_foreign_item` is not used. It is a property of the declaration site, while
-the ABI is part of the function's type and so survives being stored in a field
-or passed as an argument. That is what admits calls through function pointers,
-which have no item to ask -- invoking a stored `extern "C"` callback among them.
-
-### 3.2 `code.unsafe_call`
-
-Safety decides whether a call counts, ABI decides which arm it lands in.
-
-| signature | arm |
-|---|---|
-| `safety == Safe` | not counted |
-| `tcx.intrinsic(did).is_some()` | `intrinsic` |
-| `abi != Rust` | `ffi` |
-| otherwise | `rust` |
-
-Safety gates membership because an `extern "C" fn` *defined in Rust* is safe to
-call: a port campaign's `ffi_export` gateways have a C ABI but cross no boundary
-and discharge no obligation. Foreign declarations keep their `Unsafe` safety, so
-the real crossings still land in `ffi`.
-
-Intrinsics are tested with `tcx.intrinsic`, not by ABI: current rustc marks them
-`#[rustc_intrinsic]` with the Rust ABI, so an ABI test would file `transmute`
-under `rust`.
-
-## 4. `raw_ptr.casted_to`
-
-Two axes: whose vocabulary the conversion belongs to, and what shape the pointer
-became. Conversions are recognised by name, never inferred from types, because
-a type rule cannot show that the output derives from the pointer input.
-
-| arm | names from | shape from |
-|---|---|---|
-| `std` | the (krate, type, method) table below | the table |
-| `ffibox` | `<primitive>` x the adoption methods | the primitive's group |
-| `local_seam` | `--seams` / `UM_SEAM_FNS` | the seam's return type |
-
-A declared seam needs no derivation proof: the declaration states the function
-is a conversion, and only its shape is read from the return type.
-
-### 4.1 The std table
-
-```
-borrow   <*const T>::as_ref   <*mut T>::as_mut   NonNull::as_ref   NonNull::as_mut
-slice    slice::from_raw_parts    slice::from_raw_parts_mut
-         slice::from_ptr_range    slice::from_mut_ptr_range
-string   CStr::from_ptr   CString::from_raw   String::from_raw_parts
-owner    Box::from_raw   Vec::from_raw_parts   Rc::from_raw   Arc::from_raw
-```
-
-Matching is on (crate, type, method), gated on `did.krate` being `core`,
-`alloc` or `std`, so a custom `Box::from_raw` cannot collide.
-
-`CString` and `String` are `string` rather than `owner`: the bucket records what
-shape the pointer became, and the C-string boundary is the distinction worth
-keeping.
-
-Two syntactic forms carry no call and are counted as `std.borrow`:
-
-```
-AddrOf(Ref, Not, Unary(Deref, p))    where p is a raw pointer
-AddrOf(Ref, Mut, Unary(Deref, p))
-```
-
-### 4.2 The ffibox table
-
-Derived from ffibox's adoption methods crossed with its primitives, as
-[`ffibox.md`](ffibox.md) describes.
-
-### 4.3 `other`
-
-For `local_seam` it holds a seam returning a bespoke handle. For `std` and
-`ffibox` it is structurally zero, every name in those tables mapping to a known
-shape, so a nonzero reading means the name table and the shape classifier have
-drifted apart.
-
-## 5. Deliberate asymmetries
-
-`ty.impl_trait.ffibox` splits `{handwritten,macro}` but not `{pub,priv}`: whether a
-generator was used does not vary with visibility, and the split would cost 68
-cells for nothing.
-
-`ty.impl_trait.send_sync` splits `{pub,priv}` but not by origin: asserting `Send` on a
-public type is a claim to consumers, on a private one it is internal
-bookkeeping.
+`ty.impl_trait.of_which.send_sync` splits `{pub,priv}` but not by origin:
+asserting `Send` on a public type is a claim to consumers, on a private one it
+is internal bookkeeping.
 
 `raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>` splits by neither:
 a trait method's safety and visibility are the trait declaration's, one
@@ -510,7 +367,107 @@ implements does move them.
 `unsafe_op_in_unsafe_fn` denied, every `unsafe fn` doing anything raw has a
 block by construction, so counting it there would measure the lint.
 
-## 6. Retired counters
+`raw_ptr.fn_sig_trait_impl` carries no direction, while `fn_sig_arg` and
+`fn_sig_ret` are separate counters: the direction says what the crate chose to
+do with the pointer, and in a trait impl it chose neither.
+
+## 3. Building a report
+
+A report is leaves divided and subtracted, named by their paths. Three rules
+make the arithmetic sound:
+
+- a partition may be summed, an `of_which` may not. Two shares of one record
+  overlap, so `borrow + std_owner` is not a quantity, while
+  `pub + priv` is the record;
+- a rate stays inside one record, or between a record and the denominator
+  emitted for it: `fn.unsafe.pub / fn.total.pub`, `code.loc.unsafe /
+  code.loc.total`, `ty.storing_raw_ptr.pub / ty.total.pub`. Dividing across
+  prefixes mixes grains -- signature positions by lines of code says nothing;
+- a share is read against the record it cuts, and the remainder is a
+  subtraction: `wrapper.of_which.borrow.pub` less its two sanctioned shares is
+  the convention's unsanctioned surface.
+
+### 3.1 The readings worth taking
+
+**What a consumer meets without writing `unsafe`.**
+`raw_ptr.total.safe.pub` is the raw pointers on the safe public interface: 5 on
+libgit2-bindings and 5 on git2-rs. `fn.unsafe.pub` against `fn.total.pub` is
+the public unsafe surface -- 98 of 2403 on libgit2-bindings -- and
+`raw_ptr.field.pub` the pointers a public field hands over with no `unsafe` at
+all.
+
+**How much unsafe, and where it sits.** `code.loc.unsafe / code.loc.total` is
+the density and `code.unsafe_block.total` the number of blocks; read both,
+since folding small blocks into large ones moves one and not the other.
+`code.unsafe_block.of_which.ffi_export` subtracts the gateways a port campaign
+generated, and the `code.unsafe_call` arms say what the unsafe is for: `ffi`
+is the boundary, `rust` is the standard library's constructors and the crate's
+own helpers, `intrinsic` is `transmute` and its siblings.
+
+**What the crate wrote, as opposed to what a macro did.** Subtract
+`fn.total.of_which.macro` from `fn.total`, and
+`ty.impl_trait.of_which.derived` from `ty.impl_trait`: on libgit2-bindings
+that is 802 of 2755 fns and 1171 of 2024 impls. A comparison of two crates
+without those shares is partly a comparison of how much boilerplate each
+spells.
+
+**What the crate declares about the pointers it manages.**
+`ty.storing_raw_ptr.of_which.none` against `ty.storing_raw_ptr` is the types
+that hold a pointer and say nothing about it: 4 of 41 on libgit2-bindings, 15
+of 97 on git2-rs. The other shares say what the rest declared --
+`impl_drop`, `impl_clone`, `ffibox` -- and `pub_field` is the opposite of a
+declaration.
+
+**Whether a convention is kept.** Under `--ffibox`,
+`ty.ffibox.wrapper.of_which.borrow` less `self_in_ref_accessor` and
+`self_in_trait_impl` is the bare `&Foo` surface the convention says should be a
+handle: 17 of 161 on libgit2-bindings, 22 of 215 on ffmpeg-bindings.
+`ty.ffibox.ccell.of_which.no_seam_trait` is the cells a generic handle has to
+special-case, and `fn.sig.of_which.ffibox` whether the vocabulary reaches the
+interface at all.
+
+**Whose shape the pointers in trait impls are.** `fn_sig_trait_impl` is read
+through its `of_which` arms, never bare: the same 64, 93 and 134 are ffibox's
+lifecycle strategies, a crate's own private helpers and one local `Binding`
+trait respectively.
+
+**The test code, beside the library and never added to it.**
+`code.tests.loc.total` against `code.loc.total` is how much of the tree is
+tests -- 92693 against 16081 on libgit2-bindings -- and the `code.tests` arms
+are the only counters that include them.
+
+A report of several crates is a table of leaves, one row per crate, with the
+denominator beside every share: `examples/README.md` is one, and its tables
+name the leaves each column came from.
+
+### 3.2 What a comparison requires
+
+The document is a pure function of the source tree under a fixed scanner, so
+two figures are comparable only when the scanner and the flags match: the
+ffimap commit, the toolchain, `--sys-crates` (which decides what
+`ty.storing_raw_ptr` admits), `--seams` (which decides what the `seam` shares
+and `casted_to.local_seam` can see) and any framework the crate is built on.
+The `scanner` and `sys_crates` fields carry all of it, which is why they are in
+the document rather than beside it
+([analysis 1](analysis.md#1-determinism-and-what-it-rests-on)).
+
+A counter added or a rule corrected moves figures too. The ones already known
+to be incomparable across versions are named in
+[analysis 12](analysis.md#12-what-the-analysis-cannot-see).
+
+### 3.3 No target values
+
+ffimap has none, and this is the place that says so. Absolute counts are not
+comparable across crates of different size, and lower is not automatically
+better: a wrapper over C must contain unsafe, and folding 600 small audited
+blocks into 200 large ones improves the number while making the crate worse.
+A reader who wants a rate divides the leaves it names.
+
+Finding what is worth looking at is the opposite kind of work, and belongs to
+a reviewer who reads the code, forms suspicions and defends them. `none` and
+`no_seam_trait` name an absence, not a defect.
+
+## 4. Retired counters
 
 The counters the tree replaced are gone, not kept beside it. A second answer
 to a question the tree answers is a liability: the two drift, and a reader has
@@ -528,9 +485,9 @@ same thing: `code_lines` and `unsafe_block_code_lines` into `code.loc.*`,
 `unsafe_blocks` into `code.unsafe_block.total`, `unsafe_blocks_ffi_export`
 into its `of_which`, `safe_fns_*` and `unsafe_fns_*` into `fn.{safe,unsafe}.*`
 with their seam shares, `unsafe_impls` into `ty.impl_trait.of_which.unsafe`,
-`unsafe_{send,sync}_impl` into `ty.impl_trait.send_sync.*`, `raw_ptr_derefs_{rd,wr}`
-into `raw_ptr.deref.*`, and `{raw,void}_ptr_ty_*` into
-`{raw,void}_ptr.field.*`.
+`unsafe_{send,sync}_impl` into `ty.impl_trait.send_sync.*`,
+`raw_ptr_derefs_{rd,wr}` into `raw_ptr.deref.*`, and `{raw,void}_ptr_ty_*`
+into `{raw,void}_ptr.field.*`.
 
 Three of them were not equivalents, and the tree's reading is the one kept:
 
@@ -550,9 +507,9 @@ Last, the owner / handle record: the second emission line and its 24 counters
 (`fn_sig_{ffibox,non_ffibox}_{owner,handle}_*`, the `ty_*` variants,
 `ffibox_impl_*`, `ffibox_define_ctype_*`, `ffibox_ccell_not_layout`,
 `ffibox_layout_not_ccell`). `ty.field.ffibox`, `ty.impl_trait.ffibox` and
-`fn.sig.of_which.ffibox` cover the vocabulary it measured, by primitive and by trait rather
-than by the owner / handle pair, and they split an impl by whether a macro
-wrote it.
+`fn.sig.of_which.ffibox` cover the vocabulary it measured, by primitive and by
+trait rather than by the owner / handle pair, and they split an impl by whether
+a macro wrote it.
 
 Two of its readings have no replacement, and go rather than being kept:
 
@@ -571,93 +528,5 @@ With it goes the pass itself: `compute_c_visible`, `is_c_accessible`,
 membership is the scanned crate or the named `-sys` crates -- so the tree is
 unchanged by its removal.
 
-## 7. Sites
-
-`--sites` reports where a counter's increments are, by its dotted path, down
-to its LEAF: a path that stops at a family or an `of_which` arm validates and
-then reads empty, since the lookup is keyed by leaf. Every counter of a place
-has sites; the line and statement counters (`code.loc`, `code.tests`) have
-none. The validation, why a macro-generated item reports its macro's call
-site, and the per-file shape of a site list are [`scanning.md`](scanning.md)'s.
-
-## 8. Limitations
-
-`raw_ptr.casted_to` is a filter, not a partition. A crate that hand-rolls a
-conversion and does not declare it in `--seams` is invisible, not filed under
-`other`. This bites hardest in an audit, where the seam list starts empty: a low
-`local_seam` there means nothing was declared, not that nothing was hand-rolled.
-The seam list is established once per campaign and recorded, so that every
-batch's scan reads the same one -- a list inferred per batch would make
-`local_seam` a measure of which agent looked harder.
-
-`ty.storing_raw_ptr` reads what the peel set admits, so its population moves
-with the `-sys` crates named. Figures from different invocations are comparable
-only with the same list.
-
-`code.unsafe_call.rust` is dominated by the standard library. On the canary
-fixture it reads 13, of which 1 is a call to the crate's own `unsafe fn` and
-12 are std's unsafe constructors -- `Box::from_raw` and its siblings, the same
-calls `casted_to` already classifies. Splitting the arm into own-crate and
-dependency would separate "wrote unsafe helpers" from "used std's unsafe API";
-until it is split, the arm is not a measure of the crate's own unsafety.
-
-`code.unsafe_call.ffi` counts calls through function pointers, which earlier
-versions keyed on `is_foreign_item` and missed. Figures measured before this
-change undercount and are not comparable.
-
-### 8.1 No target values
-
-ffimap has none, and this is the place that says so. Absolute counts are not
-comparable across crates of different size, and lower is not automatically
-better: a wrapper over C must contain unsafe, and folding 600 small audited
-blocks into 200 large ones improves the number while making the crate worse.
-A reader who wants a rate divides the leaves it names.
-
-Finding what is worth looking at is the opposite kind of work, and belongs to
-a reviewer who reads the code, forms suspicions and defends them. `none` and
-`no_seam_trait` name an absence, not a defect.
-
-### 8.2 Rules that were tried and rejected
-
-Kept because the reasoning is the useful part, and a counter that looks
-obvious often fails for a reason worth recording.
-
-- **A cast between two named types as evidence of C ownership.** Reading one
-  would mean composing casts from unrelated program points into a chain,
-  symmetrically, which says nothing about who owns the bytes. Measured on
-  libgit2-bindings (12 such casts) and git2-rs (42), it admitted no type that
-  declarations and containment did not already reach.
-- **A C-reachability pass behind the counters.** `compute_c_visible` and
-  `structural_wrapper` classified every type by whether C reads its bytes, and
-  fed the whole `c_type_*` family. The pass is what was wrong with it, not the
-  question: deciding the population by inference over seeds and a closure took
-  some 300 lines whose own false positives were untestable, and nothing else
-  in the tree depended on it.
-
-  The question was sound and the signal was good. On libgit2-bindings
-  `c_type_borrow` split 137 sanctioned, 7 non-sanctioned, 22 opaque and 4
-  generic -- a residual of 7 out of 170, which is a finding rather than a
-  census. An earlier revision of this section cited 660 and called it
-  undiscriminating; that figure was a sum across the counter's position x kind
-  x visibility leaves with `sanctioned` included, and the claim was wrong.
-  Under `--ffibox` the population is in the type system -- a type that
-  implements `CCell` -- so it can be asked again without the pass.
-- **Layout newtypes as a counter.** `c_type_layout_wrapper` read 71 on
-  libgit2-bindings and 3 on git2-rs, which separates the two crates' binding
-  *styles* rather than their soundness; `ty.storing_raw_ptr` does that more
-  directly. Reviving it would revive the whole reachability pass for one
-  number.
-- **Owner and handle detection by shape.** `holds_c_pointer` found
-  hand-written owners and handles structurally, independent of any framework.
-  `ty.storing_raw_ptr` and its declaration shares answer what the shape test
-  was standing in for -- which types manage a pointer, and what they declare
-  about it -- without a wrapper taxonomy.
-- **Classifying a handle by the seam trait it implements.** It misses every
-  hand-written cell, since `define_ctype!` generates the seams only for a cell
-  with no parameters of its own. `CCell`'s associated types are the authority
-  (see [`ffibox.md`](ffibox.md)).
-- **Excluding trait-impl methods from `fn.*`.** The justification was that
-  another crate fixed the signature, but a foreign *declaration* has no body
-  and never reaches the walk, so the rule only ever excluded the crate's own
-  code -- including `impl Drop for Foo { fn drop }`, the one shape
-  `fn.safe.of_which.with_unsafe` exists to find.
+The rules that were tried and rejected, rather than replaced, are
+[analysis 13](analysis.md#13-rules-that-were-tried-and-rejected).
