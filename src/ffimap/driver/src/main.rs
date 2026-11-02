@@ -402,6 +402,16 @@ fn register_counters(ptr: &mut PtrTally) {
             at(format!("fn.{arm}.{vis}"));
         }
         at(format!("fn.safe.of_which.with_unsafe.{vis}"));
+        for whose in ["std", "local", "other"] {
+            at(format!("fn.unsafe.of_which.in_trait_impl.{whose}.{vis}"));
+        }
+        if is_ffibox() {
+            at(format!("fn.unsafe.of_which.in_trait_impl.ffibox.{vis}"));
+        }
+        if seams {
+            at(format!("fn.unsafe.of_which.seam.{vis}"));
+        }
+        at(format!("fn.unsafe.of_which.other.{vis}"));
         at(format!("fn.total.of_which.macro.{vis}"));
 
         at(format!("ty.total.{vis}"));
@@ -2120,6 +2130,38 @@ impl Callbacks for MetricsCallbacks {
                     if safe && body_had_unsafe {
                         bump(&mut ptr, &mut sites,
                              format!("fn.safe.of_which.with_unsafe.{vis}"));
+                    }
+                    // Why an `unsafe fn` is unsafe, where something other than
+                    // the crate decided it: a trait that declared the method
+                    // unsafe, which an impl cannot make safe, or a seam, whose
+                    // job is adopting a raw pointer. The residual is the
+                    // unsafe surface nothing required, emitted rather than
+                    // subtracted since a seam may also be a trait's method.
+                    if !safe {
+                        let tr = tcx
+                            .opt_parent(did)
+                            .filter(|p| matches!(tcx.def_kind(*p), DefKind::Impl { of_trait: true }))
+                            .map(|p| tcx.impl_trait_ref(p).skip_binder().def_id);
+                        let seam = is_seam_fn(tcx, did);
+                        if let Some(tr) = tr {
+                            let whose = if is_std_crate(tcx, tr) {
+                                "std"
+                            } else if tr.is_local() {
+                                "local"
+                            } else if is_ffibox() && is_ffibox_crate(tcx, tr) {
+                                "ffibox"
+                            } else {
+                                "other"
+                            };
+                            bump(&mut ptr, &mut sites,
+                                 format!("fn.unsafe.of_which.in_trait_impl.{whose}.{vis}"));
+                        }
+                        if seam {
+                            bump(&mut ptr, &mut sites, format!("fn.unsafe.of_which.seam.{vis}"));
+                        }
+                        if tr.is_none() && !seam {
+                            bump(&mut ptr, &mut sites, format!("fn.unsafe.of_which.other.{vis}"));
+                        }
                     }
 
                     // Raw pointers the signature takes and returns, split

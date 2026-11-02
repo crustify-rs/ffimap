@@ -237,6 +237,19 @@ class CanaryTests(unittest.TestCase):
         # walk that peels transparent wrappers before looking loses it.
         self.assertEqual(self.at("ty.wrapping_unsafe_cell.pub"), 2)
 
+    def test_why_an_unsafe_fn_is_unsafe(self) -> None:
+        """Twelve `unsafe fn`s, ten public. `Undeclared::from_raw` is the one
+        seam `--seams` names, no trait declares any of them unsafe, and the
+        other eleven are the residual: nine public, and the private
+        `returned_unsafe_priv` and `local_unsafe_fn`."""
+        u = "fn.unsafe.of_which"
+        self.assertEqual(self.at("fn.unsafe.pub"), 10)
+        self.assertEqual(self.at("fn.unsafe.priv"), 2)
+        self.assertEqual(self.at(f"{u}.seam.pub"), 1)
+        self.assertEqual(self.at(f"{u}.in_trait_impl.total"), 0)
+        self.assertEqual(self.at(f"{u}.other.pub"), 9)
+        self.assertEqual(self.at(f"{u}.other.priv"), 2)
+
     def test_unsafe_impls(self) -> None:
         self.assertEqual(self.at("ty.impl_trait.of_which.unsafe"), 2)
         self.assertEqual(self.at("ty.impl_trait.of_which.std.send.pub"), 1)

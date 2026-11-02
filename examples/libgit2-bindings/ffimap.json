@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "6f68c53192adc8151d0de1be149427455b7c4536",
+    "ffimap": "0c260d5b702919dda13a7b41b65fa969479b8a3f",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -868,7 +868,42 @@
       "unsafe": {
         "total": 190,
         "pub": 98,
-        "priv": 92
+        "priv": 92,
+        "of_which": {
+          "in_trait_impl": {
+            "total": 52,
+            "other": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "std": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "local": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "ffibox": {
+              "total": 52,
+              "pub": 50,
+              "priv": 2
+            }
+          },
+          "seam": {
+            "total": 35,
+            "pub": 0,
+            "priv": 35
+          },
+          "other": {
+            "total": 103,
+            "pub": 48,
+            "priv": 55
+          }
+        }
       },
       "safe": {
         "total": 2565,

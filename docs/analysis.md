@@ -249,6 +249,15 @@ runs like a hand-written method, the grounds `code.unsafe_block` already
 stands on -- and `fn.total.of_which.macro` carries the share, so a reader
 after the hand-written total subtracts it.
 
+`fn.unsafe`'s shares say what made an `unsafe fn` unsafe when the crate did
+not. A method of a trait impl is `in_trait_impl`, by whose trait it is in the
+same arms as `ty.impl_trait.of_which`: the trait's declaration made it unsafe,
+and an impl cannot declare it safe. A method of a trait's own default body is
+the crate's choice, not an impl's, and is not in it. A fn `--seams` names is
+`seam`, by name as `raw_ptr`'s seam shares are. The two overlap -- git2-rs's
+`Binding::from_raw` is both -- so the residual is emitted, as `other`, rather
+than left for a reader to subtract.
+
 `fn.sig.of_which.ffibox` reads every type a value of an argument or the return
 holds or borrows, the type itself first: through the generic arguments of an
 ADT, a reference's pointee, and the elements of a tuple, array or slice. That

@@ -93,9 +93,9 @@ class CellCounterTests(unittest.TestCase):
         self.assertEqual(self.at("ty.ffibox.wrapper.total"), 1)
 
     def test_the_mentions_are_never_summed_into_the_types(self) -> None:
-        """`as` counts places, the record above it types: 31 mentions of one
+        """`as` counts places, the record above it types: 32 mentions of one
         cell, and the cell count stays 1."""
-        self.assertEqual(self.at("ty.ffibox.wrapper.as.total"), 31)
+        self.assertEqual(self.at("ty.ffibox.wrapper.as.total"), 32)
         self.assertEqual(self.tree["ty"]["ffibox"]["wrapper"]["total"], 1)
 
     # ------------------------------------------------- ty.ffibox.wrapper.as
@@ -103,7 +103,7 @@ class CellCounterTests(unittest.TestCase):
     # The innermost holder above each mention, by place, read off the
     # fixture's annotations.
     AS = {
-        "borrowed.std": {"fn_sig.pub": 15, "field.pub": 1},
+        "borrowed.std": {"fn_sig.pub": 16, "field.pub": 1},
         "borrowed.ffibox": {"fn_sig.pub": 1},
         "owned.std": {"fn_sig.pub": 3, "field.priv": 1},
         "owned.ffibox": {"fn_sig.pub": 4},
@@ -114,7 +114,7 @@ class CellCounterTests(unittest.TestCase):
         """The arms partition the mentions, and `field` and `fn_sig` each arm.
 
         `borrowed.std` is every `&Widget`: the receivers of `as_ref`, `as_mut`,
-        `peek`, `eq`, `as_ref` the trait method and `widest`, the arguments
+        `peek`, `eq`, `as_ref` the trait method, `poke` and `widest`, the arguments
         `eq`, `widest`, `leaked`, `leaked_optional`, `leaked_slice`,
         `borrowed_in_vec` and `Holder::as_ref` take, the returns of `widest`
         and `AsRef::as_ref`, and `Lens.w`. `owned.ffibox` is `in_ffibox_owner`,
@@ -133,7 +133,7 @@ class CellCounterTests(unittest.TestCase):
                          sum(sum(p.values()) for p in self.AS.values()))
 
     def test_the_sanctioned_borrows_are_shares_so_the_rest_subtracts(self) -> None:
-        """What the counter is for: `16 - 2 - 3` is the unsanctioned surface.
+        """What the counter is for: `17 - 2 - 4` is the unsanctioned surface.
 
         The accessors' receivers and the trait impls' stand on ffibox's own
         contract, that a cell value is Rust-owned inline storage. `peek` does
@@ -142,23 +142,23 @@ class CellCounterTests(unittest.TestCase):
         """
         accessor = self.at(f"{W}.borrowed.std.of_which.self_in_ref_accessor.pub")
         trait_impl = self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.pub")
-        self.assertEqual((accessor, trait_impl), (2, 3))
+        self.assertEqual((accessor, trait_impl), (2, 4))
         self.assertEqual(self.at(f"{W}.borrowed.std.pub") - accessor - trait_impl, 11)
 
     def test_only_the_receiver_of_a_trait_method_is_sanctioned(self) -> None:
-        """`eq`, `as_ref` and `widest` have one sanctioned borrow each, of
-        seven.
+        """`eq`, `as_ref`, `poke` and `widest` have one sanctioned borrow each,
+        of eight.
 
         The trait fixes the receiver's shape and nothing else: `eq`'s `other`,
         `widest`'s argument and the RETURNS of `widest` and `AsRef::as_ref` are
         published borrows of C-owned memory that the impl chose.
         """
-        self.assertEqual(self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.pub"), 3)
+        self.assertEqual(self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.pub"), 4)
 
     def test_a_ref_forming_receiver_is_its_own_share(self) -> None:
         """`AsRef::as_ref` is the one receiver of a std trait whose method
         returns a reference the impl chose; `PartialEq` and the local `Widest`
-        are not std's ref-forming traits."""
+        and `Poke` are not std's ref-forming traits."""
         self.assertEqual(
             self.at(f"{W}.borrowed.std.of_which.self_in_trait_impl.of_which.ref_forming.pub"),
             1)
@@ -246,14 +246,27 @@ class CellCounterTests(unittest.TestCase):
         self.assertEqual(self.at("fn.sig.of_which.ffibox.ret.CBox.pub"), 1)
         self.assertEqual(sig["total"], 6)
 
+    # -------------------------------------------------------------- fn.unsafe
+
+    def test_an_unsafe_trait_method_is_counted_by_whose_trait(self) -> None:
+        """`CDrop::c_drop` is unsafe because ffibox declared it so and
+        `Poke::poke` because the crate's own trait did; the fixture has no
+        other `unsafe fn`, so nothing is left in the residual."""
+        u = "fn.unsafe.of_which"
+        self.assertEqual(self.at(f"{u}.in_trait_impl.ffibox.pub"), 1)
+        self.assertEqual(self.at(f"{u}.in_trait_impl.local.pub"), 1)
+        self.assertEqual(self.at(f"{u}.in_trait_impl.total"), 2)
+        self.assertEqual(self.at(f"{u}.other.total"), 0)
+        self.assertEqual(self.at("fn.unsafe.total"), 2)
+
     # ----------------------------------------------------------- the negatives
 
     def test_a_pointer_to_a_cell_is_no_holder(self) -> None:
         """`NonNull<Widget>`, `*mut Widget`, the strategies' `NonNull<raw_widget>`
         and the handles' raw pointers are `raw_ptr`'s positions, `PhantomData`
         holds nothing, and `called_back`'s fn pointer is not entered: none is
-        in the arms, whose sum is the hand-derived 31 without them."""
-        self.assertEqual(self.at(f"{W}.total"), 31)
+        in the arms, whose sum is the hand-derived 32 without them."""
+        self.assertEqual(self.at(f"{W}.total"), 32)
         self.assertEqual(self.at("ty.ffibox.ffi.as.total"), 2)
 
     def test_every_mention_reports_its_place(self) -> None:

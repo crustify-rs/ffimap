@@ -8,7 +8,7 @@
     "openssl_sys"
   ],
   "scanner": {
-    "ffimap": "6f68c53192adc8151d0de1be149427455b7c4536",
+    "ffimap": "0c260d5b702919dda13a7b41b65fa969479b8a3f",
     "toolchain": "nightly-2026-10-07",
     "ffibox": false,
     "seams": [
@@ -398,7 +398,37 @@
       "unsafe": {
         "total": 124,
         "pub": 112,
-        "priv": 12
+        "priv": 12,
+        "of_which": {
+          "in_trait_impl": {
+            "total": 80,
+            "other": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "std": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "local": {
+              "total": 80,
+              "pub": 79,
+              "priv": 1
+            }
+          },
+          "seam": {
+            "total": 96,
+            "pub": 89,
+            "priv": 7
+          },
+          "other": {
+            "total": 28,
+            "pub": 23,
+            "priv": 5
+          }
+        }
       },
       "safe": {
         "total": 4010,

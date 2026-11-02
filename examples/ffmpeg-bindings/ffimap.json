@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "6f68c53192adc8151d0de1be149427455b7c4536",
+    "ffimap": "0c260d5b702919dda13a7b41b65fa969479b8a3f",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -874,7 +874,42 @@
       "unsafe": {
         "total": 109,
         "pub": 66,
-        "priv": 43
+        "priv": 43,
+        "of_which": {
+          "in_trait_impl": {
+            "total": 57,
+            "other": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "std": {
+              "total": 0,
+              "pub": 0,
+              "priv": 0
+            },
+            "local": {
+              "total": 12,
+              "pub": 0,
+              "priv": 12
+            },
+            "ffibox": {
+              "total": 45,
+              "pub": 45,
+              "priv": 0
+            }
+          },
+          "seam": {
+            "total": 2,
+            "pub": 2,
+            "priv": 0
+          },
+          "other": {
+            "total": 50,
+            "pub": 19,
+            "priv": 31
+          }
+        }
       },
       "safe": {
         "total": 2919,

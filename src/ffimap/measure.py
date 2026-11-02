@@ -254,7 +254,7 @@ KEY_ORDER = (
     # code's
     "loc", "unsafe_block", "unsafe_call", "tests",
     # the shares a position or a type carries
-    "void", "seam", "with_unsafe", "macro",
+    "void", "in_trait_impl", "seam", "with_unsafe", "macro",
     "no_trait", "std_trait", "local_trait", "ffibox_trait",
     "lifetime", "type",
     "impl_drop", "impl_clone", "impl_deref", "impl_deref_mut",

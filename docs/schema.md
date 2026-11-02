@@ -248,6 +248,21 @@ Every function the crate defines, the methods of its trait impls included
   Counted on the safe arm only ([2.5](#25-deliberate-asymmetries)).
 - `fn.unsafe.{pub,priv}` -- the `unsafe fn`s. `fn.unsafe.pub` is the unsafe
   surface a consumer meets.
+- `fn.unsafe.of_which.in_trait_impl.std.{pub,priv}` -- of those, the methods
+  of a trait impl, whose `unsafe` the trait's declaration fixed and the impl
+  cannot drop: here, a standard-library trait's.
+- `fn.unsafe.of_which.in_trait_impl.local.{pub,priv}` -- a trait the crate
+  declared itself, which put the `unsafe` there one level up.
+- `fn.unsafe.of_which.in_trait_impl.ffibox.{pub,priv}` -- an ffibox contract,
+  such as `CDrop::c_drop`.
+- `fn.unsafe.of_which.in_trait_impl.other.{pub,priv}` -- any other crate's
+  trait.
+- `fn.unsafe.of_which.seam.{pub,priv}` -- the `unsafe fn`s `--seams` names,
+  which adopt a raw pointer by design. A seam may also be a trait's method, so
+  this overlaps `in_trait_impl`.
+- `fn.unsafe.of_which.other.{pub,priv}` -- the residual: neither a trait
+  impl's method nor a seam, the `unsafe` the crate chose with nothing
+  requiring it.
 - `fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}` -- mentions of an
   ffibox primitive in a signature, by position and by primitive, the ones
   inside a `Result`, an `Option` or a reference included
@@ -430,6 +445,12 @@ evidence for a rule, and a reading of several is in
 [`examples/README.md`](../examples/README.md), where three real documents are
 tabulated side by side. A figure copied into this document would be a second
 copy to keep current, and the counters are what this document is for.
+
+**Which `unsafe fn`s nothing required.** `fn.unsafe.of_which.other` is the
+unsafe surface the crate chose: no trait declared the method unsafe and no
+seam adopts a pointer through it. Read it against `fn.unsafe`, and its `pub`
+leaf against `fn.unsafe.pub`, rather than subtracting `in_trait_impl` and
+`seam`, which overlap.
 
 **What a consumer meets without writing `unsafe`.**
 `raw_ptr.total.safe.pub` is the raw pointers on the safe public interface,

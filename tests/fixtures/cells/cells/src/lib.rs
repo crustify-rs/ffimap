@@ -109,6 +109,25 @@ impl Widest for Widget {
     }
 }
 
+/// A local trait that declares its method unsafe, so an impl of it cannot be
+/// safe.
+pub trait Poke {
+    /// Not counted: a trait's own declaration has no body.
+    ///
+    /// # Safety
+    ///
+    /// None; a fixture.
+    unsafe fn poke(&mut self, v: i32);
+}
+
+impl Poke for Widget {
+    /// fn.unsafe.of_which.in_trait_impl.local.pub,
+    /// wrapper.as.borrowed.std.fn_sig.pub, of_which.self_in_trait_impl
+    unsafe fn poke(&mut self, v: i32) {
+        self.0.n = v;
+    }
+}
+
 /// wrapper.as.borrowed.std.fn_sig.pub, sanctioned by neither share: a bare
 /// `&Widget` on the public interface, which ffibox's convention says should
 /// be a `WidgetRef`.
@@ -287,7 +306,8 @@ pub fn consume(h: PrivateHolder, o: &Holder) -> bool {
 /// raw_ptr.fn_sig_trait_impl.unsafe.pub,
 /// raw_ptr.fn_sig_trait_impl.of_which.ffibox.unsafe.pub,
 /// raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.CDrop,
-/// ty.impl_trait.of_which.ffibox.policy.pub
+/// ty.impl_trait.of_which.ffibox.policy.pub,
+/// fn.unsafe.of_which.in_trait_impl.ffibox.pub
 unsafe impl CDrop for Widget {
     unsafe fn c_drop(p: NonNull<raw_widget>) {
         let _ = p;
