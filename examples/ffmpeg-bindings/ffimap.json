@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "f81e68dfbde28c21d9b05367e50c5cdaee41856c",
+    "ffimap": "c7f711670927076206a4c2b1259143ba484908a2",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -743,9 +743,9 @@
             }
           },
           "fields": {
-            "total": 0,
+            "total": 372,
             "of_which": {
-              "unique": 0
+              "unique": 168
             }
           }
         },
@@ -1054,27 +1054,27 @@
       },
       "ffibox": {
         "wrapper": {
-          "total": 0,
-          "non_trait": 0,
-          "other_trait": 0,
+          "total": 617,
+          "non_trait": 552,
+          "other_trait": 9,
           "policy": {
-            "total": 0,
-            "CAlloc": 0,
-            "CAllocZeroed": 0,
-            "CNew": 0,
-            "CDrop": 0,
-            "CDispose": 0,
-            "CLenDrop": 0,
-            "CDupClone": 0,
-            "CRefClone": 0,
-            "CLenClone": 0
+            "total": 56,
+            "CAlloc": 4,
+            "CAllocZeroed": 2,
+            "CNew": 8,
+            "CDrop": 28,
+            "CDispose": 1,
+            "CLenDrop": 2,
+            "CDupClone": 6,
+            "CRefClone": 4,
+            "CLenClone": 1
           },
           "of_which": {
-            "unique": 0
+            "unique": 503
           }
         },
         "sys": {
-          "total": 529,
+          "total": 535,
           "of_which": {
             "used": 492
           }
@@ -1083,7 +1083,7 @@
     },
     "code": {
       "loc": {
-        "total": 18378,
+        "total": 18463,
         "unsafe": 3094
       },
       "unsafe_block": {
@@ -1100,8 +1100,8 @@
       },
       "tests": {
         "loc": {
-          "total": 87439,
-          "unsafe": 7236
+          "total": 86851,
+          "unsafe": 7104
         },
         "unsafe_block": 6677,
         "fn": 4962

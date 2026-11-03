@@ -405,10 +405,13 @@ counts once per fn, so `unique` is the number of C functions wrapped, and
 `fn.ffibox.sys` its denominator: every fn the `-sys` crates declare, and of
 those the ones the crate's compiled code calls or takes the address of.
 
-| | `sys` | `used` |
-|---|---|---|
-| libgit2-bindings | 703 | 431 |
-| ffmpeg-bindings | 529 | 492 |
+| | `sys` | `used` | `unique` | `wrapper` | `policy` | `fields` (`unique`) |
+|---|---|---|---|---|---|---|
+| libgit2-bindings | 703 | 431 | 412 | 488 | 53 | 311 (161) |
+| ffmpeg-bindings | 535 | 492 | 503 | 617 | 56 | 372 (168) |
 
-Both campaigns predate the alias, so their wrapper counts are zero until
-their annotations are migrated.
+`unique` above `used` on ffmpeg-bindings is no miscount. The alias names the
+C function whatever stands in for it, so a port (`Replaces`), such as
+`av_popcount64_c`, carries one and calls no C, and so does a wrapper that
+reimplements a `static inline` function rather than calling it, such as
+`av_uuid_copy`: 15 aliased functions are never named by the crate's code.

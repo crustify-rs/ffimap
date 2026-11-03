@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "f81e68dfbde28c21d9b05367e50c5cdaee41856c",
+    "ffimap": "c7f711670927076206a4c2b1259143ba484908a2",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -19,24 +19,24 @@
   "counts": {
     "raw_ptr": {
       "total": {
-        "total": 222,
+        "total": 125,
         "unsafe": {
-          "total": 137,
+          "total": 103,
           "pub": 6,
-          "priv": 131
+          "priv": 97
         },
         "safe": {
-          "total": 85,
+          "total": 22,
           "pub": 5,
-          "priv": 80
+          "priv": 17
         }
       },
       "fn_sig_arg": {
-        "total": 131,
+        "total": 97,
         "unsafe": {
-          "total": 131,
+          "total": 97,
           "pub": 6,
-          "priv": 125
+          "priv": 91
         },
         "safe": {
           "total": 0,
@@ -58,11 +58,11 @@
             }
           },
           "seam": {
-            "total": 35,
+            "total": 1,
             "unsafe": {
-              "total": 35,
+              "total": 1,
               "pub": 0,
-              "priv": 35
+              "priv": 1
             },
             "safe": {
               "total": 0,
@@ -73,16 +73,16 @@
         }
       },
       "fn_sig_ret": {
-        "total": 86,
+        "total": 23,
         "unsafe": {
           "total": 6,
           "pub": 0,
           "priv": 6
         },
         "safe": {
-          "total": 80,
+          "total": 17,
           "pub": 5,
-          "priv": 75
+          "priv": 12
         },
         "of_which": {
           "void": {
@@ -99,16 +99,16 @@
             }
           },
           "seam": {
-            "total": 66,
+            "total": 3,
             "unsafe": {
               "total": 0,
               "pub": 0,
               "priv": 0
             },
             "safe": {
-              "total": 66,
+              "total": 3,
               "pub": 1,
-              "priv": 65
+              "priv": 2
             }
           }
         }
@@ -231,7 +231,7 @@
         "wr": 154
       },
       "casted_to": {
-        "total": 532,
+        "total": 458,
         "std": {
           "total": 114,
           "owner": 9,
@@ -241,12 +241,12 @@
           "other": 0
         },
         "local_seam": {
-          "total": 272,
+          "total": 198,
           "owner": 0,
           "string": 0,
           "borrow": 0,
           "slice": 0,
-          "other": 272
+          "other": 198
         },
         "ffibox": {
           "total": 146,
@@ -399,8 +399,8 @@
         "priv": 0
       },
       "impl_block": {
-        "total": 408,
-        "pub": 395,
+        "total": 398,
+        "pub": 385,
         "priv": 13,
         "of_which": {
           "other": {
@@ -409,15 +409,15 @@
             "priv": 9
           },
           "ffibox": {
-            "total": 289,
+            "total": 279,
             "layout": {
               "total": 100,
               "pub": 98,
               "priv": 2
             },
             "ref": {
-              "total": 86,
-              "pub": 86,
+              "total": 76,
+              "pub": 76,
               "priv": 0
             },
             "mut": {
@@ -737,9 +737,9 @@
             }
           },
           "fields": {
-            "total": 0,
+            "total": 311,
             "of_which": {
-              "unique": 0
+              "unique": 161
             }
           }
         },
@@ -870,9 +870,9 @@
     },
     "fn": {
       "total": {
-        "total": 2755,
+        "total": 2658,
         "pub": 2403,
-        "priv": 352,
+        "priv": 255,
         "of_which": {
           "macro": {
             "total": 802,
@@ -882,9 +882,9 @@
         }
       },
       "unsafe": {
-        "total": 190,
+        "total": 156,
         "pub": 98,
-        "priv": 92,
+        "priv": 58,
         "of_which": {
           "in_trait_impl": {
             "total": 52,
@@ -910,9 +910,9 @@
             }
           },
           "seam": {
-            "total": 35,
+            "total": 1,
             "pub": 0,
-            "priv": 35
+            "priv": 1
           },
           "other": {
             "total": 103,
@@ -922,14 +922,14 @@
         }
       },
       "safe": {
-        "total": 2565,
+        "total": 2502,
         "pub": 2305,
-        "priv": 260,
+        "priv": 197,
         "of_which": {
           "with_unsafe": {
-            "total": 858,
+            "total": 857,
             "pub": 804,
-            "priv": 54
+            "priv": 53
           }
         }
       },
@@ -1048,23 +1048,23 @@
       },
       "ffibox": {
         "wrapper": {
-          "total": 0,
-          "non_trait": 0,
-          "other_trait": 0,
+          "total": 488,
+          "non_trait": 431,
+          "other_trait": 4,
           "policy": {
-            "total": 0,
-            "CAlloc": 0,
-            "CAllocZeroed": 0,
-            "CNew": 0,
-            "CDrop": 0,
-            "CDispose": 0,
-            "CLenDrop": 0,
-            "CDupClone": 0,
-            "CRefClone": 0,
+            "total": 53,
+            "CAlloc": 1,
+            "CAllocZeroed": 1,
+            "CNew": 5,
+            "CDrop": 32,
+            "CDispose": 5,
+            "CLenDrop": 1,
+            "CDupClone": 3,
+            "CRefClone": 5,
             "CLenClone": 0
           },
           "of_which": {
-            "unique": 0
+            "unique": 412
           }
         },
         "sys": {
@@ -1077,28 +1077,28 @@
     },
     "code": {
       "loc": {
-        "total": 16081,
-        "unsafe": 2654
+        "total": 15861,
+        "unsafe": 2618
       },
       "unsafe_block": {
-        "total": 1894,
+        "total": 1858,
         "of_which": {
           "ffi_export": 88
         }
       },
       "unsafe_call": {
-        "total": 1545,
-        "ffi": 557,
-        "rust": 988,
+        "total": 1509,
+        "ffi": 556,
+        "rust": 953,
         "intrinsic": 0
       },
       "tests": {
         "loc": {
-          "total": 92693,
-          "unsafe": 7838
+          "total": 92694,
+          "unsafe": 7830
         },
-        "unsafe_block": 6238,
-        "fn": 4909
+        "unsafe_block": 6230,
+        "fn": 4904
       }
     }
   },
