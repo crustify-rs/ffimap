@@ -26,11 +26,47 @@ pub struct raw_item {
     pub v: i32,
 }
 
-/// Returned by value only: in the total, not behind a pointer.
+/// Returned by value only: in the total, not behind a pointer. Its members
+/// are the shapes a member path walks through: a C member named `type`,
+/// which bindgen escapes; an anonymous union held by the named member `u`;
+/// an unnamed anonymous union, whose members C reaches as `raw_value`'s; and
+/// a bitfield.
 #[repr(C)]
 pub struct raw_value {
     pub v: i32,
+    pub type_: i32,
+    pub u: raw_value__bindgen_ty_1,
+    pub __bindgen_anon_1: raw_value__bindgen_ty_2,
+    pub _bitfield_1: [u8; 1],
 }
+
+/// A bitfield, `flag : 1`, as bindgen declares one: packed storage, and a
+/// getter and a setter of the bitfield's name.
+impl raw_value {
+    pub fn flag(&self) -> u32 {
+        0
+    }
+    pub fn set_flag(&mut self, _v: u32) {}
+}
+
+/// Not counted: the anonymous union `raw_value.u` holds.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union raw_value__bindgen_ty_1 {
+    pub mask: u64,
+    pub order: i32,
+}
+
+/// Not counted: `raw_value`'s unnamed union.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union raw_value__bindgen_ty_2 {
+    pub lo: i32,
+    pub hi: i32,
+}
+
+/// A typedef of a struct, from which a member path can start too.
+pub type raw_value_t = raw_value;
 
 /// Not counted: a union, never behind a pointer.
 #[repr(C)]

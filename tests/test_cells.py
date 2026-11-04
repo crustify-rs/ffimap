@@ -237,8 +237,11 @@ class CellCounterTests(unittest.TestCase):
         in `value`'s body. Four aliases name a fn: `value` and `value_or` both
         `value_get`, as two variants of it, `Poke::poke` `slot_get` and
         `CDrop::c_drop` `widget_free`, so three fns are wrapped. Two accessors
-        name the field `raw_widget.n`. The type alias on `Widget` and `nope`
-        name neither a fn nor a field."""
+        name the field `raw_widget.n`, and the setter six member paths more:
+        an escaped member, a named member's anonymous union and a member of
+        it, a member of an unnamed union, one from a typedef, and a bitfield. The type
+        alias on `Widget`, `nope`, and the paths that name no member resolve
+        to neither a fn nor a field."""
         self.assertEqual(self.at("fn.ffibox.sys.total"), 5)
         self.assertEqual(self.at("fn.ffibox.sys.of_which.used"), 1)
         w = "fn.ffibox.wrapper"
@@ -249,8 +252,8 @@ class CellCounterTests(unittest.TestCase):
         self.assertEqual(self.at(f"{w}.policy.total"), 1)
         self.assertEqual(self.at(f"{w}.of_which.unique"), 3)
         self.assertNotIn("total", self.tree["fn"]["ffibox"])
-        self.assertEqual(self.at("ty.ffibox.wrapper.fields.total"), 2)
-        self.assertEqual(self.at("ty.ffibox.wrapper.fields.of_which.unique"), 1)
+        self.assertEqual(self.at("ty.ffibox.wrapper.fields.total"), 8)
+        self.assertEqual(self.at("ty.ffibox.wrapper.fields.of_which.unique"), 7)
         # The accessors are no cells: the wrapper count stays the cells'.
         self.assertEqual(self.at("ty.ffibox.wrapper.total"), 1)
 

@@ -310,9 +310,13 @@ impl Holder {
 
 /// The setter of the field `peek` reads: a second accessor of one field.
 ///
-/// wrapper.fields, and not of_which.unique
+/// wrapper.fields, and not of_which.unique. Its other aliases are member
+/// paths through `raw_value`: six resolve, each once in of_which.unique, and
+/// two name no member, so count nowhere.
 impl WidgetMut<'_> {
     #[doc(alias = "raw_widget.n")]
+    #[doc(alias("raw_value.type", "raw_value.u", "raw_value.u.mask", "raw_value.lo"))]
+    #[doc(alias("raw_value_t.v", "raw_value.flag", "raw_value.u.nope", "raw_value.v.x"))]
     pub fn set_n(&mut self, _n: i32) {}
 }
 

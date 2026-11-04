@@ -390,10 +390,16 @@ a consumer imports may reach `git_repository_open` through a private helper,
 and two variants forked for two ownership contracts reach it alike. The
 Crustify conventions therefore annotate the item a consumer uses instead of
 the C one with `#[doc(alias = "<C name>")]`, and `fn.ffibox.wrapper` reads
-those aliases back. An alias resolves by name against the `-sys` inventory:
-to a function, it is a wrapper of it; to `<struct>.<field>`, a field accessor
-(`ty.ffibox.wrapper.fields`); to anything else, a type's name included, it
-counts nowhere, since the cells are already counted through `CCell`.
+those aliases back. An alias resolves against the `-sys` inventory: a bare
+name to a function, which makes it a wrapper of that function; a member path,
+`<struct>.<member>{.<member>}`, through the declared layouts to a member,
+which makes it a member accessor (`ty.ffibox.wrapper.fields`). The path names
+what C names, so it is walked as bindgen writes it: through the unnamed
+`__bindgen_anon_<n>` members, into a named member's `__bindgen_ty_<n>` type,
+to a member bindgen renamed with a trailing `_`, C's `type` as `type_`, and
+to a bitfield through the getter bindgen declares for it. An alias that
+resolves to neither, a type's name included, counts nowhere, since the cells
+are already counted through `CCell`.
 
 The wrappers split by where the annotated fn sits. A lifecycle routine is
 annotated on the policy method ffibox calls, `CDrop::c_drop` for
@@ -407,8 +413,8 @@ those the ones the crate's compiled code calls or takes the address of.
 
 | | `sys` | `used` | `unique` | `wrapper` | `policy` | `fields` (`unique`) |
 |---|---|---|---|---|---|---|
-| libgit2-bindings | 703 | 431 | 412 | 488 | 53 | 311 (161) |
-| ffmpeg-bindings | 535 | 492 | 503 | 617 | 56 | 372 (168) |
+| libgit2-bindings | 703 | 431 | 412 | 488 | 53 | 336 (172) |
+| ffmpeg-bindings | 535 | 492 | 503 | 617 | 56 | 420 (192) |
 
 `unique` above `used` on ffmpeg-bindings is no miscount. The alias names the
 C function whatever stands in for it, so a port (`Replaces`), such as

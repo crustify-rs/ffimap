@@ -217,11 +217,18 @@ The types the crate defines, by what they hold and what they declare about it.
 - `ty.ffibox.wrapper.as.by_val.of_which.{field,fn_sig}.{pub,priv}` -- where
   they sit.
 - `ty.ffibox.wrapper.fields.total` -- the crate's fns annotated as accessors
-  of a C field: each `#[doc(alias = "<struct>.<field>")]` naming a field of a
-  struct or union the crates `--sys-crates` names declare, once per alias and
-  fn, so a getter and a setter of one field are two. Fns, not cells, so never
-  summed into `ty.ffibox.wrapper`, and no `{pub,priv}`, like `ty.ffibox.sys`.
-- `ty.ffibox.wrapper.fields.of_which.unique` -- the distinct fields they name.
+  of a C member: each `#[doc(alias = "<root>.<member>{.<member>}")]` whose
+  member path resolves through the structs and unions the crates
+  `--sys-crates` names declare, from a struct, a union or a type alias of one,
+  once per alias and fn, so a getter and a setter of one member are two. The
+  path names only what has a name: bindgen's `__bindgen_anon_<n>` members are
+  looked through, a member bindgen escapes with a trailing `_` matches its C
+  name, a bitfield resolves through the getter bindgen declares for it, and
+  an array member continues into its element type. Only names are
+  resolved, never layouts. Fns, not cells, so never summed into
+  `ty.ffibox.wrapper`, and no `{pub,priv}`, like `ty.ffibox.sys`.
+- `ty.ffibox.wrapper.fields.of_which.unique` -- the distinct member paths they
+  name.
 - `ty.ffibox.sys.total` -- the structs the crates `--sys-crates` names
   declare: the C aggregates the bindings expose. No `{pub,priv}`: they are
   another crate's types.

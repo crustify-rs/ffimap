@@ -1637,9 +1637,11 @@ fn is_ref_forming(tcx: TyCtxt<'_>, tr: DefId) -> bool {
 /// The fns they declare likewise (`fn.ffibox.sys`), with the ones the crate
 /// names, and the crate's own fns annotated as standing in for one
 /// (`fn.ffibox.wrapper`) or for a field (`ty.ffibox.wrapper.fields`): each
-/// `#[doc(alias)]` resolved by name against the inventory, the only record of
-/// what a wrapper wraps. An alias that names neither, a type's included, is
-/// no wrapper of a fn or a field, and counts nowhere here.
+/// `#[doc(alias)]` resolved against the inventory, the only record of what a
+/// wrapper wraps. A fn is named bare; a field by its member path, which
+/// `member_path` walks through the declared layouts. An alias that names
+/// neither, a type's included, is no wrapper of a fn or a field, and counts
+/// nowhere here.
 fn count_sys_types<'tcx>(
     tcx: TyCtxt<'tcx>,
     ptr: &mut PtrTally,
@@ -1650,7 +1652,9 @@ fn count_sys_types<'tcx>(
     let mut fns: Vec<DefId> = Vec::new();
     // What an alias can name: a function, or a struct's or union's field.
     let mut fn_names: HashSet<String> = HashSet::new();
-    let mut field_names: HashSet<String> = HashSet::new();
+    // The structs and unions a member path can start from, by name: their
+    // own, or a type alias's that resolves to one.
+    let mut roots: HashMap<String, DefId> = HashMap::new();
     let mut behind_ptr: HashSet<DefId> = HashSet::new();
     for &cnum in tcx.crates(()) {
         if !sys_crates().contains(tcx.crate_name(cnum).as_str()) {
@@ -1676,8 +1680,8 @@ fn count_sys_types<'tcx>(
                         if kind == DefKind::Struct && !types.contains(&did) {
                             types.push(did);
                         }
+                        roots.insert(tcx.item_name(did).to_string(), did);
                         for f in tcx.adt_def(did).all_fields() {
-                            field_names.insert(format!("{}.{}", tcx.item_name(did), f.name));
                             decl(tcx.type_of(f.did).instantiate_identity().skip_norm_wip());
                         }
                     }
@@ -1692,7 +1696,13 @@ fn count_sys_types<'tcx>(
                         }
                     }
                     DefKind::TyAlias | DefKind::Static { .. } => {
-                        decl(tcx.type_of(did).instantiate_identity().skip_norm_wip());
+                        let t = tcx.type_of(did).instantiate_identity().skip_norm_wip();
+                        if kind == DefKind::TyAlias {
+                            if let Some(adt) = member_adt(tcx, t) {
+                                roots.entry(tcx.item_name(did).to_string()).or_insert(adt);
+                            }
+                        }
+                        decl(t);
                     }
                     _ => {}
                 }
@@ -1741,12 +1751,97 @@ fn count_sys_types<'tcx>(
                 if seen_fns.insert(alias) {
                     bump("fn.ffibox.wrapper.of_which.unique", did);
                 }
-            } else if field_names.contains(&alias) {
+            } else if member_path(tcx, &roots, &alias) {
                 bump("ty.ffibox.wrapper.fields.total", did);
                 if seen_fields.insert(alias) {
                     bump("ty.ffibox.wrapper.fields.of_which.unique", did);
                 }
             }
+        }
+    }
+}
+
+/// Whether `path`, `<root>.<member>{.<member>}`, names a field of a `-sys`
+/// struct or union: from the root, each step a member of the one before,
+/// through the layouts the `-sys` crate declares. The path names only what
+/// is named in C, so the steps are matched as bindgen writes them:
+///
+/// - a member named after a Rust keyword or primitive carries bindgen's
+///   trailing `_` (C's `type` is `type_`);
+/// - an unnamed member, a C11 anonymous struct or union, is no step: bindgen
+///   declares it as `__bindgen_anon_<n>`, and its members are looked up
+///   through it, as C accesses them;
+/// - an anonymous type held by a named member is bindgen's
+///   `<parent>__bindgen_ty_<n>`, reached through that member; and
+/// - an array's elements have no name, so an array member's next step is a
+///   member of its element type.
+///
+/// A step that is not a member, or that goes on from a member that holds no
+/// struct or union, resolves nothing.
+fn member_path(tcx: TyCtxt<'_>, roots: &HashMap<String, DefId>, path: &str) -> bool {
+    let mut steps = path.split('.');
+    let Some(mut adt) = steps.next().and_then(|r| roots.get(r)).copied() else {
+        return false;
+    };
+    let mut steps = steps.peekable();
+    if steps.peek().is_none() {
+        return false;
+    }
+    while let Some(step) = steps.next() {
+        let Some(t) = member(tcx, adt, step) else { return false };
+        if steps.peek().is_none() {
+            return true;
+        }
+        let Some(next) = member_adt(tcx, t) else { return false };
+        adt = next;
+    }
+    false
+}
+
+/// The type of the member `name` of the struct or union `adt`, as bindgen
+/// declares it, looking through its unnamed members. A bitfield is no field
+/// of bindgen's: it packs a run of them into `_bitfield_<n>` and declares a
+/// getter of each one's name, whose return type the bitfield's is.
+fn member<'tcx>(tcx: TyCtxt<'tcx>, adt: DefId, name: &str) -> Option<Ty<'tcx>> {
+    let fields = &tcx.adt_def(adt).non_enum_variant().fields;
+    let type_of = |f: &ty::FieldDef| tcx.type_of(f.did).instantiate_identity().skip_norm_wip();
+    let escaped = format!("{name}_");
+    let named = |n: &str| n == name || n == escaped;
+    fields
+        .iter()
+        .find(|f| f.name.as_str() == name)
+        .or_else(|| fields.iter().find(|f| f.name.as_str() == escaped))
+        .map(type_of)
+        .or_else(|| {
+            if !fields.iter().any(|f| f.name.as_str().starts_with("_bitfield_")) {
+                return None;
+            }
+            tcx.inherent_impls(adt)
+                .iter()
+                .flat_map(|&i| tcx.associated_item_def_ids(i).iter().copied())
+                .find(|&d| tcx.def_kind(d) == DefKind::AssocFn && named(tcx.item_name(d).as_str()))
+                .map(|d| tcx.fn_sig(d).skip_binder().skip_binder().output())
+        })
+        .or_else(|| {
+            fields
+                .iter()
+                .filter(|f| f.name.as_str().starts_with("__bindgen_anon_"))
+                .find_map(|f| member(tcx, member_adt(tcx, type_of(f))?, name))
+        })
+}
+
+/// The struct or union a member of type `t` holds, by value or as an array's
+/// elements; `ManuallyDrop`, which bindgen wraps a union's non-`Copy` members
+/// in, is looked through.
+fn member_adt(tcx: TyCtxt<'_>, mut t: Ty<'_>) -> Option<DefId> {
+    loop {
+        match t.kind() {
+            ty::TyKind::Array(e, _) => t = *e,
+            ty::TyKind::Adt(def, args) if def.is_manually_drop() => t = args.type_at(0),
+            ty::TyKind::Adt(def, _) if def.is_struct() || def.is_union() => {
+                return (!is_newtype_enum(tcx, def.did())).then_some(def.did());
+            }
+            _ => return None,
         }
     }
 }
