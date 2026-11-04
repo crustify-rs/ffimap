@@ -5,7 +5,7 @@
     "pcre2_sys"
   ],
   "scanner": {
-    "ffimap": "c7f711670927076206a4c2b1259143ba484908a2",
+    "ffimap": "8cb4031e36ee40d4e4dba269aa9547688d9d5d05",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -226,9 +226,9 @@
         }
       },
       "deref": {
-        "total": 349,
-        "rd": 195,
-        "wr": 154
+        "total": 363,
+        "rd": 202,
+        "wr": 161
       },
       "casted_to": {
         "total": 458,
@@ -259,8 +259,8 @@
     },
     "ty": {
       "total": {
-        "total": 374,
-        "pub": 347,
+        "total": 377,
+        "pub": 350,
         "priv": 27,
         "of_which": {
           "no_trait": {
@@ -269,8 +269,8 @@
             "priv": 11
           },
           "std_trait": {
-            "total": 317,
-            "pub": 305,
+            "total": 320,
+            "pub": 308,
             "priv": 12
           },
           "local_trait": {
@@ -279,8 +279,8 @@
             "priv": 0
           },
           "ffibox_trait": {
-            "total": 236,
-            "pub": 228,
+            "total": 239,
+            "pub": 231,
             "priv": 8
           }
         }
@@ -399,8 +399,8 @@
         "priv": 0
       },
       "impl_block": {
-        "total": 398,
-        "pub": 385,
+        "total": 402,
+        "pub": 389,
         "priv": 13,
         "of_which": {
           "other": {
@@ -409,20 +409,20 @@
             "priv": 9
           },
           "ffibox": {
-            "total": 279,
+            "total": 283,
             "layout": {
-              "total": 100,
-              "pub": 98,
+              "total": 101,
+              "pub": 99,
               "priv": 2
             },
             "ref": {
-              "total": 76,
-              "pub": 76,
+              "total": 77,
+              "pub": 77,
               "priv": 0
             },
             "mut": {
-              "total": 103,
-              "pub": 101,
+              "total": 105,
+              "pub": 103,
               "priv": 2
             },
             "locked": {
@@ -434,36 +434,36 @@
         }
       },
       "impl_trait": {
-        "total": 2024,
-        "pub": 1947,
-        "priv": 77,
+        "total": 2052,
+        "pub": 1974,
+        "priv": 78,
         "of_which": {
-          "unsafe": 271,
+          "unsafe": 279,
           "derived": {
-            "total": 1171,
-            "pub": 1142,
+            "total": 1177,
+            "pub": 1148,
             "priv": 29
           },
           "std": {
-            "total": 1765,
+            "total": 1789,
             "drop": {
               "total": 6,
               "pub": 5,
               "priv": 1
             },
             "clone": {
-              "total": 225,
-              "pub": 218,
+              "total": 227,
+              "pub": 220,
               "priv": 7
             },
             "send": {
-              "total": 73,
-              "pub": 73,
+              "total": 76,
+              "pub": 76,
               "priv": 0
             },
             "sync": {
-              "total": 71,
-              "pub": 71,
+              "total": 74,
+              "pub": 74,
               "priv": 0
             },
             "ref_forming": {
@@ -472,9 +472,9 @@
               "priv": 0
             },
             "other": {
-              "total": 1390,
-              "pub": 1331,
-              "priv": 59
+              "total": 1406,
+              "pub": 1346,
+              "priv": 60
             }
           },
           "local": {
@@ -483,15 +483,15 @@
             "priv": 2
           },
           "ffibox": {
-            "total": 257,
+            "total": 261,
             "layout": {
-              "total": 198,
-              "pub": 192,
+              "total": 202,
+              "pub": 196,
               "priv": 6,
               "of_which": {
                 "CCell": {
-                  "total": 65,
-                  "macro": 33,
+                  "total": 66,
+                  "macro": 34,
                   "handwritten": 32
                 },
                 "CPlainElem": {
@@ -500,18 +500,18 @@
                   "handwritten": 0
                 },
                 "CZeroable": {
-                  "total": 3,
+                  "total": 4,
                   "macro": 0,
-                  "handwritten": 3
+                  "handwritten": 4
                 },
                 "CRefSeam": {
-                  "total": 65,
-                  "macro": 33,
+                  "total": 66,
+                  "macro": 34,
                   "handwritten": 32
                 },
                 "CMutSeam": {
-                  "total": 65,
-                  "macro": 33,
+                  "total": 66,
+                  "macro": 34,
                   "handwritten": 32
                 },
                 "CLockedSeam": {
@@ -592,8 +592,8 @@
         }
       },
       "generic": {
-        "total": 199,
-        "pub": 182,
+        "total": 201,
+        "pub": 184,
         "priv": 17,
         "of_which": {
           "storing_raw_ptr": {
@@ -602,8 +602,8 @@
             "priv": 6
           },
           "lifetime": {
-            "total": 195,
-            "pub": 181,
+            "total": 197,
+            "pub": 183,
             "priv": 14
           },
           "type": {
@@ -615,8 +615,8 @@
       },
       "ffibox": {
         "wrapper": {
-          "total": 65,
-          "pub": 63,
+          "total": 66,
+          "pub": 64,
           "priv": 2,
           "of_which": {
             "no_seam_trait": {
@@ -626,12 +626,12 @@
             }
           },
           "as": {
-            "total": 621,
+            "total": 634,
             "borrowed": {
-              "total": 237,
+              "total": 245,
               "std": {
-                "total": 165,
-                "pub": 161,
+                "total": 172,
+                "pub": 168,
                 "priv": 4,
                 "of_which": {
                   "field": {
@@ -640,18 +640,18 @@
                     "priv": 0
                   },
                   "fn_sig": {
-                    "total": 165,
-                    "pub": 161,
+                    "total": 172,
+                    "pub": 168,
                     "priv": 4
                   },
                   "self_in_ref_accessor": {
-                    "total": 94,
-                    "pub": 90,
+                    "total": 96,
+                    "pub": 92,
                     "priv": 4
                   },
                   "self_in_trait_impl": {
-                    "total": 54,
-                    "pub": 54,
+                    "total": 58,
+                    "pub": 58,
                     "priv": 0,
                     "of_which": {
                       "ref_forming": {
@@ -664,14 +664,14 @@
                 }
               },
               "ffibox": {
-                "total": 72,
+                "total": 73,
                 "pub": 6,
-                "priv": 66,
+                "priv": 67,
                 "of_which": {
                   "field": {
-                    "total": 66,
+                    "total": 67,
                     "pub": 0,
-                    "priv": 66
+                    "priv": 67
                   },
                   "fn_sig": {
                     "total": 6,
@@ -719,8 +719,8 @@
               }
             },
             "by_val": {
-              "total": 119,
-              "pub": 109,
+              "total": 124,
+              "pub": 114,
               "priv": 10,
               "of_which": {
                 "field": {
@@ -729,17 +729,17 @@
                   "priv": 4
                 },
                 "fn_sig": {
-                  "total": 115,
-                  "pub": 109,
+                  "total": 120,
+                  "pub": 114,
                   "priv": 6
                 }
               }
             }
           },
           "fields": {
-            "total": 311,
+            "total": 336,
             "of_which": {
-              "unique": 161
+              "unique": 172
             }
           }
         },
@@ -749,13 +749,13 @@
             "raw_ptr_in_sys": {
               "total": 113,
               "of_which": {
-                "used": 73,
-                "wrapped": 61
+                "used": 74,
+                "wrapped": 62
               }
             }
           },
           "as": {
-            "total": 95,
+            "total": 98,
             "borrowed": {
               "total": 0,
               "std": {
@@ -848,18 +848,18 @@
               }
             },
             "by_val": {
-              "total": 95,
-              "pub": 18,
-              "priv": 77,
+              "total": 98,
+              "pub": 20,
+              "priv": 78,
               "of_which": {
                 "field": {
-                  "total": 73,
+                  "total": 74,
                   "pub": 0,
-                  "priv": 73
+                  "priv": 74
                 },
                 "fn_sig": {
-                  "total": 22,
-                  "pub": 18,
+                  "total": 24,
+                  "pub": 20,
                   "priv": 4
                 }
               }
@@ -870,13 +870,13 @@
     },
     "fn": {
       "total": {
-        "total": 2658,
-        "pub": 2403,
+        "total": 2689,
+        "pub": 2434,
         "priv": 255,
         "of_which": {
           "macro": {
-            "total": 802,
-            "pub": 779,
+            "total": 808,
+            "pub": 785,
             "priv": 23
           }
         }
@@ -922,13 +922,13 @@
         }
       },
       "safe": {
-        "total": 2502,
-        "pub": 2305,
+        "total": 2533,
+        "pub": 2336,
         "priv": 197,
         "of_which": {
           "with_unsafe": {
-            "total": 857,
-            "pub": 804,
+            "total": 873,
+            "pub": 820,
             "priv": 53
           }
         }
@@ -1077,28 +1077,28 @@
     },
     "code": {
       "loc": {
-        "total": 15861,
-        "unsafe": 2618
+        "total": 16017,
+        "unsafe": 2648
       },
       "unsafe_block": {
-        "total": 1858,
+        "total": 1888,
         "of_which": {
           "ffi_export": 88
         }
       },
       "unsafe_call": {
-        "total": 1509,
+        "total": 1525,
         "ffi": 556,
-        "rust": 953,
+        "rust": 969,
         "intrinsic": 0
       },
       "tests": {
         "loc": {
-          "total": 92694,
+          "total": 92966,
           "unsafe": 7830
         },
-        "unsafe_block": 6230,
-        "fn": 4904
+        "unsafe_block": 6234,
+        "fn": 4920
       }
     }
   },

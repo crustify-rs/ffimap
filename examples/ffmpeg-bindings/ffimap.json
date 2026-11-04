@@ -11,7 +11,7 @@
     "libswscale_sys"
   ],
   "scanner": {
-    "ffimap": "c7f711670927076206a4c2b1259143ba484908a2",
+    "ffimap": "8cb4031e36ee40d4e4dba269aa9547688d9d5d05",
     "toolchain": "nightly-2026-10-07",
     "ffibox": true,
     "seams": [
@@ -743,9 +743,9 @@
             }
           },
           "fields": {
-            "total": 372,
+            "total": 420,
             "of_which": {
-              "unique": 168
+              "unique": 192
             }
           }
         },
