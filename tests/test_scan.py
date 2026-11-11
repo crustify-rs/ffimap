@@ -20,14 +20,26 @@ class ComposeTests(unittest.TestCase):
 
             measure.assert_called_once_with(workspace, ffibox=False, sys=["foo_sys"],
                                             seams=None, regions=None,
-                                            barriers=None)
+                                            barriers=None, features=None)
             self.assertEqual(document["sys_crates"], ["foo_sys"])
             self.assertEqual(document["crate_path"], str(workspace))
             self.assertEqual(document["counts"], counts)
             # what scanned, so a document cannot drift from its provenance
             self.assertEqual(set(document["scanner"]),
                              {"ffimap", "toolchain", "ffibox", "seams", "regions",
-                              "barriers"})
+                              "barriers", "features"})
+
+    def test_features_reach_the_build_and_the_record(self) -> None:
+        with TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            (workspace / "Cargo.toml").write_text("[workspace]\n")
+            with mock.patch("ffimap.scan.measure.measure",
+                            return_value=({}, {})) as measure, \
+                 mock.patch("ffimap.scan.measure.sys_crates", return_value=[]):
+                document = scan.compose(workspace, features=["b", "a"])
+
+            self.assertEqual(measure.call_args.kwargs["features"], ["b", "a"])
+            self.assertEqual(document["scanner"]["features"], ["a", "b"])
 
     def test_a_failed_build_gives_no_counts(self) -> None:
         with TemporaryDirectory() as temporary:

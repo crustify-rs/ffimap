@@ -99,6 +99,12 @@ unsafe FFI. Which modules those are is the crate's design, not a fact the
 compiler states, so they are named, and recorded in the document's `scanner`
 like the seams; see [Regions](#97-regions-and-the-c-abi-boundary).
 
+`--features` names the Cargo features the scanned build enables beside its
+defaults. Code a feature gates is compiled, and so counted, only when the
+feature is named, such as an export gateway that stays behind a feature of its
+own until it is linked: an unnamed one reads as no code at all. The set is
+recorded in `features`, and two scans are compared only when it is the same.
+
 ## 6. The cache
 
 A scan measures nothing if cargo serves the build from cache, so the source
@@ -138,7 +144,7 @@ among the sites of a type or impl counter is that, not a miscount.
 |---|---|
 | `crate_path` | the scanned workspace |
 | `sys_crates` | the peel set it ran with |
-| `scanner` | what scanned: `ffimap` (its commit, or its version outside a checkout), `toolchain`, `ffibox`, `seams` |
+| `scanner` | what scanned: `ffimap` (its commit, or its version outside a checkout), `toolchain`, `ffibox`, `seams`, `regions`, `barriers`, `features` |
 | `counts` | the counter tree, or `null` |
 | `counts_unavailable` | why `counts` is `null`, otherwise `null` |
 | `sites` | with `--sites` only |

@@ -44,7 +44,8 @@ def compose(workspace: Path, sites: list[str] | None = None,
             ffibox: bool = False, sys_crates: list[str] | None = None,
             seams: list[str] | None = None,
             regions: list[str] | None = None,
-            barriers: list[str] | None = None) -> dict:
+            barriers: list[str] | None = None,
+            features: list[str] | None = None) -> dict:
     """Scan the workspace and return the metrics document.
 
     ``sites`` names counters whose source locations to report, as a ``sites``
@@ -62,6 +63,8 @@ def compose(workspace: Path, sites: list[str] | None = None,
     unsafe blocks and fns are reported by the region they sit in.
     ``barriers`` names the crate's own panic barriers, which a fn with a
     foreign ABI calls in place of `catch_unwind`.
+    ``features`` are the Cargo features the scanned build enables beside its
+    defaults; code they gate is counted only when they are named.
     """
     wanted = site_counters(sites) if sites else None
     sys = measure.sys_crates(sys_crates)
@@ -74,13 +77,14 @@ def compose(workspace: Path, sites: list[str] | None = None,
         "scanner": {**measure.scanner(), "ffibox": ffibox,
                     "seams": sorted(seams or ()),
                     "regions": sorted(regions or ()),
-                    "barriers": sorted(barriers or ())},
+                    "barriers": sorted(barriers or ()),
+                    "features": sorted(features or ())},
     }
     all_sites: dict = {}
     try:
         all_sites, counts = measure.measure(
             workspace, ffibox=ffibox, sys=sys, seams=seams, regions=regions,
-            barriers=barriers)
+            barriers=barriers, features=features)
         doc["counts"] = counts
         doc["counts_unavailable"] = None
     except measure.DriverUnavailable as e:

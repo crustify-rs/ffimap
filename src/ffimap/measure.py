@@ -445,13 +445,15 @@ def _bust_cache(ws: Path) -> None:
 def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
             seams: list[str] | None = None,
             regions: list[str] | None = None,
-            barriers: list[str] | None = None) -> tuple[dict, dict]:
+            barriers: list[str] | None = None,
+            features: list[str] | None = None) -> tuple[dict, dict]:
     """Return ``(sites per counter, the counter tree)`` for ``ws``.
 
     ``ffibox`` asserts the crate is built on ffibox, which turns on the
     vocabulary's arms (`ty.field.ffibox`, `ty.impl.ffibox`, `fn.sig`).
     ``sys`` are the sys crates (``sys_crates``): their `#[repr(C)]` types are
-    C's, and their emissions are skipped."""
+    C's, and their emissions are skipped. ``features`` are enabled on top of
+    the defaults, so that the code they gate is compiled and counted."""
     driver = _driver_bin()
     sysroot = subprocess.run(["rustc", f"+{_TOOLCHAIN}", "--print", "sysroot"],
                              capture_output=True, text=True).stdout.strip()
@@ -483,7 +485,10 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
     # INSTEAD of the plain library, whose emission is the scan. Each test
     # target is its own rustc invocation, which the driver tells apart by the
     # `--test` cargo passes it and reports under `code.tests`.
-    r = subprocess.run(["cargo", f"+{_TOOLCHAIN}", "check", "--all-targets"],
+    cmd = ["cargo", f"+{_TOOLCHAIN}", "check", "--all-targets"]
+    if features:
+        cmd += ["--features", ",".join(features)]
+    r = subprocess.run(cmd,
                        cwd=ws, env=env,
                        capture_output=True, text=True)
     if r.returncode != 0:

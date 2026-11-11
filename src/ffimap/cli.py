@@ -82,6 +82,15 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "calling `catch_unwind` itself does. ffimap never guesses the "
              "names.")
     p.add_argument(
+        "--features", type=lambda v: [f for f in v.split(",") if f], default=None,
+        metavar="FEATURE[,FEATURE...]",
+        help="Cargo features to enable for the scanned build, on top of the "
+             "defaults, passed to `cargo check --features`. Code a feature "
+             "gates is compiled, and so counted, only when it is named, such "
+             "as an export gateway compiled under a feature of its own. The "
+             "set is recorded in the scanner's `features`, and two scans are "
+             "compared only when it is the same.")
+    p.add_argument(
         "--ffibox", action="store_true",
         help="The crate is built on ffibox. Turns on the vocabulary's arms "
              "-- ty.field.ffibox, ty.impl.ffibox, fn.sig.of_which.ffibox -- and sanctions "
@@ -100,7 +109,8 @@ def run(workspace: Path, args: argparse.Namespace) -> int:
     from ffimap import scan
     doc = scan.compose(workspace, sites=args.sites, ffibox=args.ffibox,
                        sys_crates=args.sys_crates, seams=args.seams,
-                       regions=args.regions, barriers=args.barriers)
+                       regions=args.regions, barriers=args.barriers,
+                       features=args.features)
     print(json.dumps(doc, indent=2))
     return 0
 
