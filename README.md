@@ -53,7 +53,9 @@ errors go to stderr.
 
 ```text
 ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]]
-                 [--seams NAMES] [--sites COUNTER ...]
+                 [--seams NAMES] [--regions NAMES] [--barriers NAMES]
+                 [--sites COUNTER ...]
+ffimap diff BEFORE AFTER
 ```
 
 | Option | Effect |
@@ -61,7 +63,16 @@ ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]]
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source (file, count, lines). Each is a counter's dotted path, such as `raw_ptr.fn_sig_arg.safe.pub`. |
 | `--sys-crates CRATE,...` | Treat these crates' `#[repr(C)]` types as C's, and descend through their types when deciding which types store a raw pointer. Name the crate's own bindings and anything else it reaches C through, such as `libc`. Nothing is discovered — a Cargo `links` key and a `*-sys` name both over-report — so unnamed means the scanned crate alone. |
 | `--seams NAMES` | Function names that are seams -- the conversion between a wrapper and its raw pointer (`raw`, `from_raw`, `as_ptr`). Newline- or comma-separated, so `--seams "$(cat seams.txt)"` works. Reported as the `of_which.seam` share of each fn-signature counter, so plumbing can be told from the pointer management a consumer actually faces. ffimap never guesses the names. |
+| `--regions NAMES` | Module names that are regions: the modules a crate confines a kind of code to, such as its unsafe FFI. The unsafe blocks are reported by the region they sit in, and the unsafe blocks and fns outside every region apart. ffimap never guesses the names. |
+| `--barriers NAMES` | Function names that are the crate's own panic barriers, helpers that call `catch_unwind` for their caller. A foreign-ABI fn calling one counts as catching a panic, as one calling `catch_unwind` does. ffimap never guesses the names. |
 | `--ffibox` | The crate is built on [ffibox](https://github.com/crustify-rs/ffibox). Turns on the vocabulary's arms, which [docs/ffibox.md](docs/ffibox.md) describes, and sanctions the conventions' `as_ref` / `as_mut` layout accessors, which are matched by name and so hold only where that convention does. |
+
+`ffimap diff BEFORE AFTER` scans nothing: it reads two documents of one crate
+and prints the counters that moved, with their values before and after, and,
+for each counter both documents carry sites for, the lines its increments were
+added at or removed from. It is how a change is checked against the crate
+before it. A difference in `scanner` is reported first, since a counter can
+move with the scanner as well as with the crate.
 
 ## Output
 
@@ -71,7 +82,7 @@ The JSON document has these top-level fields:
 |---|---|
 | `crate_path` | The scanned workspace. |
 | `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's, as `--sys-crates` named them. |
-| `scanner` | What scanned: the ffimap commit, the pinned toolchain, and the `--ffibox` and `--seams` inputs. A figure is comparable with another only under the same ones. |
+| `scanner` | What scanned: the ffimap commit, the pinned toolchain, and the `--ffibox`, `--seams`, `--regions` and `--barriers` inputs. A figure is comparable with another only under the same ones. |
 | `counts` | The counters of `docs/schema.md`, or `null` when the workspace could not be built. Every counter lives here; there is no second, flat block. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `sites` | With `--sites`: source locations per requested counter. |
@@ -84,6 +95,7 @@ is test code: it has `code.tests` to itself.
 
 | | |
 |---|---|
+| [docs/goals.md](docs/goals.md) | what ffimap is for, the goals a change to it is judged against, and what it does not do |
 | [docs/schema.md](docs/schema.md) | the counters: what each one holds, how a record is shaped, and how a report is built from them |
 | [docs/analysis.md](docs/analysis.md) | the analysis: how a scan runs, and what each counter is decided from |
 | [docs/ffibox.md](docs/ffibox.md) | the `--ffibox` arms and the conventions they read |

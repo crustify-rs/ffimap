@@ -1,8 +1,9 @@
 """cli.py — the `ffimap` command.
 
     ffimap WORKSPACE [--ffibox] [--sys-crates CRATE,...]
-                     [--seams NAMES]
-                     [--sites COUNTER ... | all]
+                     [--seams NAMES] [--regions NAMES] [--barriers NAMES]
+                     [--sites COUNTER ...]
+    ffimap diff BEFORE AFTER
 
 Deterministic: a rustc HIR/typeck pass over the crate's FFI and unsafe
 surface. No LLM or network. Two runs over one tree agree exactly, so a diff
@@ -60,6 +61,27 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "reader can tell plumbing from the pointer management a consumer "
              "of the safe API actually faces. ffimap never guesses the names.")
     p.add_argument(
+        "--regions", type=lambda v: [n for n in v.replace(",", "\n").split() if n],
+        default=None, metavar="NAMES",
+        help="Module names that are regions -- the modules a crate confines "
+             "a kind of code to, such as its unsafe FFI (`ffi_import`, "
+             "`ffi_export`). Newline- or comma-separated. The unsafe blocks are "
+             "then reported by the region they sit in, as "
+             "code.unsafe_block.of_which.region.<name>, with the rest as "
+             "outside_regions, and the unsafe fns outside every region as "
+             "fn.unsafe.of_which.outside_regions. A module is in a region when "
+             "it, or a module enclosing it, has one of these names. ffimap "
+             "never guesses the names.")
+    p.add_argument(
+        "--barriers", type=lambda v: [n for n in v.replace(",", "\n").split() if n],
+        default=None, metavar="NAMES",
+        help="Function names that are the crate's own panic barriers: helpers "
+             "that call `catch_unwind` for their caller, such as a `wrap(|| "
+             "...)`. Newline- or comma-separated. A fn with a foreign ABI that "
+             "calls one counts in fn.extern_abi.of_which.catches_unwind, as one "
+             "calling `catch_unwind` itself does. ffimap never guesses the "
+             "names.")
+    p.add_argument(
         "--ffibox", action="store_true",
         help="The crate is built on ffibox. Turns on the vocabulary's arms "
              "-- ty.field.ffibox, ty.impl.ffibox, fn.sig.of_which.ffibox -- and sanctions "
@@ -77,20 +99,52 @@ def run(workspace: Path, args: argparse.Namespace) -> int:
     """
     from ffimap import scan
     doc = scan.compose(workspace, sites=args.sites, ffibox=args.ffibox,
-                       sys_crates=args.sys_crates, seams=args.seams)
+                       sys_crates=args.sys_crates, seams=args.seams,
+                       regions=args.regions, barriers=args.barriers)
     print(json.dumps(doc, indent=2))
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="ffimap", description=DESCRIPTION)
+    p = argparse.ArgumentParser(
+        prog="ffimap", description=DESCRIPTION,
+        epilog="`ffimap diff BEFORE AFTER` compares two documents of one crate "
+               "instead of scanning; `ffimap diff --help` describes it.")
     p.add_argument("workspace", metavar="WORKSPACE",
                    help="Directory of the Cargo workspace (or package) to scan.")
     add_arguments(p)
     return p
 
 
+def build_diff_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="ffimap diff",
+        description="Compare two documents of one crate: the counters that "
+                    "moved, with their values before and after, and, where "
+                    "both documents carry sites for a counter, the files and "
+                    "lines its increments were added at or removed from. "
+                    "Prints a JSON document; scans nothing.")
+    p.add_argument("before", metavar="BEFORE", help="The earlier document.")
+    p.add_argument("after", metavar="AFTER", help="The later document.")
+    return p
+
+
+def run_diff(argv: list[str]) -> int:
+    from ffimap import diff
+    args = build_diff_parser().parse_args(argv)
+    docs = [json.loads(Path(p).read_text()) for p in (args.before, args.after)]
+    try:
+        out = diff.diff(*docs)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    print(json.dumps(out, indent=2))
+    return 0
+
+
 def main() -> None:
+    if sys.argv[1:2] == ["diff"]:
+        raise SystemExit(run_diff(sys.argv[2:]))
     args = build_parser().parse_args()
     ws = Path(args.workspace).resolve()
     if not ws.is_dir():

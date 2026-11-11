@@ -1,0 +1,7 @@
+# Named `ffibox` because the driver recognises ffibox's vocabulary by crate
+# name. The fixture's workspace excludes it, so cargo builds it as a path
+# dependency rather than a member.
+[package]
+name = "ffibox"
+version = "0.1.0"
+edition = "2021"

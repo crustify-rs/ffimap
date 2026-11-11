@@ -56,6 +56,8 @@ class RegistryTests(unittest.TestCase):
         empty = FIXTURES / "empty"
         cls.plain = flat(scan.compose(empty, seams=["from_raw"])["counts"])
         cls.ffibox = flat(scan.compose(empty, ffibox=True)["counts"])
+        cls.interop = flat(scan.compose(
+            empty, ffibox=True, regions=["ffi_import", "ffi_export"])["counts"])
 
     def test_the_registry_is_every_counter_at_zero(self) -> None:
         """A crate with nothing in it fires nothing, so every leaf reads 0.
@@ -78,6 +80,9 @@ class RegistryTests(unittest.TestCase):
             ("canary", scan.compose(FIXTURES / "canary", seams=["from_raw"],
                                     sys_crates=["canary-sys"]), self.plain),
             ("cells", scan.compose(FIXTURES / "cells", ffibox=True), self.ffibox),
+            ("interop", scan.compose(FIXTURES / "interop", ffibox=True,
+                                     regions=["ffi_import", "ffi_export"]),
+             self.interop),
         ):
             for counter, value in sorted(flat(fixture["counts"]).items()):
                 if value:
@@ -93,6 +98,8 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("ty.ffibox.wrapper.pub", self.ffibox)
         self.assertIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.plain)
         self.assertNotIn("raw_ptr.fn_sig_arg.of_which.seam.safe.pub", self.ffibox)
+        self.assertNotIn("code.unsafe_block.of_which.outside_regions", self.ffibox)
+        self.assertIn("code.unsafe_block.of_which.outside_regions", self.interop)
 
     def test_a_namespace_still_carries_no_total(self) -> None:
         """Registering zeros must not give one a derived total of 0 either."""

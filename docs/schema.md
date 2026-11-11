@@ -27,8 +27,11 @@ Across the tree, `unsafe` and `safe` are the safety of the *function* the
 position or site is in, `pub` and `priv` whether a consumer of the crate can
 reach the item, and `void` a pointer whose pointee is erased (`*c_void`). A row
 naming `ffibox`, a `<trait>` or a `<primitive>` is present only under
-`--ffibox`, and an `of_which.seam` row only with `--seams`; both are absent
-rather than zero otherwise ([2.3](#23-zero-and-absent)).
+`--ffibox`, an `of_which.seam` row only with `--seams`, and a `region` or
+`outside_regions` row only with `--regions`; each is absent rather than zero
+otherwise ([2.3](#23-zero-and-absent)). A row ends with the property it bears
+on, as [goals.md](goals.md) names them: safety, soundness, ergonomics or
+idiomaticity.
 
 ### 1.1 `raw_ptr`
 
@@ -87,6 +90,13 @@ bodies do with them.
 - `raw_ptr.casted_to.local_seam.{owner,string,borrow,slice,other}` -- converted
   through a function `--seams` named, by the seam's return type. `other` is a
   seam returning a bespoke handle.
+- `raw_ptr.surrendered.std.{owner,string}` -- the other direction: a value
+  Rust owns turned into a raw pointer by a standard-library call, such as
+  `Box::into_raw` or `CString::into_raw`, by the shape it had. What C is then
+  trusted to give back to the allocator that made it (soundness).
+- `raw_ptr.surrendered.ffibox.<shape>` -- the same through an ffibox
+  primitive's `into_raw`, `into_c` or `into_raw_parts`, by the primitive's
+  shape, as `casted_to.ffibox` reads it (soundness).
 
 ### 1.2 `ty`
 
@@ -102,6 +112,15 @@ The types the crate defines, by what they hold and what they declare about it.
   ffibox contract.
 - `ty.total.of_which.no_trait.{pub,priv}` -- the residual: types that
   implement no trait at all.
+- `ty.total.of_which.macro.{pub,priv}` -- the types a macro wrote, such as
+  `bitflags!`'s: subtract for the hand-written ones, as for `fn.total`.
+- `ty.total.of_which.{repr_c,repr_transparent}.{pub,priv}` -- the types whose
+  layout is C's (`#[repr(C)]`) or exactly another type's
+  (`#[repr(transparent)]`): the layouts the crate shares with C (soundness).
+- `ty.total.of_which.std_impl.<trait>.{pub,priv}` -- the types that implement
+  one of a fixed list of std traits a Rust consumer expects of a value, by
+  trait: `Debug`, `Display`, `Error`, `Clone`, `Default`, `PartialEq`, `Eq`,
+  `Hash`, `Iterator` and `From`, derived or written (idiomaticity).
 - `ty.storing_raw_ptr.{pub,priv}` -- types whose fields reach a raw pointer,
   within the peel set, so these are the types that manage one themselves
   rather than delegating to `Vec` or to an ffibox owner
@@ -287,6 +306,32 @@ Every function the crate defines, the methods of its trait impls included
 - `fn.unsafe.of_which.other.{pub,priv}` -- the residual: neither a trait
   impl's method nor a seam, the `unsafe` the crate chose with nothing
   requiring it.
+- `fn.unsafe.of_which.outside_regions.{pub,priv}` -- the `unsafe fn`s outside
+  every module `--regions` named: the unsafe API the crate did not confine
+  (safety).
+- `fn.extern_abi.{pub,priv}` -- the fns the crate defines with a foreign ABI
+  (`extern "C"`), which C reaches by symbol or by fn pointer (soundness).
+- `fn.extern_abi.of_which.exported.{pub,priv}` -- of those, the ones carrying a
+  C symbol name (`#[no_mangle]`, `#[export_name]`).
+- `fn.extern_abi.of_which.macro.{pub,priv}` -- the ones a macro wrote.
+- `fn.extern_abi.of_which.catches_unwind.{pub,priv}` -- the ones whose body
+  calls `std::panic::catch_unwind`, a fn `--barriers` named, or, under
+  `--ffibox`, ffibox's `callback::barrier`: a panic stopped before it unwinds
+  into C. The rest is read by subtracting (soundness).
+- `fn.extern_abi.of_which.raw_ptr_sig.{pub,priv}` -- the ones whose signature
+  holds a raw pointer.
+- `fn.extern_abi.of_which.ffibox_sig.{pub,priv}` -- the ones whose signature
+  holds an ffibox primitive, an owner or handle in place of a pointer.
+- `fn.extern_abi.of_which.ffibox_macro.{pub,priv}` -- the ones an ffibox macro
+  wrote, such as its `export_*!` lifecycle exports.
+- `fn.sig.of_which.c_type.{arg,ret}.{pub,priv}` -- mentions of C's types in
+  the signatures the crate chose, a trait impl's methods left out: C's scalar
+  names (`c_int`, `c_char`, and `libc`'s), read from the signature as written
+  since typeck erases them, and foreign-ABI fn pointers. What a consumer of a
+  Rust API handles in C's terms (ergonomics).
+- `fn.sig.of_which.result.ret.{pub,priv}` -- the fns, trait impls' methods
+  left out, that return a `Result`: failure in Rust's vocabulary rather than
+  C's status codes (idiomaticity).
 - `fn.sig.of_which.ffibox.{arg,ret}.<primitive>.{pub,priv}` -- mentions of an
   ffibox primitive in a signature, by position and by primitive, the ones
   inside a `Result`, an `Option` or a reference included
@@ -308,7 +353,18 @@ Every function the crate defines, the methods of its trait impls included
   groups of [ffibox.md](ffibox.md#1-the-vocabulary).
 - `fn.ffibox.wrapper.of_which.unique` -- the distinct C functions they name.
 
-### 1.4 `code`
+### 1.4 `static`
+
+The statics the crate defines; an `extern` block's declarations are C's.
+
+- `static.total.{pub,priv}` -- every static the crate defines. Emitted, and the
+  denominator its shares are read against.
+- `static.of_which.mut.{pub,priv}` -- the `static mut`s: shared mutable state
+  no borrow checks (soundness).
+- `static.of_which.exported.{pub,priv}` -- the ones carrying a C symbol name,
+  which C reads by that name (soundness).
+
+### 1.5 `code`
 
 The size of the crate and what its bodies do, as the denominators the rest is
 read against.
@@ -319,9 +375,15 @@ read against.
 - `code.loc.unsafe` -- of those, the lines inside an `unsafe` block, filtered
   the same way so the two are comparable.
 - `code.unsafe_block.total` -- `unsafe` blocks, however many lines each holds.
-- `code.unsafe_block.of_which.ffi_export` -- of those, the ones inside an
-  `ffi_export` gateway module, which a port campaign generates rather than
-  writes.
+- `code.unsafe_block.of_which.ffi_export` -- of those, the ones inside a fn
+  that is the C-ABI boundary: one with a foreign ABI or a C symbol name, or a
+  closure inside one ([analysis 9.7](analysis.md#97-regions-and-the-c-abi-boundary)).
+- `code.unsafe_block.of_which.region.<region>` -- the ones inside a module
+  `--regions` named, or a module nested in one, by the innermost such module's
+  name (safety).
+- `code.unsafe_block.of_which.outside_regions` -- the ones inside none, another
+  crate's macro expansions included: the unsafe the crate did not confine
+  (safety).
 - `code.unsafe_call.ffi` -- unsafe calls whose callee carries a foreign ABI:
   the real crossings, counted by the callee's type rather than by its
   declaration site, so calls through a stored function pointer are in
@@ -330,6 +392,17 @@ read against.
   own `unsafe fn`s and the standard library's unsafe constructors alike.
 - `code.unsafe_call.intrinsic` -- unsafe calls to a compiler intrinsic,
   `transmute` among them.
+- `code.fn_ptr.extern_abi.{local,foreign,other}` -- a fn with a foreign ABI
+  turned into a fn pointer, by coercion or an `as` cast: how C is handed a
+  callback. By what the fn is: one the crate defines (`local`), a C fn an
+  `extern` block declares (`foreign`), or another crate's (`other`)
+  (soundness).
+- `code.fn_ptr.extern_abi.ffibox` -- under `--ffibox`, the calls that hand C an
+  ffibox trampoline or release routine as a fn pointer (`trampoline`,
+  `release_fn`, `release_fn_of`).
+- `code.call.ffibox.{status,barrier}` -- under `--ffibox`, the calls to ffibox's
+  status conventions, which turn a C status into a `Result`, and to its panic
+  barrier. Read against `code.unsafe_call.ffi` (idiomaticity, soundness).
 - `code.tests.loc.{total,unsafe}` -- the same two line counts for the test
   code, which no other counter includes
   ([analysis 9.6](analysis.md#96-test-code)).

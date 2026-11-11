@@ -75,7 +75,7 @@ Four rules decide what the Python side does with a line.
 
 ## 5. The flags that change what is counted
 
-Two inputs change the figures and belong with any recorded scan.
+Four inputs change the figures and belong with any recorded scan.
 
 `--sys-crates` is the peel set, which decides what `ty.storing_raw_ptr` means
 (see [The peel set](#91-the-peel-set)). It is named, never
@@ -90,6 +90,14 @@ records the set it ran with in `sys_crates`.
 pointer. It is established once per campaign and recorded, so every batch's
 scan reads the same list: a list inferred per batch would make
 `casted_to.local_seam` a measure of which agent looked harder.
+
+`--barriers` names the crate's own panic barriers, the helpers a callback
+calls in place of `catch_unwind`, for the reason `--seams` names its seams.
+
+`--regions` names the modules a crate confines a kind of code to, such as its
+unsafe FFI. Which modules those are is the crate's design, not a fact the
+compiler states, so they are named, and recorded in the document's `scanner`
+like the seams; see [Regions](#97-regions-and-the-c-abi-boundary).
 
 ## 6. The cache
 
@@ -272,6 +280,28 @@ types typeck resolved, so a constructor returning `Result<Repository, Error>`,
 with `type Repository = CBox<git_repository>`, is a `CBox` mention. A method's
 receiver is not read, since its impl fixed the type.
 
+`fn.extern_abi` is every fn with a body whose signature's ABI is not Rust's;
+an `extern` block's declarations have none. `exported` reads the codegen
+attributes rustc resolved, so `#[unsafe(no_mangle)]` and `#[export_name]` are
+one fact. `catches_unwind` is a call in the fn's own body to std's
+`catch_unwind`, to a fn `--barriers` named, or under `--ffibox` to ffibox's
+`callback::barrier`, identified by the callee's definition or, for a named
+barrier, by its name. A barrier inside a helper the body calls is seen only
+where the helper is named: following the call into it would be data flow. On
+git2-rs, whose callbacks call its own `panic::wrap`, the share reads 0 of 42
+without `--barriers wrap` and 39 with it; the other three, `append`,
+`tracing_cb_c` and `smart_factory`, call no barrier at all.
+
+`fn.sig.of_which.c_type` and `fn.sig.of_which.result` leave a trait impl's
+methods out for the reason `fn_sig_trait_impl` exists: the trait chose those
+signatures, so `fmt`'s `fmt::Result` is `Display`'s. `c_type` is read off the
+signature as written, the HIR, because typeck resolves `c_int` to `i32` and
+the name, which is the fact, is gone. A path to a type alias `core::ffi` or
+`std::os::raw` declares with a `c_` name, or any alias of `libc`, is one
+mention, wherever it sits in the type, and so is a fn pointer with a foreign
+ABI. `c_void` is an enum, not an alias, and is `raw_ptr`'s through the pointer
+that holds it.
+
 ### 9.5 Types and impls
 
 `ty.impl_block` counts an inherent `impl T` and `ty.impl_trait` an
@@ -322,6 +352,16 @@ the residual -- it is the opposite, an access the type does not govern.
 parameter at once. On libgit2-bindings 199 of 374 types are generic, 195 over a
 lifetime and 5 over a type, and 23 of them hold a raw pointer.
 
+`ty.total.of_which.repr_c` and `repr_transparent` read the representation
+rustc resolved for the type. `ty.total.of_which.std_impl` reads the crate's
+trait impls whose trait is a std one of its fixed list and whose self type is
+the crate's own, derived or written; a type counts once per trait, however many
+impls it has (`From<u32>` and `From<i64>` are one `From`).
+
+`static.*` is every static item with a definition, read like a fn's
+attributes for `exported`; a static an `extern` block declares is C's and is
+not the crate's.
+
 ### 9.6 Test code
 
 `code.tests` is the test code, and every other counter is the library without
@@ -350,6 +390,24 @@ with the non-test emission. An integration test crate shares its name with no
 library, so nothing is subtracted from it, and a build script is skipped --
 under `--all-targets` it is its own crate, and it builds the crate rather than
 being part of it.
+
+### 9.7 Regions and the C-ABI boundary
+
+A body is in a region when a module enclosing it, walked out through
+closures, fns and impls, carries a name `--regions` named; the innermost such
+module names the region, so a module nested in a region is in it. The rule is
+the module tree alone: a region is wherever the crate put it.
+
+`code.unsafe_block.of_which.ffi_export` is decided differently, by the fn: a
+block is in it when its fn, or the fn a closure is in, has a foreign ABI or a
+C symbol name. It needs no input, so it stays beside the regions; the two
+agree where a crate puts its exports in a region and its region holds nothing
+else.
+
+`outside_regions` includes the blocks another crate's macro expands into the
+crate's code, std's `write!` and `format_args!` among them. They are compiled
+into the crate like any other, and they are what a lint on the crate's own
+source cannot see.
 
 ## 10. Calls
 
@@ -393,6 +451,20 @@ the real crossings still land in `ffi`.
 Intrinsics are tested with `tcx.intrinsic`, not by ABI: current rustc marks them
 `#[rustc_intrinsic]` with the Rust ABI, so an ABI test would file `transmute`
 under `rust`.
+
+### 10.3 What crosses to C
+
+`code.fn_ptr.extern_abi` is a fn item turned into a fn pointer: the
+`ReifyFnPointer` coercion typeck records on an expression, or an `as` cast to a
+fn pointer type, where the item's ABI is foreign. Its arm is read off the
+item: an `extern` block's declaration is `foreign` whichever crate declares it,
+a definition of the crate's own is `local`, any other is `other`. ffibox hands
+its trampolines out from inside ffibox, so the crate sees a call rather than a
+coercion: under `--ffibox` a call to `trampoline`, `release_fn` or
+`release_fn_of` of ffibox's is its `ffibox` arm.
+
+`code.call.ffibox` is any call, safe or not, to a fn of ffibox's `status`
+module, or to `callback::barrier`.
 
 ## 11. `raw_ptr.casted_to`
 
@@ -445,6 +517,16 @@ tables mapping to a known shape, so a nonzero reading means the name table and
 the shape classifier have drifted apart. `local_seam.other` is a real arm: a
 declared seam's shape is read from its return type, which may be a handle
 neither table knows.
+
+### 11.4 `raw_ptr.surrendered`
+
+The other direction, by the same means: a call whose callee is a std or ffibox
+definition that turns an owned value into a raw pointer, matched by owner and
+method in a table. std's is `Box::into_raw` and `into_non_null`,
+`Vec::into_raw_parts`, `Rc` and `Arc`'s `into_raw` (`owner`), and
+`CString::into_raw` and `String::into_raw_parts` (`string`). ffibox's is
+`into_raw`, `into_c` and `into_raw_parts` on any primitive, by its shape. A
+hand-rolled conversion is not seen, as for `casted_to`.
 
 ## 12. What the analysis cannot see
 

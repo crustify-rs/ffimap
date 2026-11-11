@@ -101,7 +101,8 @@ class SchemaDocTests(unittest.TestCase):
         # Every flag that registers a counter: `--sys-crates` needs only a
         # name for its inventory to be registered.
         tree = scan.compose(FIXTURES / "empty", ffibox=True,
-                            seams=["from_raw"], sys_crates=["empty-sys"])["counts"]
+                            seams=["from_raw"], sys_crates=["empty-sys"],
+                            regions=["region"])["counts"]
 
         def leaves(node: dict, path: str = ""):
             for k, v in node.items():

@@ -23,9 +23,10 @@ leaves.
              seam      CRefSeam · CMutSeam · CLockedSeam
              guard     CGuarded · CGuardedAll · LockScope
 
-<primitive>  owner     CBox · CArc · CStrBox · CVec · CVal
-             borrow    CBorrowedPtr · CSlice · CSliceMut
+<primitive>  owner     CBox · CBoxState · CArc · CStrBox · CVec · CVal
+             borrow    CBorrowedPtr · CSlice · CSliceMut · CNullTerminated
              guard     CGuardedRef · CGuard
+             callable  CClosure · CFn · CCallback · CPayload · CFnBox · CCallbackBox
 ```
 
 ## 2. The arms
@@ -59,6 +60,10 @@ fn.ffibox.sys.of_which.used
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>
 raw_ptr.casted_to.ffibox.{borrow,slice,string,owner,other}
+raw_ptr.surrendered.ffibox.{borrow,slice,string,owner}
+fn.extern_abi.of_which.{ffibox_sig,ffibox_macro}.{pub,priv}
+code.fn_ptr.extern_abi.ffibox
+code.call.ffibox.{status,barrier}
 ```
 
 ## 3. A type's role in the convention

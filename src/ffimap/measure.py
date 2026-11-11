@@ -45,11 +45,12 @@ _TOOLCHAIN = tomllib.loads(
 # driver's. The two segments checked are the ones a typo lands in.
 TREE_SITE_FAMILIES = {
     "raw_ptr": ("fn_sig_arg", "fn_sig_ret", "fn_sig_trait_impl", "field",
-                "total", "deref", "casted_to"),
+                "total", "deref", "casted_to", "surrendered"),
     "ty": ("storing_raw_ptr", "field", "impl_block", "impl_trait", "generic",
            "ffibox", "wrapping_unsafe_cell", "total"),
-    "fn": ("safe", "unsafe", "sig", "ffibox", "total"),
-    "code": ("loc", "tests", "unsafe_block", "unsafe_call"),
+    "fn": ("safe", "unsafe", "sig", "ffibox", "total", "extern_abi"),
+    "static": ("total", "of_which"),
+    "code": ("loc", "tests", "unsafe_block", "unsafe_call", "call", "fn_ptr"),
 }
 
 
@@ -231,7 +232,7 @@ def _collect_emissions(stdout: str, sys: set[str] | frozenset = frozenset()
 # The prefixes, in the order docs/schema.md lists them. Separate from the
 # table below because `fn` is a prefix AND a child of `code.tests`, where it
 # belongs after the lines rather than first.
-PREFIX_ORDER = ("raw_ptr", "ty", "fn", "code")
+PREFIX_ORDER = ("raw_ptr", "ty", "fn", "static", "code")
 
 KEY_ORDER = (
     # the record's own quantity
@@ -241,17 +242,18 @@ KEY_ORDER = (
     # raw_ptr's families: the positions a signature declares, then a type's
     # fields, then what bodies do
     "fn_sig_arg", "fn_sig_ret", "fn_sig_trait_impl",
-    "field", "deref", "rd", "wr", "casted_to",
+    "field", "deref", "rd", "wr", "casted_to", "surrendered",
     # the same two positions under `fn.sig`, where the `fn.` prefix already
     # says the position is a signature's
     "arg", "ret",
     # ty's
     "storing_raw_ptr", "wrapping_unsafe_cell", "impl_block", "impl_trait",
     "generic",
-    # fn's: what a signature carries, beside the safe/unsafe partition
-    "sig",
+    # fn's: what a signature carries, beside the safe/unsafe partition, then
+    # the fns C reaches
+    "sig", "extern_abi",
     # code's
-    "loc", "unsafe_block", "unsafe_call", "tests",
+    "loc", "unsafe_block", "unsafe_call", "call", "fn_ptr", "tests",
     # the shares a position or a type carries
     "void", "in_trait_impl", "seam", "with_unsafe", "macro",
     "no_trait", "std_trait", "local_trait", "ffibox_trait",
@@ -259,6 +261,12 @@ KEY_ORDER = (
     "impl_drop", "impl_clone", "impl_deref", "impl_deref_mut",
     "impl_send_sync", "has_lifetime", "pub_field", "none",
     "derived", "drop", "clone", "send", "sync", "ref_forming",
+    # the regions `--regions` names, and what lies outside them
+    "region", "outside_regions",
+    # what crosses to C: how a fn is reached, what guards it, what it carries
+    "exported", "catches_unwind", "raw_ptr_sig", "ffibox_sig", "ffibox_macro",
+    "mut", "repr_c", "repr_transparent", "std_impl", "c_type", "result",
+    "status", "barrier", "local", "foreign",
     # the shapes a pointer is adopted into, and the arms that adopt it
     "owner", "string", "borrow", "slice", "other",
     "std", "local", "local_seam",
@@ -435,7 +443,9 @@ def _bust_cache(ws: Path) -> None:
 
 
 def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
-            seams: list[str] | None = None) -> tuple[dict, dict]:
+            seams: list[str] | None = None,
+            regions: list[str] | None = None,
+            barriers: list[str] | None = None) -> tuple[dict, dict]:
     """Return ``(sites per counter, the counter tree)`` for ``ws``.
 
     ``ffibox`` asserts the crate is built on ffibox, which turns on the
@@ -460,6 +470,8 @@ def measure(ws: Path, ffibox: bool = False, sys: list[str] | None = None,
         env["UM_FFIBOX"] = "1"
     env["UM_SYS_CRATES"] = ",".join(sys or ())
     env["UM_SEAM_FNS"] = ",".join(seams or ())
+    env["UM_REGIONS"] = ",".join(regions or ())
+    env["UM_BARRIERS"] = ",".join(barriers or ())
 
     # `check`, not `build`: the driver reports from `after_analysis`, so HIR
     # and typeck are all it needs, and `--emit=metadata` does not LINK. A

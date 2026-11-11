@@ -42,7 +42,9 @@ def site_counters(requested: list[str]) -> list[str]:
 
 def compose(workspace: Path, sites: list[str] | None = None,
             ffibox: bool = False, sys_crates: list[str] | None = None,
-            seams: list[str] | None = None) -> dict:
+            seams: list[str] | None = None,
+            regions: list[str] | None = None,
+            barriers: list[str] | None = None) -> dict:
     """Scan the workspace and return the metrics document.
 
     ``sites`` names counters whose source locations to report, as a ``sites``
@@ -56,6 +58,10 @@ def compose(workspace: Path, sites: list[str] | None = None,
     set is recorded in ``sys_crates``. ``seams`` names the
     functions that only convert between a wrapper and its raw pointer; they
     are reported as the ``of_which.seam`` share of each fn-signature counter.
+    ``regions`` names the modules the crate confines a kind of code to; the
+    unsafe blocks and fns are reported by the region they sit in.
+    ``barriers`` names the crate's own panic barriers, which a fn with a
+    foreign ABI calls in place of `catch_unwind`.
     """
     wanted = site_counters(sites) if sites else None
     sys = measure.sys_crates(sys_crates)
@@ -66,12 +72,15 @@ def compose(workspace: Path, sites: list[str] | None = None,
         "crate_path": str(workspace),
         "sys_crates": sys,
         "scanner": {**measure.scanner(), "ffibox": ffibox,
-                    "seams": sorted(seams or ())},
+                    "seams": sorted(seams or ()),
+                    "regions": sorted(regions or ()),
+                    "barriers": sorted(barriers or ())},
     }
     all_sites: dict = {}
     try:
         all_sites, counts = measure.measure(
-            workspace, ffibox=ffibox, sys=sys, seams=seams)
+            workspace, ffibox=ffibox, sys=sys, seams=seams, regions=regions,
+            barriers=barriers)
         doc["counts"] = counts
         doc["counts_unavailable"] = None
     except measure.DriverUnavailable as e:

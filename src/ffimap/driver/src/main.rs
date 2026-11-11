@@ -198,6 +198,129 @@ fn is_seam_fn(tcx: TyCtxt<'_>, did: DefId) -> bool {
         && tcx.opt_item_name(did).is_some_and(|n| seam_fns().contains(n.as_str()))
 }
 
+/// The module names `--regions` declared: `UM_REGIONS`, comma-separated, set
+/// by `ffimap`. A region is a module the crate confines a kind of code to, such
+/// as its unsafe FFI; the driver never guesses the names, so an unset variable
+/// means no region counter is registered and every other one reads as before.
+fn regions() -> &'static HashSet<String> {
+    static REGIONS: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
+    REGIONS.get_or_init(|| {
+        std::env::var("UM_REGIONS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(String::from)
+            .collect()
+    })
+}
+
+/// The fn names `--barriers` declared: the crate's own panic barriers, which
+/// call `catch_unwind` on the caller's behalf: `UM_BARRIERS`, comma-separated,
+/// set by `ffimap`. Seeing a barrier through a helper would be data flow, so the
+/// helper is named instead, as a seam is.
+fn barrier_fns() -> &'static HashSet<String> {
+    static BARRIERS: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
+    BARRIERS.get_or_init(|| {
+        std::env::var("UM_BARRIERS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(String::from)
+            .collect()
+    })
+}
+
+/// The region `did` sits in: the innermost module enclosing it whose name
+/// `--regions` declared, walked out through closures, fns and impls. `None`
+/// outside every region, and always without `--regions`.
+fn region_of(tcx: TyCtxt<'_>, did: DefId) -> Option<String> {
+    if regions().is_empty() {
+        return None;
+    }
+    let mut cur = did;
+    while let Some(p) = tcx.opt_parent(cur) {
+        if matches!(tcx.def_kind(p), DefKind::Mod) {
+            if let Some(n) = tcx.opt_item_name(p) {
+                if regions().contains(n.as_str()) {
+                    return Some(n.to_string());
+                }
+            }
+        }
+        cur = p;
+    }
+    None
+}
+
+/// The std conversions INTO a raw pointer, by (owner, method), with the shape
+/// the value had: what Rust hands over, the counterpart of `std_conversion`.
+/// Gated on the callee's crate being `core`, `alloc` or `std`.
+fn std_surrender(owner: &str, method: &str) -> Option<&'static str> {
+    Some(match (owner, method) {
+        ("Box", "into_raw" | "into_non_null") => "owner",
+        ("Vec", "into_raw_parts") => "owner",
+        ("Rc" | "Arc", "into_raw") => "owner",
+        ("CString", "into_raw") => "string",
+        ("String", "into_raw_parts") => "string",
+        _ => return None,
+    })
+}
+
+/// The methods by which an ffibox primitive hands its pointer to C.
+const FFIBOX_SURRENDERERS: &[&str] = &["into_raw", "into_c", "into_raw_parts"];
+
+/// The std traits whose impls on a crate's own types are counted one by one,
+/// as `ty.total.of_which.std_impl.<trait>`: the ones a Rust consumer expects of
+/// a value, which C's conventions have no counterpart for. A fixed list, so
+/// the breakdown is a closed set the registry carries.
+const STD_IDIOM_TRAITS: &[&str] = &[
+    "Debug", "Display", "Error", "Clone", "Default", "PartialEq", "Eq", "Hash",
+    "Iterator", "From",
+];
+
+/// True when `did` is one of C's scalar type names: an alias `core::ffi`,
+/// `std::os::raw` or `libc` declares for a C type (`c_int`, `c_char`,
+/// `size_t`). An alias is erased by typeck, so this is read off the HIR path
+/// a signature spells, the one place the name survives.
+fn is_c_type_alias(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    if !matches!(tcx.def_kind(did), DefKind::TyAlias) {
+        return false;
+    }
+    match tcx.crate_name(did.krate).as_str() {
+        "core" | "std" => tcx.opt_item_name(did).is_some_and(|n| n.as_str().starts_with("c_")),
+        "libc" => true,
+        _ => false,
+    }
+}
+
+/// The C type names a HIR type spells, and the foreign-ABI fn pointers it
+/// holds, counted once each: the mentions `fn.sig.of_which.c_type` counts.
+struct CTypeMentions<'tcx> {
+    tcx: TyCtxt<'tcx>,
+    n: u64,
+}
+
+impl<'tcx> Visitor<'tcx> for CTypeMentions<'tcx> {
+    fn visit_path(&mut self, path: &hir::Path<'tcx>, _id: hir::HirId) {
+        if let Res::Def(_, did) = path.res {
+            if is_c_type_alias(self.tcx, did) {
+                self.n += 1;
+            }
+        }
+        intravisit::walk_path(self, path);
+    }
+
+    fn visit_ty(&mut self, t: &'tcx hir::Ty<'tcx, hir::AmbigArg>) {
+        if let hir::TyKind::FnPtr(f) = t.kind {
+            if f.abi != ExternAbi::Rust {
+                self.n += 1;
+            }
+        }
+        intravisit::walk_ty(self, t);
+    }
+}
+
 fn is_std_crate(tcx: TyCtxt<'_>, did: DefId) -> bool {
     matches!(tcx.crate_name(did.krate).as_str(), "core" | "alloc" | "std")
 }
@@ -340,6 +463,59 @@ fn register_counters(ptr: &mut PtrTally) {
     }
     for arm in ["ffi", "rust", "intrinsic"] {
         at(format!("code.unsafe_call.{arm}"));
+    }
+    // Where the unsafe blocks and fns sit, by the regions `--regions` named.
+    if !regions().is_empty() {
+        for r in regions() {
+            at(format!("code.unsafe_block.of_which.region.{r}"));
+        }
+        at("code.unsafe_block.of_which.outside_regions".to_string());
+        for vis in VIS {
+            at(format!("fn.unsafe.of_which.outside_regions.{vis}"));
+        }
+    }
+    // The Rust fns C calls, by function pointer or by symbol.
+    for arm in ["local", "foreign", "other"] {
+        at(format!("code.fn_ptr.extern_abi.{arm}"));
+    }
+    if is_ffibox() {
+        at("code.fn_ptr.extern_abi.ffibox".to_string());
+        for arm in ["status", "barrier"] {
+            at(format!("code.call.ffibox.{arm}"));
+        }
+    }
+    for shape in ["owner", "string"] {
+        at(format!("raw_ptr.surrendered.std.{shape}"));
+    }
+    if is_ffibox() {
+        for (_, shape) in FFIBOX_PRIMITIVES {
+            at(format!("raw_ptr.surrendered.ffibox.{shape}"));
+        }
+    }
+    for vis in VIS {
+        at(format!("fn.extern_abi.{vis}"));
+        for share in ["exported", "macro", "catches_unwind", "raw_ptr_sig"] {
+            at(format!("fn.extern_abi.of_which.{share}.{vis}"));
+        }
+        if is_ffibox() {
+            for share in ["ffibox_sig", "ffibox_macro"] {
+                at(format!("fn.extern_abi.of_which.{share}.{vis}"));
+            }
+        }
+        at(format!("static.total.{vis}"));
+        for share in ["mut", "exported"] {
+            at(format!("static.of_which.{share}.{vis}"));
+        }
+        for share in ["repr_c", "repr_transparent", "macro"] {
+            at(format!("ty.total.of_which.{share}.{vis}"));
+        }
+        for tr in STD_IDIOM_TRAITS {
+            at(format!("ty.total.of_which.std_impl.{tr}.{vis}"));
+        }
+        for pos in ["arg", "ret"] {
+            at(format!("fn.sig.of_which.c_type.{pos}.{vis}"));
+        }
+        at(format!("fn.sig.of_which.result.ret.{vis}"));
     }
 
     // raw_ptr: the positions, their shares, and the denominator.
@@ -883,12 +1059,113 @@ struct BodyVisitor<'a, 'tcx> {
     typeck: &'tcx TypeckResults<'tcx>,
     depth: u32,       // unsafe-block nesting depth
     in_ffi: bool,     // this body IS / is inside the C-ABI boundary
+    region: Option<String>, // the `--regions` region the body sits in
+    catches_unwind: bool,   // the body calls `catch_unwind` or ffibox's `barrier`
     c: &'a mut Counts,
     ptr: &'a mut PtrTally,
     sites: &'a mut Sites,
 }
 
 impl<'a, 'tcx> BodyVisitor<'a, 'tcx> {
+    /// The fn a call expression calls, when it names one: a path call or a
+    /// method call. A call through a fn pointer names none.
+    fn callee_def(&self, e: &'tcx hir::Expr<'tcx>) -> Option<DefId> {
+        match e.kind {
+            hir::ExprKind::Call(f, _) => {
+                let hir::ExprKind::Path(ref qp) = f.kind else { return None };
+                match self.typeck.qpath_res(qp, f.hir_id) {
+                    Res::Def(_, did) => Some(did),
+                    _ => None,
+                }
+            }
+            hir::ExprKind::MethodCall(..) => self.typeck.type_dependent_def_id(e.hir_id),
+            _ => None,
+        }
+    }
+
+    fn bump(&mut self, k: String, span: Span) {
+        *self.ptr.entry(k.clone()).or_default() += 1;
+        self.sites.add(k, counter_site(self.tcx, span));
+    }
+
+    /// What a call hands to C, or arranges for C: `raw_ptr.surrendered`, the
+    /// calls that turn a value Rust owns into a raw pointer; the panic
+    /// barriers `fn.extern_abi.of_which.catches_unwind` reads; and, under
+    /// `--ffibox`, the convention's status and barrier calls and the
+    /// trampolines it hands C as fn pointers. Each is recognised by the
+    /// callee's identity, never by its type.
+    fn count_outbound_call(&mut self, e: &'tcx hir::Expr<'tcx>) {
+        let Some(did) = self.callee_def(e) else { return };
+        let name = self.tcx.item_name(did);
+        let name = name.as_str();
+        if barrier_fns().contains(name) {
+            self.catches_unwind = true;
+        }
+        if is_std_crate(self.tcx, did) {
+            if name == "catch_unwind" {
+                self.catches_unwind = true;
+            }
+            let owners = callee_owners(self.tcx, did);
+            if let Some(shape) = owners.iter().find_map(|o| std_surrender(o, name)) {
+                self.bump(format!("raw_ptr.surrendered.std.{shape}"), e.span);
+            }
+            return;
+        }
+        if !(is_ffibox() && is_ffibox_crate(self.tcx, did)) {
+            return;
+        }
+        let owners = callee_owners(self.tcx, did);
+        if name == "barrier" && owners.iter().any(|o| o == "callback") {
+            self.catches_unwind = true;
+            self.bump("code.call.ffibox.barrier".to_string(), e.span);
+        } else if owners.iter().any(|o| o == "status") {
+            self.bump("code.call.ffibox.status".to_string(), e.span);
+        }
+        if matches!(name, "trampoline" | "release_fn" | "release_fn_of") {
+            self.bump("code.fn_ptr.extern_abi.ffibox".to_string(), e.span);
+        }
+        if FFIBOX_SURRENDERERS.contains(&name) {
+            if let Some(shape) = owners
+                .iter()
+                .find_map(|o| FFIBOX_PRIMITIVES.iter().find(|(p, _)| p == o))
+                .map(|(_, shape)| *shape)
+            {
+                self.bump(format!("raw_ptr.surrendered.ffibox.{shape}"), e.span);
+            }
+        }
+    }
+
+    /// `code.fn_ptr.extern_abi`: a fn with a foreign ABI turned into a fn
+    /// pointer, by coercion or by an `as` cast, which is how C is handed a
+    /// callback. By what the fn is: one the crate defines (`local`), a C fn an
+    /// `extern` block declares, handed back to C (`foreign`), or another
+    /// crate's Rust fn (`other`). ffibox's trampolines are handed out by a
+    /// call instead, which `count_outbound_call` counts.
+    fn count_fn_ptr(&mut self, e: &'tcx hir::Expr<'tcx>) {
+        use rustc_middle::ty::adjustment::{Adjust, PointerCoercion};
+        let reified = self.typeck.expr_adjustments(e).iter().any(|a| {
+            matches!(a.kind, Adjust::Pointer(PointerCoercion::ReifyFnPointer { .. }))
+        }) || matches!(self.tcx.parent_hir_node(e.hir_id),
+                hir::Node::Expr(p) if matches!(p.kind, hir::ExprKind::Cast(inner, _)
+                    if inner.hir_id == e.hir_id)
+                    && self.typeck.expr_ty(p).is_fn_ptr());
+        if !reified {
+            return;
+        }
+        let ty::TyKind::FnDef(did, _) = self.typeck.expr_ty(e).kind() else { return };
+        if self.tcx.fn_sig(*did).skip_binder().skip_binder().abi() == ExternAbi::Rust {
+            return;
+        }
+        let arm = if self.tcx.is_foreign_item(*did) {
+            "foreign"
+        } else if did.is_local() {
+            "local"
+        } else {
+            "other"
+        };
+        self.bump(format!("code.fn_ptr.extern_abi.{arm}"), e.span);
+    }
+
     /// `raw_ptr.casted_to`: a Rust value constructed from a raw pointer, by
     /// whose vocabulary did it and what shape the pointer took.
     ///
@@ -1068,6 +1345,8 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
     fn visit_expr(&mut self, e: &'tcx hir::Expr<'tcx>) {
         self.count_casted_to(e);
         self.count_unsafe_call(e);
+        self.count_outbound_call(e);
+        self.count_fn_ptr(e);
         match e.kind {
             // `unsafe { ... }`
             hir::ExprKind::Block(b, _)
@@ -1079,6 +1358,13 @@ impl<'a, 'tcx> Visitor<'tcx> for BodyVisitor<'a, 'tcx> {
                     self.c.unsafe_blocks_ffi_export += 1;
                     self.sites.add("code.unsafe_block.of_which.ffi_export",
                         counter_site(self.tcx, e.span));
+                }
+                if !regions().is_empty() {
+                    let k = match &self.region {
+                        Some(r) => format!("code.unsafe_block.of_which.region.{r}"),
+                        None => "code.unsafe_block.of_which.outside_regions".to_string(),
+                    };
+                    self.bump(k, e.span);
                 }
                 // Line metrics: outermost blocks only (nested ones would
                 // double-count). EVERY outermost block counts, macro-expanded
@@ -1328,10 +1614,16 @@ const FFIBOX_TRAITS: &[(&str, &str)] = &[
 /// one. The shape names are `raw_ptr.casted_to`'s, so one list serves the
 /// conversion table, `ty.field.ffibox` and `fn.sig.of_which.ffibox`.
 const FFIBOX_PRIMITIVES: &[(&str, &str)] = &[
-    ("CBox", "owner"), ("CArc", "owner"), ("CVec", "owner"), ("CVal", "owner"),
+    ("CBox", "owner"), ("CBoxState", "owner"), ("CArc", "owner"), ("CVec", "owner"),
+    ("CVal", "owner"),
     ("CStrBox", "string"),
     ("CBorrowedPtr", "borrow"), ("CSlice", "slice"), ("CSliceMut", "slice"),
+    ("CNullTerminated", "slice"),
     ("CGuardedRef", "borrow"), ("CGuard", "borrow"),
+    // The callables: a Rust closure behind a C fn pointer, or a C fn with its
+    // context, held for a call (`borrow`) or until released (`owner`).
+    ("CClosure", "borrow"), ("CFn", "borrow"), ("CCallback", "borrow"),
+    ("CPayload", "owner"), ("CFnBox", "owner"), ("CCallbackBox", "owner"),
 ];
 
 /// The methods that adopt a raw pointer into an ffibox primitive.
@@ -2218,6 +2510,26 @@ impl Callbacks for MetricsCallbacks {
         // trait never reaches it.
         // The types that store a raw pointer, by what they declare about it.
         let facts = ptr_holder_traits(tcx);
+        // Which of `STD_IDIOM_TRAITS` each of the crate's own types implements,
+        // derived or written, read off the crate's trait impls.
+        let mut std_impls: HashMap<DefId, HashSet<&'static str>> = HashMap::new();
+        for ld in tcx.hir_crate_items(()).definitions() {
+            let imp = ld.to_def_id();
+            if !matches!(tcx.def_kind(imp), DefKind::Impl { of_trait: true }) {
+                continue;
+            }
+            let tr = tcx.impl_trait_ref(imp).skip_binder().def_id;
+            if !is_std_crate(tcx, tr) {
+                continue;
+            }
+            let n = tcx.item_name(tr);
+            let Some(name) = STD_IDIOM_TRAITS.iter().find(|t| **t == n.as_str()) else { continue };
+            if let ty::TyKind::Adt(d, _) = tcx.type_of(imp).instantiate_identity().skip_norm_wip().kind() {
+                if d.did().is_local() {
+                    std_impls.entry(d.did()).or_default().insert(*name);
+                }
+            }
+        }
         for ld in tcx.hir_crate_items(()).definitions() {
             let did = ld.to_def_id();
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
@@ -2227,6 +2539,27 @@ impl Callbacks for MetricsCallbacks {
                     .is_some_and(|l| tcx.effective_visibilities(()).is_exported(l))
                 { "pub" } else { "priv" };
                 tree_bump(&mut ptr, &mut sites, tcx, did, &format!("ty.total.{vis}"));
+                // A layout the crate defines for C to read, or one that is
+                // another type's exactly: what a port exposes to C.
+                let repr = tcx.adt_def(did).repr();
+                for (yes, share) in [
+                    (repr.c(), "repr_c"),
+                    (repr.transparent(), "repr_transparent"),
+                    (tcx.def_span(did).from_expansion(), "macro"),
+                ] {
+                    if yes {
+                        tree_bump(&mut ptr, &mut sites, tcx, did,
+                                  &format!("ty.total.of_which.{share}.{vis}"));
+                    }
+                }
+                if let Some(trs) = std_impls.get(&did) {
+                    for tr in STD_IDIOM_TRAITS {
+                        if trs.contains(tr) {
+                            tree_bump(&mut ptr, &mut sites, tcx, did,
+                                      &format!("ty.total.of_which.std_impl.{tr}.{vis}"));
+                        }
+                    }
+                }
                 // `UnsafeCell` is the one way to hold a value C may write
                 // while Rust holds a shared reference to it.
                 if holds_unsafe_cell(tcx, did) {
@@ -2387,6 +2720,26 @@ impl Callbacks for MetricsCallbacks {
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union) {
                 count_ptr_fields(tcx, did, &mut ptr, &mut sites);
             }
+            // The statics the crate defines, a foreign block's declarations
+            // excluded: a `static mut` is shared mutable state no borrow
+            // checks, and an exported one is a global C reads by symbol.
+            if let DefKind::Static { mutability, .. } = tcx.def_kind(did) {
+                if !tcx.is_foreign_item(did) && !in_generated_file(tcx, tcx.def_span(did)) {
+                    let vis = if did.as_local()
+                        .is_some_and(|l| tcx.effective_visibilities(()).is_exported(l))
+                    { "pub" } else { "priv" };
+                    tree_bump(&mut ptr, &mut sites, tcx, did, &format!("static.total.{vis}"));
+                    let attrs = tcx.codegen_fn_attrs(did);
+                    let exported = attrs.flags.contains(CodegenFnAttrFlags::NO_MANGLE)
+                        || attrs.symbol_name.is_some();
+                    for (yes, share) in [(mutability.is_mut(), "mut"), (exported, "exported")] {
+                        if yes {
+                            tree_bump(&mut ptr, &mut sites, tcx, did,
+                                      &format!("static.of_which.{share}.{vis}"));
+                        }
+                    }
+                }
+            }
             match tcx.def_kind(did) {
                 // An inherent `impl T`: the crate's own API on its own type,
                 // as opposed to satisfying someone's trait. Under `--ffibox`
@@ -2503,7 +2856,8 @@ impl Callbacks for MetricsCallbacks {
             let in_ffi = in_ffi_export(tcx, did);
             let exported = did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
             let blocks_before = c.unsafe_blocks;
-            {
+            let region = region_of(tcx, did);
+            let catches_unwind = {
                 let typeck = tcx.typeck(owner);
                 let body = tcx.hir_body_owned_by(owner);
                 let mut v = BodyVisitor {
@@ -2512,11 +2866,14 @@ impl Callbacks for MetricsCallbacks {
                     typeck,
                     depth: 0,
                     in_ffi,
+                    region: region.clone(),
+                    catches_unwind: false,
                     c: &mut c,
                     sites: &mut sites,
                 };
                 v.visit_body(body);
-            }
+                v.catches_unwind
+            };
             let body_had_unsafe = c.unsafe_blocks > blocks_before;
             // Signature analysis (fns only).
             if matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn) {
@@ -2594,6 +2951,10 @@ impl Callbacks for MetricsCallbacks {
                         }
                         if tr.is_none() && !seam {
                             bump(&mut ptr, &mut sites, format!("fn.unsafe.of_which.other.{vis}"));
+                        }
+                        if !regions().is_empty() && region.is_none() {
+                            bump(&mut ptr, &mut sites,
+                                 format!("fn.unsafe.of_which.outside_regions.{vis}"));
                         }
                     }
 
@@ -2753,6 +3114,90 @@ impl Callbacks for MetricsCallbacks {
                                         }
                                     }
                                 });
+                            }
+                        }
+                    }
+
+                    // C's scalar names and foreign-ABI fn pointers in the
+                    // signature as written, the receiver skipped as above: a
+                    // consumer of a Rust API handling C's types. Read off the
+                    // HIR, since typeck erases `c_int` to `i32`. A trait
+                    // impl's method is left out, as for the raw pointer
+                    // positions: its trait chose the signature.
+                    let decl = if in_trait_impl {
+                        None
+                    } else {
+                        tcx.hir_node_by_def_id(owner).fn_decl()
+                    };
+                    if let Some(decl) = decl {
+                        let receiver = decl.implicit_self().has_implicit_self();
+                        let args = &decl.inputs[usize::from(receiver)..];
+                        let mut m = CTypeMentions { tcx, n: 0 };
+                        for t in args {
+                            m.visit_ty_unambig(t);
+                        }
+                        for _ in 0..m.n {
+                            bump(&mut ptr, &mut sites, format!("fn.sig.of_which.c_type.arg.{vis}"));
+                        }
+                        let mut m = CTypeMentions { tcx, n: 0 };
+                        if let hir::FnRetTy::Return(t) = decl.output {
+                            m.visit_ty_unambig(t);
+                        }
+                        for _ in 0..m.n {
+                            bump(&mut ptr, &mut sites, format!("fn.sig.of_which.c_type.ret.{vis}"));
+                        }
+                    }
+                    // A `Result` returned: failure reported in Rust's own
+                    // vocabulary rather than C's status codes.
+                    if let ty::TyKind::Adt(d, _) = sig.output().kind().clone() {
+                        if !in_trait_impl
+                            && is_std_crate(tcx, d.did())
+                            && tcx.item_name(d.did()).as_str() == "Result"
+                        {
+                            bump(&mut ptr, &mut sites, format!("fn.sig.of_which.result.ret.{vis}"));
+                        }
+                    }
+
+                    // A fn with a foreign ABI the crate defines: C reaches it
+                    // by symbol or by fn pointer. Its shares say what guards
+                    // the crossing: whether its body catches a panic before it
+                    // unwinds into C, and what its signature hands across.
+                    if sig.abi() != ExternAbi::Rust {
+                        bump(&mut ptr, &mut sites, format!("fn.extern_abi.{vis}"));
+                        let attrs = tcx.codegen_fn_attrs(did);
+                        let shares = [
+                            (attrs.flags.contains(CodegenFnAttrFlags::NO_MANGLE)
+                                || attrs.symbol_name.is_some(), "exported"),
+                            (tcx.def_span(did).from_expansion(), "macro"),
+                            (catches_unwind, "catches_unwind"),
+                            (sig.inputs().iter().chain([sig.output()].iter()).any(|t| {
+                                let mut ps = Vec::new();
+                                raw_pointees(tcx, *t, &mut ps);
+                                !ps.is_empty()
+                            }), "raw_ptr_sig"),
+                        ];
+                        for (yes, share) in shares {
+                            if yes {
+                                bump(&mut ptr, &mut sites,
+                                     format!("fn.extern_abi.of_which.{share}.{vis}"));
+                            }
+                        }
+                        if is_ffibox() {
+                            let mut held = false;
+                            for t in sig.inputs().iter().chain([sig.output()].iter()) {
+                                walk_held(tcx, *t, &mut |t| {
+                                    if let ty::TyKind::Adt(d, _) = t.kind() {
+                                        held |= ffibox_primitive(tcx, d.did()).is_some();
+                                    }
+                                });
+                            }
+                            if held {
+                                bump(&mut ptr, &mut sites,
+                                     format!("fn.extern_abi.of_which.ffibox_sig.{vis}"));
+                            }
+                            if from_ffibox_macro(tcx, tcx.def_span(did)) {
+                                bump(&mut ptr, &mut sites,
+                                     format!("fn.extern_abi.of_which.ffibox_macro.{vis}"));
                             }
                         }
                     }
