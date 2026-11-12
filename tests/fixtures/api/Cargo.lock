@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "apifix"
 version = "0.1.0"
+dependencies = [
+ "ffibox",
+]
+
+[[package]]
+name = "ffibox"
+version = "0.1.0"

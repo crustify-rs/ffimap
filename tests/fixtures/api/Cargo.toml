@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[dependencies]
+ffibox = { path = "ffibox-stub" }
+
 [workspace]
+exclude = ["ffibox-stub"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(after)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(after)", "cfg(drop_getter)"] }

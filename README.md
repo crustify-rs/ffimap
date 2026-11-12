@@ -56,8 +56,9 @@ ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]]
                  [--seams NAMES] [--regions NAMES] [--barriers NAMES]
                  [--sites COUNTER ...]
 ffimap diff BEFORE AFTER
-ffimap api extract RUSTDOC_JSON
-ffimap api diff BEFORE AFTER [--items KEYS] [--format json|text]
+ffimap api extract RUSTDOC_JSON [--dep RUSTDOC_JSON ...] [--plumbing CRATES]
+ffimap api diff BEFORE AFTER [--dep RUSTDOC_JSON ...] [--items KEYS] [--raw]
+                [--format json|text]
 ```
 
 | Option | Effect |
@@ -80,14 +81,17 @@ move with the scanner as well as with the crate.
 driver: did a C item's Rust API survive the landing that wrapped, ported or
 migrated it? `extract` records, per C item named by a crustify anchor
 (``/// Wraps `fn::git_x` ``), the public signatures and trait impls of the Rust
-items standing in for it and of its handles and owners; `diff` labels each item
-`kept`, `extended`, `changed`, `removed` or `new` between two landings, and
-flags a `Wraps` that became `Replaces`. `--items` narrows it to a worklist.
+items standing in for it and of its handles and owners, and the contract a
+consumer may rely on whatever form a handle takes; `diff` labels each item
+`kept`, `extended`, `changed`, `removed` or `new` between two landings by that
+contract (`--raw` by the signatures as they stand), and flags a `Wraps` that
+became `Replaces`. `--dep` adds ffibox's rustdoc JSON so owners that alias its
+types resolve; `--items` narrows it to a worklist.
 
 ```sh
 cargo +nightly-2026-10-07 rustdoc -p libgit2 --lib -- -Z unstable-options --output-format json
-ffimap api extract target/doc/libgit2.json > first.json
-ffimap api diff first.json later/target/doc/libgit2.json --format text
+ffimap api extract target/doc/libgit2.json --dep ffibox.json > first.json
+ffimap api diff first.json later.json --format text
 ```
 
 ## Output

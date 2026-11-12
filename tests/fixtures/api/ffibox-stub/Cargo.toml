@@ -1,0 +1,10 @@
+# Named `ffibox` because `ffimap api` treats ffibox's wrappers and traits as
+# plumbing by crate name. A workspace of its own, so its rustdoc JSON is made
+# from its own manifest.
+[package]
+name = "ffibox"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]

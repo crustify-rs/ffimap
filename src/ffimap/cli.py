@@ -5,7 +5,7 @@
                      [--sites COUNTER ...]
     ffimap diff BEFORE AFTER
     ffimap api extract RUSTDOC_JSON
-    ffimap api diff BEFORE AFTER [--items KEYS] [--format json|text]
+    ffimap api diff BEFORE AFTER [--items KEYS] [--raw] [--format json|text]
 
 Deterministic: a rustc HIR/typeck pass over the crate's FFI and unsafe
 surface. No LLM or network. Two runs over one tree agree exactly, so a diff
@@ -178,6 +178,8 @@ def build_api_parser() -> argparse.ArgumentParser:
                     "tied to them, the public surface no anchor reaches, the "
                     "anchors that do not parse, and coverage counts.")
     ex.add_argument("doc", metavar="RUSTDOC_JSON")
+    for sp in (ex,):
+        _dep_args(sp)
     df = sub.add_parser(
         "diff", help="Classify each C item between two documents.",
         description="Classify each C item as kept, extended, changed, removed "
@@ -192,6 +194,13 @@ def build_api_parser() -> argparse.ArgumentParser:
              "batch's worklist. Newline-, comma- or space-separated, so "
              "`--items \"$(cat worklist)\"` works. Keys found in neither "
              "document are listed under `missing`.")
+    _dep_args(df)
+    df.add_argument(
+        "--raw", action="store_true",
+        help="Decide each status from the raw records, the stand-ins' and "
+             "associated items' signatures as they stand, instead of the "
+             "contract view, under which a handle or owner that changes form "
+             "but keeps what a consumer may rely on is kept.")
     df.add_argument(
         "--format", choices=("json", "text"), default="json",
         help="json (the default) prints the whole classification; text prints "
@@ -206,15 +215,33 @@ def _read_json(path: str) -> dict:
         raise ValueError(f"{path} is not JSON: {e}") from None
 
 
+def _dep_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--dep", action="append", default=[], metavar="RUSTDOC_JSON",
+        help="The rustdoc JSON of a crate the measured one depends on, such as "
+             "ffibox's, so that the methods and trait impls its handles and "
+             "owners inherit from that crate's types are resolved. Repeatable. "
+             "Without it a contract that needs them is reported unresolved and "
+             "compared on its raw record.")
+    p.add_argument(
+        "--plumbing", type=_names, default=["ffibox"], metavar="CRATES",
+        help="Crates whose wrapper types and traits are plumbing, not API: "
+             "a form inherits only their reborrows and dereferences, and "
+             "their traits are no part of a contract. Default: ffibox.")
+
+
 def run_api(argv: list[str]) -> int:
     from ffimap import api, rustdoc
     args = build_api_parser().parse_args(argv)
     try:
+        deps = [rustdoc.load(d) for d in args.dep]
+        plumbing = frozenset(args.plumbing)
         if args.command == "extract":
-            out = api.extract(rustdoc.load(args.doc))
+            out = api.extract(rustdoc.load(args.doc), deps, plumbing)
         else:
-            docs = [api.as_extract(_read_json(p), p) for p in (args.before, args.after)]
-            out = api.diff(*docs, items=args.items)
+            docs = [api.as_extract(_read_json(p), p, deps, plumbing)
+                    for p in (args.before, args.after)]
+            out = api.diff(*docs, items=args.items, raw=args.raw)
             if args.format == "text":
                 sys.stdout.write(api.render_text(out))
                 return 0

@@ -132,7 +132,7 @@ deliberate step rather than an accident.
 ## `ffimap api` attributes by anchor, and anchors stop at types
 
 Two figures from libgit2-crustify's `main` bound what the measure can attribute
-([`api.md`](api.md#10-what-the-measure-cannot-see) lists the rest). Of its
+([`api.md`](api.md#11-what-the-measure-cannot-see) lists the rest). Of its
 265 public enum variants and 25 public fields, none carries an anchor, though
 the convention annotates each enum constant; a variant added or lost is still
 seen, on its enum. And 48 public items are tied to no C item by any rule of
@@ -144,4 +144,11 @@ more of them, at the price of tying a type to every item it mentions.
 Generic parameters are compared by name. Renaming them by position within each
 declaration would make a rename read as kept, and the declarations harder to
 read in a report.
+
+The contract view models the standard library's pointer forms by a table and
+leaves every other standard type unresolved, as it leaves a bound on a generic
+alias's free parameter (`OdbDataBox<T>`, `OdbDataVec<T>` on libgit2-crustify):
+those entries fall back to their raw records. The standard library's own
+rustdoc JSON (`rust-docs-json`) would let `Vec`, `Option` and the rest answer
+as a `--dep` does.
 

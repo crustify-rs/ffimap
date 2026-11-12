@@ -17,11 +17,12 @@ import json
 import re
 from collections import Counter
 
+from ffimap import contract as ct
 from ffimap.rustdoc import Crate, FormatError, kind
 
 # The document this module writes; bumped when its shape or a rule changes, so
 # two extracts are compared only under one.
-VERSION = 1
+VERSION = 2
 
 ANCHOR = re.compile(r"^(Wraps|Replaces) `([a-z]+)::([^`\s]+)`$")
 # A line that tries to be an anchor: the verb followed by a kind-prefixed path,
@@ -98,8 +99,11 @@ def _type_ids(node) -> set[str]:
 
 
 class _Extractor:
-    def __init__(self, crate: Crate) -> None:
+    def __init__(self, crate: Crate, deps: list[Crate] = (),
+                 plumbing: frozenset[str] = frozenset({"ffibox"})) -> None:
         self.c = crate
+        self.deps = list(deps)
+        self.plumbing = frozenset(plumbing)
         self.anchored: dict[str, list[tuple[str, str, str]]] = {}
         self.malformed: list[dict] = []
         self.without_alias: list[dict] = []
@@ -502,6 +506,21 @@ class _Extractor:
         for key in items:
             items[key]["associated"] = dict(sorted(items[key]["associated"].items()))
 
+        uni = ct.Universe(c, self.deps, self.plumbing, set(self.anchored))
+        family = set(type_keys) | {t for t, ks in assoc.items()
+                                   if any(v & {"assoc_type", "alias"} for v in ks.values())}
+        for key in sorted(items):
+            view: dict[str, dict] = {}
+            members = list(by_key_ids[key]) + [t for t in sorted(assoc, key=int)
+                                                if key in assoc[t]]
+            for iid in members:
+                ckey, rec = self.contract_record(uni, iid, family, exclude)
+                if ckey in view and rec.get("kind") == "method":
+                    view[ckey]["sigs"] = sorted(set(view[ckey]["sigs"]) | set(rec["sigs"]))
+                else:
+                    view.setdefault(ckey, rec)
+            items[key]["contract"] = dict(sorted(view.items()))
+
         unattributed: dict[str, dict] = {}
         for iid in sorted(reachable, key=int):
             item = c.index[iid]
@@ -517,7 +536,10 @@ class _Extractor:
         return {
             "api": VERSION,
             "source": {"crate": c.name, "crate_version": c.doc.get("crate_version"),
-                       "format_version": c.doc["format_version"]},
+                       "format_version": c.doc["format_version"],
+                       "deps": sorted(d.name for d in self.deps),
+                       "plumbing": sorted(self.plumbing)},
+            "contract_missing_deps": sorted(uni.missing),
             "items": items,
             "unattributed": unattributed,
             "anchors": {
@@ -528,6 +550,67 @@ class _Extractor:
             },
             "coverage": self.coverage(items, assoc, unattributed),
         }
+
+    def contract_record(self, uni: ct.Universe, iid: str, family: set[str],
+                        exclude: set[str]) -> tuple[str, dict]:
+        """One stand-in's or associated item's entry in its C item's contract view.
+
+        A type has its contract (`contract.py`) under its locator. A method of
+        a handle or owner is keyed by its name alone, `method::<name>`, since
+        a port moves it between the forms of one type, and its signature is
+        normalised as a contract's methods are. Any other function has its
+        normalised signature, and anything else its raw one.
+        """
+        c = self.c
+        item = c.index[iid]
+        k = kind(item)
+        loc = self.locator(iid)
+        if k in TYPE_KINDS[:3] + ("type_alias",):
+            return loc, self.type_contract(uni, iid, exclude)
+        if k == "function":
+            parent = c.parent.get(iid)
+            im = c.index[parent]["inner"].get("impl") if parent else None
+            selfty = uni.lift(0, im["for"]) if im else None
+            copy = selfty is not None and uni.holds(selfty, ct.COPY) is True
+            _, text, _, _ = uni.signature(0, item, {}, selfty, copy)
+            if im is not None and im.get("trait") is None and _rid(im["for"]) in family:
+                return f"method::{item['name']}", {"kind": "method", "sigs": [text]}
+            rec = {"kind": "fn", "sig": text}
+            if im is not None:
+                owner = uni.render(selfty)
+                if im.get("trait"):
+                    owner = f"<{owner} as {uni.render(uni.lift_path(0, im['trait'], {}, None))}>"
+                rec["in"] = owner
+            return loc, rec
+        return loc, {"kind": k, "sig": self.sig(iid, exclude)}
+
+    def type_contract(self, uni: ct.Universe, iid: str, exclude: set[str]) -> dict:
+        c = self.c
+        item = c.index[iid]
+        k = kind(item)
+        inner = item["inner"][k]
+        params = (inner.get("generics") or {}).get("params", [])
+        counts = {"lifetimes": 0, "types": 0, "consts": 0}
+        args = []
+        for p in params:
+            pk = next(iter(p["kind"]))
+            if pk == "type" and p["kind"]["type"].get("is_synthetic"):
+                continue
+            counts[{"lifetime": "lifetimes", "type": "types", "const": "consts"}[pk]] += 1
+            args.append(("lt",) if pk == "lifetime" else ("gen", p["name"]))
+        rec: dict = {"kind": "type", "generics": counts}
+        if k in ("struct", "enum", "union"):
+            raw = self.sig(iid, exclude)
+            if raw.get("fields"):
+                rec["fields"] = raw["fields"]
+            if k == "struct" and not raw["stripped"]:
+                rec["shape"] = raw["decl"]
+            if k == "enum":
+                rec["variants"] = raw["variants"]
+                rec["non_exhaustive"] = raw["decl"].startswith("#[non_exhaustive]")
+        form = ("path", c.item_path(iid), (0, iid), tuple(args))
+        rec.update(uni.contract(form))
+        return rec
 
     def coverage(self, items: dict, assoc: dict, unattributed: dict) -> dict:
         """How much of the public surface the anchors reach.
@@ -596,15 +679,23 @@ def _rid(t) -> str | None:
     return None
 
 
-def extract(doc: dict) -> dict:
-    """The per-C-item surface of one rustdoc JSON document."""
-    return _Extractor(Crate(doc)).run()
+def extract(doc: dict, deps: list[dict] = (),
+            plumbing: frozenset[str] = frozenset({"ffibox"})) -> dict:
+    """The per-C-item surface of one rustdoc JSON document.
+
+    `deps` are the rustdoc JSON documents of crates it depends on, such as
+    ffibox's, whose impls the contracts of its handles and owners resolve
+    through; `plumbing` names the crates whose wrappers and traits are
+    plumbing rather than API.
+    """
+    return _Extractor(Crate(doc), [Crate(d) for d in deps], plumbing).run()
 
 
-def as_extract(doc: dict, name: str = "document") -> dict:
+def as_extract(doc: dict, name: str = "document", deps: list[dict] = (),
+               plumbing: frozenset[str] = frozenset({"ffibox"})) -> dict:
     """An extract from either an extract or a rustdoc JSON document."""
     if "index" in doc and "format_version" in doc:
-        return extract(doc)
+        return extract(doc, deps, plumbing)
     if doc.get("api") != VERSION or "items" not in doc:
         raise FormatError(f"{name} is neither rustdoc JSON nor an api extract "
                           f"of version {VERSION}")
@@ -737,9 +828,95 @@ def _rekeys(bi: dict, ai: dict) -> dict[str, str]:
             if len(gone[p]) == 1 and len(came.get(p, [])) == 1}
 
 
-def diff(before: dict, after: dict, items: list[str] | None = None) -> dict:
+def compare_contract(loc: str, b: dict, a: dict) -> list[dict]:
+    """How one entry of a contract view moved; additions extend it."""
+    if b.get("kind") != a.get("kind"):
+        return [_change(loc, "kind", "changed", "changed", before=b.get("kind"),
+                        after=a.get("kind"))]
+    out = []
+    if b["kind"] == "method":
+        sb, sa = set(b["sigs"]), set(a["sigs"])
+        for x in sorted(sb - sa):
+            out.append(_change(loc, "method", "removed", "changed", name=x))
+        for x in sorted(sa - sb):
+            out.append(_change(loc, "method", "added", "extended", name=x))
+        return out
+    if b["kind"] not in ("type", "fn"):
+        return compare_record(loc, {"kind": b["kind"], "paths": [], "sig": b["sig"]},
+                              {"kind": a["kind"], "paths": [], "sig": a["sig"]})
+    if b["kind"] == "fn":
+        for part in ("sig", "in"):
+            if b.get(part) != a.get(part):
+                out.append(_change(loc, part, "changed", "changed", before=b.get(part),
+                                   after=a.get(part)))
+        return out
+    for part in ("generics", "shape", "non_exhaustive"):
+        if b.get(part) != a.get(part):
+            out.append(_change(loc, part, "changed", "changed", before=b.get(part),
+                               after=a.get(part)))
+    out += _dict_changes(loc, "field", b.get("fields", {}), a.get("fields", {}),
+                         "changed" if "shape" in b else "extended")
+    if "variants" in b or "variants" in a:
+        out += _dict_changes(loc, "variant", b.get("variants", {}), a.get("variants", {}),
+                             "extended" if b.get("non_exhaustive") else "changed")
+    out += _dict_changes(loc, "method", b.get("methods", {}), a.get("methods", {}))
+    out += _dict_changes(loc, "reborrow", b.get("reborrows", {}), a.get("reborrows", {}))
+    for part in ("traits", "derefs"):
+        xb, xa = set(b.get(part, [])), set(a.get(part, []))
+        for x in sorted(xb - xa):
+            out.append(_change(loc, part[:-1], "removed", "changed", name=x))
+        for x in sorted(xa - xb):
+            out.append(_change(loc, part[:-1], "added", "extended", name=x))
+    return out
+
+
+def _raw_record(item: dict, loc: str) -> dict | None:
+    return item["stand_ins"].get(loc) or item["associated"].get(loc)
+
+
+def compare_view(b: dict, a: dict) -> tuple[list[dict], list[str], list[dict]]:
+    """A C item's contract changes, what could not be resolved, and retargets.
+
+    An entry whose contract is unresolved on either side is compared on its
+    raw record instead, and those changes carry ``view: raw``. A type whose
+    raw record moved while its contract did not is a retarget.
+    """
+    vb, va = b["contract"], a["contract"]
+    changes: list[dict] = []
+    unresolved: list[str] = []
+    retargets: list[dict] = []
+    for loc in sorted(set(vb) | set(va)):
+        if loc not in va:
+            changes.append(_change(loc, "contract", "removed", "changed"))
+            continue
+        if loc not in vb:
+            changes.append(_change(loc, "contract", "added", "extended"))
+            continue
+        x, y = vb[loc], va[loc]
+        if x.get("unresolved") or y.get("unresolved"):
+            unresolved += [f"{loc}: {u}" for u in x.get("unresolved", []) + y.get("unresolved", [])]
+            rb, ra = _raw_record(b, loc), _raw_record(a, loc)
+            raw = compare_record(loc, rb, ra) if rb and ra else (
+                [] if x == y else [_change(loc, "contract", "changed", "changed")])
+            changes += [dict(ch, view="raw") for ch in raw]
+            continue
+        moved = compare_contract(loc, x, y)
+        changes += moved
+        rb, ra = _raw_record(b, loc), _raw_record(a, loc)
+        if not moved and x.get("kind") == "type" and rb and ra and \
+                (rb["sig"].get("decl"), rb["kind"]) != (ra["sig"].get("decl"), ra["kind"]):
+            retargets.append({"item": loc, "before": rb["sig"].get("decl"),
+                              "after": ra["sig"].get("decl")})
+    return changes, sorted(set(unresolved)), retargets
+
+
+def diff(before: dict, after: dict, items: list[str] | None = None,
+         raw: bool = False) -> dict:
     """Each C item's classification between two extracts.
 
+    The contract view decides each status, and `raw_status` says when the raw
+    records would have decided otherwise; with `raw`, the raw records decide,
+    as the signatures of the stand-ins and associated items as they stand.
     `items`, when given, restricts the C items to those keys, and those found
     in neither extract are listed under `missing`. The surface no anchor
     reaches is compared by Rust module, under `unattributed`, whatever
@@ -768,11 +945,21 @@ def diff(before: dict, after: dict, items: list[str] | None = None) -> dict:
             rec = {"status": "new"}
         else:
             b, a = bi[bkey], ai[key]
-            changes = (compare_set("stand_in", b["stand_ins"], a["stand_ins"])
-                       + compare_set("associated", b["associated"], a["associated"]))
+            raw_changes = (compare_set("stand_in", b["stand_ins"], a["stand_ins"])
+                           + compare_set("associated", b["associated"], a["associated"]))
+            if raw:
+                changes, unresolved, retargets = raw_changes, [], []
+            else:
+                changes, unresolved, retargets = compare_view(b, a)
             rec = {"status": _status(changes)}
             if changes:
                 rec["changes"] = changes
+            if not raw and _status(raw_changes) != rec["status"]:
+                rec["raw_status"] = _status(raw_changes)
+            if retargets:
+                rec["retarget"] = retargets
+            if unresolved:
+                rec["unresolved"] = unresolved
             if b["anchor"] != a["anchor"]:
                 rec["anchor"] = {"before": b["anchor"], "after": a["anchor"]}
                 moves[f"{b['anchor']}->{a['anchor']}"] += 1
@@ -798,11 +985,14 @@ def diff(before: dict, after: dict, items: list[str] | None = None) -> dict:
         mods[m] = rec
     out = {
         "api": before.get("api"),
+        "view": "raw" if raw else "contract",
         "before": before["source"],
         "after": after["source"],
         "totals": dict(totals),
         "anchor_moves": dict(sorted(moves.items())),
         "rekeyed": sum(1 for r in out_items.values() if "rekeyed" in r),
+        "retargeted": sum(1 for r in out_items.values() if "retarget" in r),
+        "unresolved": sum(1 for r in out_items.values() if "unresolved" in r),
         "items": out_items,
         "unattributed": {"totals": dict(utotals), "modules": mods},
     }
@@ -819,6 +1009,8 @@ def _line(c: dict) -> str:
     if c["severity"] == "extended" and c["change"] == "changed":
         mark = "+"
     s = f"    {mark} {c['item']}"
+    if c.get("view") == "raw":
+        s += " (raw)"
     if c["part"] not in ("stand_in", "associated", "item"):
         s += f" [{c['part']}]"
     if "name" in c:
@@ -835,7 +1027,8 @@ def _line(c: dict) -> str:
 def render_text(d: dict) -> str:
     """The short form: what is not kept or new, with its changes, and totals."""
     out = [f"{d['before']['crate']} -> {d['after']['crate']} "
-           f"(rustdoc format {d['before']['format_version']} -> {d['after']['format_version']})"]
+           f"(rustdoc format {d['before']['format_version']} -> {d['after']['format_version']}; "
+           f"{d.get('view', 'contract')} view)"]
     for key, rec in d["items"].items():
         st = rec["status"]
         move = rec.get("anchor")
@@ -844,10 +1037,13 @@ def render_text(d: dict) -> str:
         head = f"{st:<9}{key}"
         if "rekeyed" in rec:
             head += f"  (was {rec['rekeyed']})"
+        if "raw_status" in rec:
+            head += f"  (raw: {rec['raw_status']})"
         if move:
             head += f"  ({move['before']} -> {move['after']})"
         out.append(head)
         out += [_line(c) for c in rec.get("changes", [])]
+        out += [f"    unresolved: {u}" for u in rec.get("unresolved", [])]
     for m, rec in d["unattributed"]["modules"].items():
         if rec["status"] in ("kept", "new"):
             continue
@@ -859,6 +1055,10 @@ def render_text(d: dict) -> str:
         out.append("anchors: " + ", ".join(f"{n} {k}" for k, n in d["anchor_moves"].items()))
     if d["rekeyed"]:
         out.append(f"rekeyed: {d['rekeyed']} (anchor kind relabelled, same path)")
+    if d.get("retargeted"):
+        out.append(f"retargeted: {d['retargeted']} (a type's form moved, its contract kept)")
+    if d.get("unresolved"):
+        out.append(f"unresolved: {d['unresolved']} (compared on raw records where unresolved)")
     u = d["unattributed"]["totals"]
     out.append("unattributed modules: " + ", ".join(f"{u[s]} {s}" for s in STATUSES))
     if d.get("missing"):

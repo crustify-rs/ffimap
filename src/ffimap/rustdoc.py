@@ -113,6 +113,7 @@ class Crate:
         """
         out: dict[str, set[str]] = {}
         seen: set[tuple[str, str]] = set()
+        private = bool(self.doc.get("includes_private"))
 
         def visit(mid: str, prefix: str) -> None:
             if (mid, prefix) in seen:
@@ -124,6 +125,10 @@ class Crate:
             for child in mod["inner"]["module"]["items"]:
                 item = self.get(child)
                 if item is None:
+                    continue
+                # A document made with --document-private-items lists the
+                # private items too; none of them is a consumer's path.
+                if private and item.get("visibility") != "public":
                     continue
                 k = kind(item)
                 if k == "use":

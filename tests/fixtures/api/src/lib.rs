@@ -1,69 +1,166 @@
-//! The `ffimap api` fixture: one crate documented twice, without and with
-//! `--cfg after`, so that every classification has an item that earns it.
-//! Each item says what `ffimap api diff` must report for it.
+//! The `ffimap api` fixture: one crate documented without and with
+//! `--cfg after` (and `--cfg drop_getter` beside it), so that every
+//! classification has an item that earns it. Each item says what
+//! `ffimap api diff` must report for it.
+//!
+//! `foo` is a `port/layout` step: before, `Foo` is a wrapped layout type with
+//! pointer-wrapper handles `FooRef` and `FooMut` and an ffibox owner
+//! `FooBox`; after, `Foo` is native, its getters on `impl Foo`, and the
+//! handles are `&'a Foo`, `&'a mut Foo` and `Box<Foo>`. Its consumers can
+//! call the same methods, so `st::foo` is kept; with `drop_getter`, the
+//! unanchored getter `id` is gone and it is changed.
 #![allow(dead_code)]
 
-use core::marker::PhantomData;
-
-/// A stand-in for an ffibox owner: an owner alias names its cell and policy.
-pub struct Holder<T, P>(PhantomData<(T, P)>);
-
-/// A second owner, which `FooBox` is retargeted to.
-pub struct Shared<T>(PhantomData<T>);
-
-/// Glue a handle declares itself a view of its cell through.
-pub trait View {
-    /// The cell the handle views.
-    type Cell;
-}
-
 pub mod foo {
-    use super::{Holder, Shared, View};
     use core::marker::PhantomData;
 
+    #[cfg(not(after))]
     mod ffi_import {
         use core::marker::PhantomData;
 
-        /// The layout type: kept, since it is moved into the parent module
-        /// after, behind the same re-export path.
+        /// The layout type over C.
         ///
         /// Wraps `st::foo`
         #[doc(alias = "foo")]
-        #[cfg(not(after))]
+        #[derive(Debug)]
         pub struct Foo(PhantomData<*const ()>);
 
-        /// Its free policy, tied to `fn::foo_free` by the method it owns.
-        pub struct FooFree;
-
-        impl FooFree {
-            /// Wraps `fn::foo_free`
-            #[doc(alias = "foo_free")]
-            pub fn release(&self) {}
+        impl ffibox::CCell for Foo {
+            type Ref<'a> = super::FooRef<'a>;
+            type Mut<'a> = super::FooMut<'a>;
         }
     }
-    pub use ffi_import::FooFree;
     #[cfg(not(after))]
     pub use ffi_import::Foo;
 
-    /// The layout type, defined here after a port; still `!Send`.
+    /// The native type: still `!Send`, as the C one was.
     ///
-    /// Wraps `st::foo`
+    /// Replaces `st::foo`
     #[doc(alias = "foo")]
     #[cfg(after)]
-    pub struct Foo(PhantomData<*const ()>);
+    #[derive(Debug)]
+    pub struct Foo {
+        size: u32,
+        marker: PhantomData<*const ()>,
+    }
 
-    /// `st::foo`'s owner alias: retargeted after, so `st::foo` is changed.
+    /// Its free policy, tied to `fn::foo_free` by the method it owns.
+    pub struct FooFree;
+
+    impl FooFree {
+        /// Wraps `fn::foo_free`
+        #[doc(alias = "foo_free")]
+        pub fn release(&self) {}
+    }
+
     #[cfg(not(after))]
-    pub type FooBox = Holder<Foo, FooFree>;
-    /// `st::foo`'s owner alias: retargeted after, so `st::foo` is changed.
+    impl ffibox::CDrop<Foo> for FooFree {}
+
+    /// The owner: an ffibox owner before, a `Box` after.
+    #[cfg(not(after))]
+    pub type FooBox = ffibox::CBox<Foo, FooFree>;
+    /// The owner: an ffibox owner before, a `Box` after.
     #[cfg(after)]
-    pub type FooBox = Shared<Foo>;
+    pub type FooBox = Box<Foo>;
 
-    /// `st::foo`'s shared handle, tied to it through `View::Cell`.
+    /// The shared handle, a pointer wrapper before.
+    #[cfg(not(after))]
+    #[derive(Clone, Copy, Debug)]
     pub struct FooRef<'a>(PhantomData<&'a Foo>);
+    /// The shared handle, a reference after.
+    #[cfg(after)]
+    pub type FooRef<'a> = &'a Foo;
 
-    impl View for FooRef<'_> {
-        type Cell = Foo;
+    /// The exclusive handle, a pointer wrapper before.
+    #[cfg(not(after))]
+    #[derive(Debug)]
+    pub struct FooMut<'a>(PhantomData<&'a mut Foo>);
+    /// The exclusive handle, a reference after.
+    #[cfg(after)]
+    pub type FooMut<'a> = &'a mut Foo;
+
+    #[cfg(not(after))]
+    impl FooRef<'_> {
+        /// Kept: moves to `impl Foo`, its signature the same.
+        ///
+        /// Wraps `fld::foo.size`
+        #[doc(alias = "foo.size")]
+        pub fn size(&self) -> u32 {
+            0
+        }
+
+        /// An unanchored getter: the contract's, and lost with `drop_getter`.
+        pub fn id(&self) -> u32 {
+            0
+        }
+
+        /// A seam: no part of the contract.
+        pub fn as_ptr(&self) -> *const Foo {
+            core::ptr::null()
+        }
+    }
+
+    #[cfg(not(after))]
+    impl<'a> FooMut<'a> {
+        /// The shared reborrow.
+        pub fn as_ref(&self) -> FooRef<'_> {
+            FooRef(PhantomData)
+        }
+
+        /// The exclusive reborrow, returning its own type: adds nothing.
+        pub fn as_mut(&mut self) -> FooMut<'_> {
+            FooMut(PhantomData)
+        }
+
+        /// Kept: moves to `impl Foo`.
+        ///
+        /// Wraps `fld::foo.size`
+        #[doc(alias = "foo.size")]
+        pub fn set_size(&mut self, _size: u32) {}
+    }
+
+    #[cfg(not(after))]
+    impl Foo {
+        /// The layout type's reborrows.
+        pub fn as_ref(&self) -> FooRef<'_> {
+            FooRef(PhantomData)
+        }
+
+        /// The layout type's reborrows.
+        pub fn as_mut(&mut self) -> FooMut<'_> {
+            FooMut(PhantomData)
+        }
+    }
+
+    #[cfg(after)]
+    impl Foo {
+        /// The native type's reborrows.
+        pub fn as_ref(&self) -> FooRef<'_> {
+            self
+        }
+
+        /// The native type's reborrows.
+        pub fn as_mut(&mut self) -> FooMut<'_> {
+            self
+        }
+
+        /// Replaces `fld::foo.size`
+        #[doc(alias = "foo.size")]
+        pub fn size(&self) -> u32 {
+            self.size
+        }
+
+        /// The unanchored getter.
+        #[cfg(not(drop_getter))]
+        pub fn id(&self) -> u32 {
+            0
+        }
+
+        /// Replaces `fld::foo.size`
+        #[doc(alias = "foo.size")]
+        pub fn set_size(&mut self, size: u32) {
+            self.size = size;
+        }
     }
 
     impl Foo {
@@ -135,7 +232,7 @@ pub struct Point {
     pub x: i32,
 }
 
-/// Extended: `Point` gains `Debug` after, and an accessor of its own.
+/// Extended: `Point` gains `Debug` after.
 #[cfg(after)]
 impl core::fmt::Debug for Point {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -145,7 +242,7 @@ impl core::fmt::Debug for Point {
 
 #[cfg(after)]
 impl Point {
-    /// An addition to `st::point`: an inherent item no anchor claims.
+    /// A raw addition: an associated function, which no contract holds.
     pub fn origin() -> Self {
         Point { x: 0 }
     }

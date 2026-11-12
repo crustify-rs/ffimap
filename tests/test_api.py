@@ -2,15 +2,16 @@
 
 The hand-built documents are the smallest rustdoc JSON that carries each case,
 written in the shape `format_version` 61 has, so every classification is tested
-without a toolchain. `FixtureTests` documents `tests/fixtures/api/` twice, with
-and without `--cfg after`, on the driver's pinned nightly and checks the
-classification each item's doc comment states; it skips where that nightly is
-missing.
+without a toolchain. `FixtureTests` documents `tests/fixtures/api/` without
+and with `--cfg after` (and `--cfg drop_getter`), and its ffibox stand-in, on
+the driver's pinned nightly and checks the classification each item's doc
+comment states; it skips where that nightly is missing.
 """
 
 import contextlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -150,8 +151,11 @@ def foo_crate(*, set_ty="i32", param="value", verb="Wraps", send=True, retarget=
     foo = d.struct("Foo", docs="A foo.\n\nWraps `st::foo`", alias=["foo"], stripped=True)
     free = d.struct("FooFree")
     holder = d.struct("Holder")
-    d.alias("FooBox", rp(holder, "Holder", rp(foo, "Foo"), rp(free, "FooFree"))
-            if not retarget else rp(OPTION, "Option", rp(foo, "Foo")))
+    other = d.struct("Holder2")
+    targets = {False: rp(holder, "Holder", rp(foo, "Foo"), rp(free, "FooFree")),
+               "option": rp(OPTION, "Option", rp(foo, "Foo")),
+               "same": rp(other, "Holder2", rp(foo, "Foo"))}
+    d.alias("FooBox", targets[retarget])
     methods = [d.fn("new", output=rp(OPTION, "Option", rp(foo, "Foo")),
                     docs="Wraps `fn::foo_new`", alias=["foo_new"], module=False),
                d.fn("set", inputs=[("self", self_ref(True)), (param, prim(set_ty))],
@@ -165,9 +169,9 @@ def foo_crate(*, set_ty="i32", param="value", verb="Wraps", send=True, retarget=
     if extra:
         methods.append(d.fn("helper", module=False))
     d.impl(foo, methods)
-    d.impl(foo, trait=auto("Send"), synthetic=True, negative=not send)
+    d.impl(foo, trait=auto("core::marker::Send"), synthetic=True, negative=not send)
     if debug:
-        d.impl(foo, [d.fn("fmt", module=False)], trait=auto("Debug"))
+        d.impl(foo, [d.fn("fmt", module=False)], trait=auto("core::fmt::Debug"))
     d.impl(free, [d.fn("release", inputs=[("self", self_ref())],
                        docs="Wraps `fn::foo_free`", alias=["foo_free"], module=False)])
     ref = d.struct("FooRef", stripped=True)
@@ -261,11 +265,11 @@ class ExtractTests(unittest.TestCase):
 
     def test_a_type_lists_auto_traits_and_unanchored_members_only(self) -> None:
         sig = self.e["items"]["st::foo"]["stand_ins"]["c::Foo"]["sig"]
-        self.assertEqual(list(sig["impls"]), ["impl Send for c::Foo"])
+        self.assertEqual(list(sig["impls"]), ["impl core::marker::Send for c::Foo"])
         self.assertEqual(sig["members"], {})
 
     def test_surface_no_anchor_reaches_is_unattributed(self) -> None:
-        self.assertEqual(sorted(self.e["unattributed"]["c"]), ["c::Holder"])
+        self.assertEqual(sorted(self.e["unattributed"]["c"]), ["c::Holder", "c::Holder2"])
         # A trait holding a stand-in goes with it, as a policy type does.
         self.assertEqual(self.e["items"]["fnp::runner.run"]["associated"]["c::Runner"]["via"],
                          ["owner"])
@@ -321,7 +325,7 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(cov["c_items"], 7)
         self.assertEqual(cov["anchored"], {"enum": 1, "inherent_item": 4, "struct": 1,
                                            "trait_item": 1})
-        self.assertEqual(cov["public"]["struct"], 4)
+        self.assertEqual(cov["public"]["struct"], 5)
 
 
 class DiffTests(unittest.TestCase):
@@ -333,30 +337,53 @@ class DiffTests(unittest.TestCase):
     def test_a_signature_change_is_changed(self) -> None:
         st, out = statuses(foo_crate(), foo_crate(set_ty="u32"))
         self.assertEqual(st["fn::foo_set"], "changed")
+        # A method of a handle is keyed by its name in the contract view.
+        self.assertEqual(out["items"]["fn::foo_set"]["changes"], [
+            {"item": "method::set", "part": "method", "change": "removed",
+             "severity": "changed", "name": "fn(&mut self, i32)"},
+            {"item": "method::set", "part": "method", "change": "added",
+             "severity": "extended", "name": "fn(&mut self, u32)"}])
+        self.assertEqual(st["fn::foo_new"], "kept")
+        _, out = statuses(foo_crate(), foo_crate(set_ty="u32"), raw=True)
         self.assertEqual(out["items"]["fn::foo_set"]["changes"], [{
             "item": "c::Foo::set", "part": "decl", "change": "changed",
             "severity": "changed", "before": "fn(&mut self, i32)",
             "after": "fn(&mut self, u32)"}])
-        self.assertEqual(st["fn::foo_new"], "kept")
 
     def test_a_lost_auto_trait_is_changed(self) -> None:
         st, out = statuses(foo_crate(), foo_crate(send=False))
         self.assertEqual(st["st::foo"], "changed")
         lost = [c for c in out["items"]["st::foo"]["changes"] if c["change"] == "removed"]
-        self.assertEqual(lost[0]["name"], "impl Send for c::Foo")
+        self.assertEqual((lost[0]["part"], lost[0]["name"]), ("trait", "core::marker::Send"))
 
     def test_a_new_trait_impl_or_member_is_extended(self) -> None:
         st, out = statuses(foo_crate(), foo_crate(debug=True, extra=True))
         self.assertEqual(st["st::foo"], "extended")
+        # An associated function is no part of a contract; the raw view has it.
+        self.assertEqual([c["part"] for c in out["items"]["st::foo"]["changes"]], ["trait"])
+        _, out = statuses(foo_crate(), foo_crate(debug=True, extra=True), raw=True)
         self.assertEqual(sorted(c["part"] for c in out["items"]["st::foo"]["changes"]),
                          ["impl", "member"])
 
-    def test_an_alias_retarget_changes_its_type(self) -> None:
-        st, out = statuses(foo_crate(), foo_crate(retarget=True))
+    def test_a_retarget_that_keeps_the_contract_is_kept(self) -> None:
+        st, out = statuses(foo_crate(), foo_crate(retarget="same"))
+        self.assertEqual(st["st::foo"], "kept")
+        self.assertEqual(out["items"]["st::foo"]["retarget"], [{
+            "item": "c::FooBox", "before": "type = c::Holder<c::Foo, c::FooFree>",
+            "after": "type = c::Holder2<c::Foo>"}])
+        self.assertEqual(out["items"]["st::foo"]["raw_status"], "changed")
+        st, _ = statuses(foo_crate(), foo_crate(retarget="same"), raw=True)
         self.assertEqual(st["st::foo"], "changed")
-        ch = out["items"]["st::foo"]["changes"][0]
-        self.assertEqual((ch["item"], ch["part"], ch["after"]),
-                         ("c::FooBox", "decl", "type = core::option::Option<c::Foo>"))
+
+    def test_an_unresolvable_retarget_is_compared_raw(self) -> None:
+        st, out = statuses(foo_crate(), foo_crate(retarget="option"))
+        self.assertEqual(st["st::foo"], "changed")
+        rec = out["items"]["st::foo"]
+        self.assertEqual(rec["unresolved"], [
+            "c::FooBox: core::option::Option: a standard type no contract models"])
+        ch = rec["changes"][0]
+        self.assertEqual((ch["item"], ch["part"], ch["after"], ch["view"]),
+                         ("c::FooBox", "decl", "type = core::option::Option<c::Foo>", "raw"))
 
     def test_removed_and_new_items(self) -> None:
         st, _ = statuses(foo_crate(), foo_crate(old=False, fresh=True))
@@ -426,9 +453,10 @@ class CliTests(unittest.TestCase):
                                       "--items", "fn::foo_set,fn::foo_new")
         self.assertEqual(code, 0)
         self.assertEqual(text.splitlines(), [
-            "c -> c (rustdoc format 61 -> 61)",
+            "c -> c (rustdoc format 61 -> 61; contract view)",
             "changed  fn::foo_set",
-            "    ~ c::Foo::set [decl]: fn(&mut self, i32) -> fn(&mut self, u32)",
+            "    - method::set [method] fn(&mut self, i32)",
+            "    + method::set [method] fn(&mut self, u32)",
             "C items: 1 kept, 0 extended, 1 changed, 0 removed, 0 new",
             "unattributed modules: 1 kept, 0 extended, 0 changed, 0 removed, 0 new"])
 
@@ -448,15 +476,12 @@ def _toolchain():
     return measure._TOOLCHAIN
 
 
-def _rustdoc_json(target: Path, after: bool) -> dict:
+def _rustdoc_json(target: Path, manifest: Path, name: str, *flags: str) -> dict:
     cmd = ["cargo", f"+{_toolchain()}", "rustdoc", "-q", "--lib",
-           "--manifest-path", str(FIXTURE / "Cargo.toml"), "--",
-           "-Z", "unstable-options", "--output-format", "json"]
-    if after:
-        cmd += ["--cfg", "after"]
-    subprocess.run(cmd, check=True, env={**__import__("os").environ,
-                                         "CARGO_TARGET_DIR": str(target)})
-    return json.loads((target / "doc" / "apifix.json").read_text())
+           "--manifest-path", str(manifest), "--",
+           "-Z", "unstable-options", "--output-format", "json", *flags]
+    subprocess.run(cmd, check=True, env={**os.environ, "CARGO_TARGET_DIR": str(target)})
+    return json.loads((target / "doc" / f"{name}.json").read_text())
 
 
 def _nightly_available() -> bool:
@@ -470,36 +495,65 @@ def _nightly_available() -> bool:
 class FixtureTests(unittest.TestCase):
     """Real rustdoc JSON: the fixture's items state their own classification."""
 
-    out: dict
-    before: dict
-
     @classmethod
     def setUpClass(cls) -> None:
+        manifest = FIXTURE / "Cargo.toml"
         with tempfile.TemporaryDirectory() as tmp:
-            b = _rustdoc_json(Path(tmp, "before"), after=False)
-            a = _rustdoc_json(Path(tmp, "after"), after=True)
-        cls.before = api.extract(b)
-        cls.out = api.diff(cls.before, api.extract(a))
+            b = _rustdoc_json(Path(tmp, "b"), manifest, "apifix")
+            a = _rustdoc_json(Path(tmp, "a"), manifest, "apifix", "--cfg", "after")
+            g = _rustdoc_json(Path(tmp, "g"), manifest, "apifix", "--cfg", "after",
+                              "--cfg", "drop_getter")
+            stub = _rustdoc_json(Path(tmp, "s"), FIXTURE / "ffibox-stub" / "Cargo.toml",
+                                 "ffibox", "--document-private-items")
+        cls.before = api.extract(b, [stub])
+        after = api.extract(a, [stub])
+        cls.out = api.diff(cls.before, after)
+        cls.raw = api.diff(cls.before, after, raw=True)
+        cls.dropped = api.diff(cls.before, api.extract(g, [stub]))
+        cls.nodep = api.diff(api.extract(b), api.extract(a))
 
     def test_each_item_is_classified_as_its_doc_says(self) -> None:
         self.assertEqual({k: v["status"] for k, v in self.out["items"].items()}, {
-            "fld::pair.a": "kept", "fld::pair.b": "kept", "fn::foo_free": "kept",
-            "fn::foo_fresh": "new", "fn::foo_len": "kept", "fn::foo_new": "kept",
-            "fn::foo_old": "removed", "fn::foo_set": "changed", "fn::no_alias": "kept",
-            "st::cell": "changed", "st::foo": "changed", "st::point": "extended"})
+            "fld::foo.size": "kept", "fld::pair.a": "kept", "fld::pair.b": "kept",
+            "fn::foo_free": "kept", "fn::foo_fresh": "new", "fn::foo_len": "kept",
+            "fn::foo_new": "kept", "fn::foo_old": "removed", "fn::foo_set": "changed",
+            "fn::no_alias": "kept", "st::cell": "changed", "st::foo": "kept",
+            "st::point": "extended"})
         self.assertEqual(self.out["items"]["fn::foo_len"]["anchor"],
                          {"before": "Wraps", "after": "Replaces"})
 
-    def test_the_alias_retarget_is_the_only_change_to_the_moved_type(self) -> None:
-        changes = self.out["items"]["st::foo"]["changes"]
-        self.assertEqual([(c["item"], c["part"]) for c in changes],
-                         [("apifix::foo::FooBox", "decl")])
+    def test_the_port_layout_step_keeps_the_contract(self) -> None:
+        foo = self.out["items"]["st::foo"]
+        self.assertEqual([r["item"] for r in foo["retarget"]], [
+            "apifix::foo::Foo", "apifix::foo::FooBox", "apifix::foo::FooMut",
+            "apifix::foo::FooRef"])
+        self.assertEqual(foo["raw_status"], "changed")
+        self.assertEqual(self.raw["items"]["st::foo"]["status"], "changed")
+        # The getters moved from the handles to `impl Foo`.
+        self.assertEqual(self.raw["items"]["fld::foo.size"]["status"], "changed")
+        contract = self.before["items"]["st::foo"]["contract"]["apifix::foo::FooBox"]
+        self.assertEqual(contract["reborrows"], {
+            "as_mut": ["apifix::foo::FooMut<'_>"], "as_ref": ["apifix::foo::FooRef<'_>"]})
+        self.assertEqual(contract["methods"], {"id": "fn(&self) -> u32"})
+
+    def test_a_dropped_getter_is_changed(self) -> None:
+        foo = self.dropped["items"]["st::foo"]
+        self.assertEqual(foo["status"], "changed")
+        self.assertEqual(sorted((c["item"], c["name"]) for c in foo["changes"]), [
+            ("apifix::foo::Foo", "id"), ("apifix::foo::FooBox", "id"),
+            ("apifix::foo::FooMut", "id"), ("apifix::foo::FooRef", "id")])
+
+    def test_without_ffiboxs_json_the_owner_is_unresolved(self) -> None:
+        foo = self.nodep["items"]["st::foo"]
+        self.assertEqual(foo["status"], "changed")
+        self.assertEqual(foo["unresolved"], [
+            "apifix::foo::FooBox: ffibox::CBox: no rustdoc JSON for its crate"])
+        self.assertEqual({c.get("view") for c in foo["changes"]}, {"raw"})
 
     def test_the_lost_auto_traits_are_named(self) -> None:
         lost = sorted(c["name"] for c in self.out["items"]["st::cell"]["changes"]
                       if c["change"] == "removed")
-        self.assertEqual(lost, ["impl core::marker::Send for apifix::Cell",
-                                "impl core::marker::Sync for apifix::Cell"])
+        self.assertEqual(lost, ["core::marker::Send", "core::marker::Sync"])
 
     def test_the_unattributed_drop_is_reported(self) -> None:
         mod = self.out["unattributed"]["modules"]["apifix"]
