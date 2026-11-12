@@ -128,3 +128,20 @@ already shipped. The scan reported `counts_unavailable`, which is how it
 surfaced. Recording the ffibox commit beside the pin, as a campaign's
 `dependencies.json` does for its other dependencies, would make the break a
 deliberate step rather than an accident.
+
+## `ffimap api` attributes by anchor, and anchors stop at types
+
+Two figures from libgit2-crustify's `main` bound what the measure can attribute
+([`api.md`](api.md#10-what-the-measure-cannot-see) lists the rest). Of its
+265 public enum variants and 25 public fields, none carries an anchor, though
+the convention annotates each enum constant; a variant added or lost is still
+seen, on its enum. And 48 public items are tied to no C item by any rule of
+[`api.md`](api.md#5-handles-and-owners) -- error types, option views,
+iterators, `OdbDataStrVec` -- so their changes are reported per module. A rule
+that followed a type's own signatures to the stand-ins they name would reach
+more of them, at the price of tying a type to every item it mentions.
+
+Generic parameters are compared by name. Renaming them by position within each
+declaration would make a rename read as kept, and the declarations harder to
+read in a report.
+

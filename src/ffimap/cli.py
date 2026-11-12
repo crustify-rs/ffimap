@@ -4,6 +4,8 @@
                      [--seams NAMES] [--regions NAMES] [--barriers NAMES]
                      [--sites COUNTER ...]
     ffimap diff BEFORE AFTER
+    ffimap api extract RUSTDOC_JSON
+    ffimap api diff BEFORE AFTER [--items KEYS] [--format json|text]
 
 Deterministic: a rustc HIR/typeck pass over the crate's FFI and unsafe
 surface. No LLM or network. Two runs over one tree agree exactly, so a diff
@@ -119,7 +121,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ffimap", description=DESCRIPTION,
         epilog="`ffimap diff BEFORE AFTER` compares two documents of one crate "
-               "instead of scanning; `ffimap diff --help` describes it.")
+               "instead of scanning; `ffimap diff --help` describes it. "
+               "`ffimap api` measures a crate's API per C item from rustdoc "
+               "JSON; `ffimap api --help` describes it.")
     p.add_argument("workspace", metavar="WORKSPACE",
                    help="Directory of the Cargo workspace (or package) to scan.")
     add_arguments(p)
@@ -152,9 +156,80 @@ def run_diff(argv: list[str]) -> int:
     return 0
 
 
+def _names(v: str) -> list[str]:
+    return [n for n in v.replace(",", "\n").split() if n]
+
+
+def build_api_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="ffimap api",
+        description="A crate's consumer-facing API per C item, from the "
+                    "rustdoc JSON of `cargo +nightly rustdoc -p CRATE --lib -- "
+                    "-Z unstable-options --output-format json`. A C item is "
+                    "the `<kind>::<path>` of a `Wraps` or `Replaces` anchor; "
+                    "its surface is the public signatures of the Rust items "
+                    "carrying that anchor and of the handles and owners tied "
+                    "to them. Builds nothing and needs no driver.")
+    sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    ex = sub.add_parser(
+        "extract", help="Print the per-C-item surface of one rustdoc JSON.",
+        description="Print, as sorted JSON, each C item's stand-ins with "
+                    "their public paths and normalised signatures, the items "
+                    "tied to them, the public surface no anchor reaches, the "
+                    "anchors that do not parse, and coverage counts.")
+    ex.add_argument("doc", metavar="RUSTDOC_JSON")
+    df = sub.add_parser(
+        "diff", help="Classify each C item between two documents.",
+        description="Classify each C item as kept, extended, changed, removed "
+                    "or new between two documents, each a rustdoc JSON or an "
+                    "`ffimap api extract`, and record an anchor that moved "
+                    "between Wraps and Replaces.")
+    df.add_argument("before", metavar="BEFORE")
+    df.add_argument("after", metavar="AFTER")
+    df.add_argument(
+        "--items", type=_names, default=None, metavar="KEYS",
+        help="Restrict the C items to these `<kind>::<path>` keys, such as a "
+             "batch's worklist. Newline-, comma- or space-separated, so "
+             "`--items \"$(cat worklist)\"` works. Keys found in neither "
+             "document are listed under `missing`.")
+    df.add_argument(
+        "--format", choices=("json", "text"), default="json",
+        help="json (the default) prints the whole classification; text prints "
+             "only what is not kept or new, with its changes, and the totals.")
+    return p
+
+
+def _read_json(path: str) -> dict:
+    try:
+        return json.loads(Path(path).read_text())
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{path} is not JSON: {e}") from None
+
+
+def run_api(argv: list[str]) -> int:
+    from ffimap import api, rustdoc
+    args = build_api_parser().parse_args(argv)
+    try:
+        if args.command == "extract":
+            out = api.extract(rustdoc.load(args.doc))
+        else:
+            docs = [api.as_extract(_read_json(p), p) for p in (args.before, args.after)]
+            out = api.diff(*docs, items=args.items)
+            if args.format == "text":
+                sys.stdout.write(api.render_text(out))
+                return 0
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    print(json.dumps(out, indent=1, sort_keys=True))
+    return 0
+
+
 def main() -> None:
     if sys.argv[1:2] == ["diff"]:
         raise SystemExit(run_diff(sys.argv[2:]))
+    if sys.argv[1:2] == ["api"]:
+        raise SystemExit(run_api(sys.argv[2:]))
     args = build_parser().parse_args()
     ws = Path(args.workspace).resolve()
     if not ws.is_dir():

@@ -166,3 +166,7 @@ an entry in [`analysis.md`](analysis.md#12-what-the-analysis-cannot-see) or
   its name is a campaign's term for that boundary rather than Rust's (G8).
 - The `--ffibox` arms match the `as_ref` and `as_mut` layout accessors by name,
   which holds only where the convention does (G2).
+- `ffimap api` reads rustdoc JSON instead of the driver's build (G3), and keys
+  on crustify's anchor convention, whose grammar and kind table it fixes
+  ([`api.md`](api.md#2-c-items-and-their-stand-ins)) (G8). A crate without the
+  anchors has only unattributed surface.

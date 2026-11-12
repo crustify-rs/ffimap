@@ -56,6 +56,8 @@ ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]]
                  [--seams NAMES] [--regions NAMES] [--barriers NAMES]
                  [--sites COUNTER ...]
 ffimap diff BEFORE AFTER
+ffimap api extract RUSTDOC_JSON
+ffimap api diff BEFORE AFTER [--items KEYS] [--format json|text]
 ```
 
 | Option | Effect |
@@ -73,6 +75,20 @@ for each counter both documents carry sites for, the lines its increments were
 added at or removed from. It is how a change is checked against the crate
 before it. A difference in `scanner` is reported first, since a counter can
 move with the scanner as well as with the crate.
+
+`ffimap api` answers a different question, from rustdoc JSON rather than the
+driver: did a C item's Rust API survive the landing that wrapped, ported or
+migrated it? `extract` records, per C item named by a crustify anchor
+(``/// Wraps `fn::git_x` ``), the public signatures and trait impls of the Rust
+items standing in for it and of its handles and owners; `diff` labels each item
+`kept`, `extended`, `changed`, `removed` or `new` between two landings, and
+flags a `Wraps` that became `Replaces`. `--items` narrows it to a worklist.
+
+```sh
+cargo +nightly-2026-10-07 rustdoc -p libgit2 --lib -- -Z unstable-options --output-format json
+ffimap api extract target/doc/libgit2.json > first.json
+ffimap api diff first.json later/target/doc/libgit2.json --format text
+```
 
 ## Output
 
@@ -99,6 +115,7 @@ is test code: it has `code.tests` to itself.
 | [docs/schema.md](docs/schema.md) | the counters: what each one holds, how a record is shaped, and how a report is built from them |
 | [docs/analysis.md](docs/analysis.md) | the analysis: how a scan runs, and what each counter is decided from |
 | [docs/ffibox.md](docs/ffibox.md) | the `--ffibox` arms and the conventions they read |
+| [docs/api.md](docs/api.md) | `ffimap api`: the per-C-item API record, its rules, the diff's classes and the rustdoc JSON formats read |
 
 [examples/](examples) has full documents from three real wrappers: two that
 crustify generated, over FFmpeg and libgit2, and the hand-written git2-rs.
