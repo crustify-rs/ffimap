@@ -169,9 +169,56 @@ fn sys_crates() -> &'static HashSet<String> {
             .unwrap_or_default()
             .split(',')
             .map(|n| n.trim().replace('-', "_"))
+            .filter(|n| !n.is_empty() && !n.contains("::"))
+            .collect()
+    })
+}
+
+/// The modules of the scanned crate that hold raw bindings, for a crate whose
+/// bindings are a module of its own, not a `-sys` crate: the entries of
+/// `UM_SYS_CRATES` written `crate::<path>`, as their paths below the crate
+/// root. Their items are C's as a named crate's are (`fn.ffibox.sys`,
+/// `ty.ffibox.sys`). Named, never discovered, like the crates.
+fn sys_modules() -> &'static HashSet<String> {
+    static SYS: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
+    SYS.get_or_init(|| {
+        std::env::var("UM_SYS_CRATES")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|n| n.trim().strip_prefix("crate::").map(String::from))
             .filter(|n| !n.is_empty())
             .collect()
     })
+}
+
+/// Whether the local item `did` sits in a module `sys_modules` names, or in a
+/// module below one. Such an item is the bindings', not the crate's: it joins
+/// the inventory and drops out of every other counter, as a named crate's
+/// items do, which are another crate's and never scanned.
+fn in_sys_module(tcx: TyCtxt<'_>, did: DefId) -> bool {
+    if sys_modules().is_empty() {
+        return false;
+    }
+    // The named modules, resolved once: a path is printed per module, not per
+    // ancestor of every definition.
+    static NAMED: std::sync::OnceLock<HashSet<DefId>> = std::sync::OnceLock::new();
+    let named = NAMED.get_or_init(|| {
+        tcx.hir_crate_items(())
+            .definitions()
+            .map(|ld| ld.to_def_id())
+            .filter(|&m| {
+                tcx.def_kind(m) == DefKind::Mod && sys_modules().contains(&tcx.def_path_str(m))
+            })
+            .collect()
+    });
+    let mut cur = tcx.opt_parent(did);
+    while let Some(p) = cur {
+        if named.contains(&p) {
+            return true;
+        }
+        cur = tcx.opt_parent(p);
+    }
+    false
 }
 
 /// The function names `--seams` declared, by bare item name: `UM_SEAM_FNS`,
@@ -651,7 +698,7 @@ fn register_counters(ptr: &mut PtrTally) {
             }
         }
     }
-    if is_ffibox() && !sys_crates().is_empty() {
+    if is_ffibox() && !(sys_crates().is_empty() && sys_modules().is_empty()) {
         for k in [
             "ty.ffibox.sys.total",
             "ty.ffibox.sys.of_which.raw_ptr_in_sys.total",
@@ -767,6 +814,9 @@ fn ptr_holder_traits(tcx: TyCtxt<'_>) -> HashMap<DefId, HolderTraits> {
     let mut seam_impls: HashSet<DefId> = HashSet::new();
     let mut cell_handles: HashMap<DefId, Vec<DefId>> = HashMap::new();
     for ld in tcx.hir_crate_items(()).definitions() {
+        if in_sys_module(tcx, ld.to_def_id()) {
+            continue;
+        }
         let did = ld.to_def_id();
         if !matches!(tcx.def_kind(did), DefKind::Impl { of_trait: true }) {
             continue;
@@ -1673,6 +1723,9 @@ fn implements_ffibox_trait(tcx: TyCtxt<'_>, did: DefId) -> bool {
         if b.is_none() {
             let mut set = HashSet::new();
             for ld in tcx.hir_crate_items(()).definitions() {
+                if in_sys_module(tcx, ld.to_def_id()) {
+                    continue;
+                }
                 let imp = ld.to_def_id();
                 if !matches!(tcx.def_kind(imp), DefKind::Impl { of_trait: true }) {
                     continue;
@@ -1726,6 +1779,9 @@ struct CellTypes {
 fn cell_types(tcx: TyCtxt<'_>) -> CellTypes {
     let mut out = CellTypes::default();
     for ld in tcx.hir_crate_items(()).definitions() {
+        if in_sys_module(tcx, ld.to_def_id()) {
+            continue;
+        }
         let did = ld.to_def_id();
         if !matches!(tcx.def_kind(did), DefKind::Impl { of_trait: true }) {
             continue;
@@ -1948,6 +2004,42 @@ fn count_sys_types<'tcx>(
     // own, or a type alias's that resolves to one.
     let mut roots: HashMap<String, DefId> = HashMap::new();
     let mut behind_ptr: HashSet<DefId> = HashSet::new();
+    // One declaration of the bindings: a type, a fn, an alias or a static.
+    let mut take = |kind: DefKind, did: DefId| {
+        let mut decl = |t: Ty<'tcx>| sys_pointees(tcx, t, &mut behind_ptr);
+        match kind {
+            DefKind::Struct if is_newtype_enum(tcx, did) => {}
+            DefKind::Struct | DefKind::Union => {
+                if kind == DefKind::Struct && !types.contains(&did) {
+                    types.push(did);
+                }
+                roots.insert(tcx.item_name(did).to_string(), did);
+                for f in tcx.adt_def(did).all_fields() {
+                    decl(tcx.type_of(f.did).instantiate_identity().skip_norm_wip());
+                }
+            }
+            DefKind::Fn => {
+                if !fns.contains(&did) {
+                    fns.push(did);
+                    fn_names.insert(tcx.item_name(did).to_string());
+                }
+                let sig = tcx.fn_sig(did).skip_binder().skip_binder();
+                for t in sig.inputs_and_output {
+                    decl(t);
+                }
+            }
+            DefKind::TyAlias | DefKind::Static { .. } => {
+                let t = tcx.type_of(did).instantiate_identity().skip_norm_wip();
+                if kind == DefKind::TyAlias {
+                    if let Some(adt) = member_adt(tcx, t) {
+                        roots.entry(tcx.item_name(did).to_string()).or_insert(adt);
+                    }
+                }
+                decl(t);
+            }
+            _ => {}
+        }
+    };
     for &cnum in tcx.crates(()) {
         if !sys_crates().contains(tcx.crate_name(cnum).as_str()) {
             continue;
@@ -1964,43 +2056,25 @@ fn count_sys_types<'tcx>(
                 if did.krate != cnum {
                     continue;
                 }
-                let mut decl = |t: Ty<'tcx>| sys_pointees(tcx, t, &mut behind_ptr);
-                match kind {
-                    DefKind::Mod => modules.push(did),
-                    DefKind::Struct if is_newtype_enum(tcx, did) => {}
-                    DefKind::Struct | DefKind::Union => {
-                        if kind == DefKind::Struct && !types.contains(&did) {
-                            types.push(did);
-                        }
-                        roots.insert(tcx.item_name(did).to_string(), did);
-                        for f in tcx.adt_def(did).all_fields() {
-                            decl(tcx.type_of(f.did).instantiate_identity().skip_norm_wip());
-                        }
-                    }
-                    DefKind::Fn => {
-                        if !fns.contains(&did) {
-                            fns.push(did);
-                            fn_names.insert(tcx.item_name(did).to_string());
-                        }
-                        let sig = tcx.fn_sig(did).skip_binder().skip_binder();
-                        for t in sig.inputs_and_output {
-                            decl(t);
-                        }
-                    }
-                    DefKind::TyAlias | DefKind::Static { .. } => {
-                        let t = tcx.type_of(did).instantiate_identity().skip_norm_wip();
-                        if kind == DefKind::TyAlias {
-                            if let Some(adt) = member_adt(tcx, t) {
-                                roots.entry(tcx.item_name(did).to_string()).or_insert(adt);
-                            }
-                        }
-                        decl(t);
-                    }
-                    _ => {}
+                if kind == DefKind::Mod {
+                    modules.push(did);
+                } else {
+                    take(kind, did);
                 }
             }
         }
     }
+    // Bindings that are a module of the scanned crate: its own definitions
+    // below a named module, a re-export being another item's.
+    if !sys_modules().is_empty() {
+        for ld in tcx.hir_crate_items(()).definitions() {
+            let did = ld.to_def_id();
+            if in_sys_module(tcx, did) {
+                take(tcx.def_kind(did), did);
+            }
+        }
+    }
+    drop(take);
     let mut bump = |k: &str, did: DefId| {
         *ptr.entry(k.to_string()).or_default() += 1;
         sites.add(k.to_string(), span_site(tcx, tcx.def_span(did)));
@@ -2031,6 +2105,9 @@ fn count_sys_types<'tcx>(
     let mut seen_fns: HashSet<String> = HashSet::new();
     let mut seen_fields: HashSet<String> = HashSet::new();
     for ld in tcx.hir_crate_items(()).definitions() {
+        if in_sys_module(tcx, ld.to_def_id()) {
+            continue;
+        }
         let did = ld.to_def_id();
         if !matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn)
             || in_generated_file(tcx, tcx.def_span(did))
@@ -2199,6 +2276,9 @@ fn named_defs<'tcx>(tcx: TyCtxt<'tcx>) -> HashSet<DefId> {
     };
     let ty_of = |did: DefId| tcx.type_of(did).instantiate_identity().skip_norm_wip();
     for ld in tcx.hir_crate_items(()).definitions() {
+        if in_sys_module(tcx, ld.to_def_id()) {
+            continue;
+        }
         let did = ld.to_def_id();
         match tcx.def_kind(did) {
             DefKind::Fn | DefKind::AssocFn => {
@@ -2234,6 +2314,9 @@ fn named_defs<'tcx>(tcx: TyCtxt<'tcx>) -> HashSet<DefId> {
         }
     }
     for owner in tcx.hir_body_owners() {
+        if in_sys_module(tcx, owner.to_def_id()) {
+            continue;
+        }
         for (_, t) in tcx.typeck(owner).node_types().items_in_stable_order() {
             add(*t);
         }
@@ -2349,6 +2432,9 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
     let mut mentions: Vec<Mention> = Vec::new();
 
     for ld in tcx.hir_crate_items(()).definitions() {
+        if in_sys_module(tcx, ld.to_def_id()) {
+            continue;
+        }
         let did = ld.to_def_id();
         if !matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union)
             || in_generated_file(tcx, tcx.def_span(did))
@@ -2382,6 +2468,9 @@ fn count_cell_mentions(tcx: TyCtxt<'_>, ptr: &mut PtrTally, sites: &mut Sites) {
     // declaration has no body, so it never reaches `hir_body_owners`, and the
     // C declarations in a `-sys` crate are not this crate's choices.
     for owner in tcx.hir_body_owners() {
+        if in_sys_module(tcx, owner.to_def_id()) {
+            continue;
+        }
         let did = owner.to_def_id();
         if !matches!(tcx.def_kind(did), DefKind::Fn | DefKind::AssocFn) {
             continue;
@@ -2514,6 +2603,9 @@ impl Callbacks for MetricsCallbacks {
         // derived or written, read off the crate's trait impls.
         let mut std_impls: HashMap<DefId, HashSet<&'static str>> = HashMap::new();
         for ld in tcx.hir_crate_items(()).definitions() {
+            if in_sys_module(tcx, ld.to_def_id()) {
+                continue;
+            }
             let imp = ld.to_def_id();
             if !matches!(tcx.def_kind(imp), DefKind::Impl { of_trait: true }) {
                 continue;
@@ -2531,6 +2623,9 @@ impl Callbacks for MetricsCallbacks {
             }
         }
         for ld in tcx.hir_crate_items(()).definitions() {
+            if in_sys_module(tcx, ld.to_def_id()) {
+                continue;
+            }
             let did = ld.to_def_id();
             if matches!(tcx.def_kind(did), DefKind::Struct | DefKind::Union | DefKind::Enum)
                 && !in_generated_file(tcx, tcx.def_span(did))
@@ -2852,6 +2947,9 @@ impl Callbacks for MetricsCallbacks {
         }
 
         for owner in tcx.hir_body_owners() {
+            if in_sys_module(tcx, owner.to_def_id()) {
+                continue;
+            }
             let did = owner.to_def_id();
             let in_ffi = in_ffi_export(tcx, did);
             let exported = did.as_local().is_some_and(|l| tcx.effective_visibilities(()).is_exported(l));
@@ -3240,6 +3338,9 @@ impl Callbacks for MetricsCallbacks {
             // file (keyed by its source-map start offset) -> covered 1-based lines
             let mut covered: HashMap<u32, HashSet<usize>> = HashMap::new();
             for ld in tcx.hir_crate_items(()).definitions() {
+                if in_sys_module(tcx, ld.to_def_id()) {
+                    continue;
+                }
                 let did = ld.to_def_id();
                 let container = matches!(
                     tcx.def_kind(did),
@@ -3265,6 +3366,9 @@ impl Callbacks for MetricsCallbacks {
             // `cfg` guarantee -- a stripped item owns no body -- and the same
             // dedup, so a body overlapping its own signature line counts once.
             for owner in tcx.hir_body_owners() {
+                if in_sys_module(tcx, owner.to_def_id()) {
+                    continue;
+                }
                 let sp = tcx.hir_body_owned_by(owner).value.span.source_callsite();
                 let lo = sm.lookup_char_pos(sp.lo());
                 let hi = sm.lookup_char_pos(sp.hi());

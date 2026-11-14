@@ -51,7 +51,8 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
              "a scanned type holds through one is counted as the scanned "
              "crate's to manage. Nothing is discovered: a Cargo `links` key "
              "and a `*-sys` name both over-report, so unnamed means the peel "
-             "set is the scanned crate alone.")
+             "set is the scanned crate alone. Raw bindings that are a module "
+             "of the scanned crate are named by their path, `crate::<path>`.")
     p.add_argument(
         "--seams", type=lambda v: [n for n in v.replace(",", "\n").split() if n],
         default=None, metavar="NAMES",

@@ -62,6 +62,17 @@ Four rules decide what the Python side does with a line.
 - **`-sys` crates are skipped**, by a `*_sys` suffix or by being named in
   `--sys-crates`. Their generated bindings are not the audit subject; their
   types are still walked into, as the peel set.
+- **Bindings that are a module of the scanned crate** are named to
+  `--sys-crates` by their path, `crate::<path>`. The module's own items, and
+  those of the modules below it, join the `-sys` inventory (`ty.ffibox.sys`,
+  `fn.ffibox.sys`, and what the wrapper counters resolve against) as a named
+  crate's do, and drop out of every other counter, as a named crate's items
+  do, which are another crate's and never scanned: the bindings' own derives,
+  impls and declarations are not the crate's code, and do not count as uses
+  of the types they declare. A named crate gives the items a dependent can
+  reach; a named module gives every item it defines, private ones included.
+  Left unnamed, such a module is the crate's own code, but for the counters
+  that skip a file named `bindings.rs` or written to `OUT_DIR`.
 - **`build_script_build` is skipped.** Under `--all-targets` a build script is
   its own crate, and it builds the crate rather than being part of it. Left
   in, it adds 128 lines to libgit2-bindings' library count.

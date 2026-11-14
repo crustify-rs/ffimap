@@ -21,6 +21,22 @@ W = "ty.ffibox.wrapper.as"
 SYS = ["cells-sys"]
 
 
+# The counters whose sites lie in the bindings themselves: the inventory's.
+INVENTORY = {"ty.ffibox.sys.total", "ty.ffibox.sys.of_which.raw_ptr_in_sys.total",
+             "fn.ffibox.sys.total"}
+
+
+def _flat(tree: dict, prefix: str = "") -> dict[str, int]:
+    """The leaves of a counts tree by their dotted names."""
+    out: dict[str, int] = {}
+    for k, v in tree.items():
+        if isinstance(v, dict):
+            out.update(_flat(v, f"{prefix}{k}."))
+        else:
+            out[prefix + k] = v
+    return out
+
+
 def _driver_available() -> bool:
     """cargo on the PATH and the driver buildable, as in test_canary.
 
@@ -256,6 +272,61 @@ class CellCounterTests(unittest.TestCase):
         self.assertEqual(self.at("ty.ffibox.wrapper.fields.of_which.unique"), 7)
         # The accessors are no cells: the wrapper count stays the cells'.
         self.assertEqual(self.at("ty.ffibox.wrapper.total"), 1)
+
+    def test_a_module_of_the_crate_joins_the_inventory_when_named(self) -> None:
+        """`cells`' own `raw` module, under its feature, holds raw bindings as
+        bindgen writes them: one struct with derives and a `Default`, behind
+        a pointer of one of its two fns. Named as `crate::raw`, it joins what
+        `cells-sys` gives, and `value_or`'s alias `nope` names one of its
+        fns. Only the bindings name the struct, so it is not `used`."""
+        unnamed = scan.compose(FIXTURE, ffibox=True, sys_crates=SYS, features=["raw"])
+        named = scan.compose(FIXTURE, ffibox=True, sys_crates=[*SYS, "crate::raw"],
+                             features=["raw"])
+        self.assertEqual(named["sys_crates"], ["cells_sys", "crate::raw"])
+        before, after = _flat(unnamed["counts"]), _flat(named["counts"])
+        moved = {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)
+                 if k.startswith(("ty.ffibox.sys.", "fn.ffibox."))
+                 and ".as." not in k and after.get(k, 0) != before.get(k, 0)}
+        self.assertEqual(moved, {
+            "ty.ffibox.sys.total": 1,
+            "ty.ffibox.sys.of_which.raw_ptr_in_sys.total": 1,
+            "fn.ffibox.sys.total": 2,
+            "fn.ffibox.wrapper.total": 1,
+            "fn.ffibox.wrapper.non_trait": 1,
+            "fn.ffibox.wrapper.of_which.unique": 1})
+        alone = scan.compose(FIXTURE, ffibox=True, sys_crates=["crate::raw"],
+                             features=["raw"])["counts"]
+        self.assertEqual(alone["ty"]["ffibox"]["sys"]["total"], 1)
+        self.assertEqual(alone["fn"]["ffibox"]["sys"]["total"], 2)
+
+    def test_a_named_module_of_the_crate_leaves_every_other_counter(self) -> None:
+        """Bindings in a module are the crate's own code until the scan names
+        them: unnamed, `raw`'s derives, its `Default` and that impl's
+        `unsafe` block count as the crate's. Named, the module is read as a
+        named crate is, which is never scanned: no counter but the
+        inventory's has a site in it, and every counter reads what the crate
+        reads without the module."""
+        without = _flat(scan.compose(FIXTURE, ffibox=True, sys_crates=SYS)["counts"])
+        keys = sorted(_flat(scan.compose(FIXTURE, ffibox=True, sys_crates=SYS,
+                                         features=["raw"])["counts"]))
+
+        def in_raw(sys: list[str]) -> set[str]:
+            doc = scan.compose(FIXTURE, ffibox=True, sys_crates=sys, features=["raw"],
+                               sites=keys)
+            return {k for k, rows in doc["sites"].items()
+                    if any(str(r["file"]).endswith("raw.rs") for r in rows)}
+        self.assertTrue(in_raw(SYS) - INVENTORY, "the module, unnamed, is the crate's code")
+        self.assertEqual(in_raw([*SYS, "crate::raw"]) - INVENTORY, set())
+        named = _flat(scan.compose(FIXTURE, ffibox=True, sys_crates=[*SYS, "crate::raw"],
+                                   features=["raw"])["counts"])
+        differ = {k for k in set(without) | set(named)
+                  if without.get(k, 0) != named.get(k, 0)}
+        self.assertEqual({k for k in differ if not k.startswith(("code.", "scan."))},
+                         {"ty.ffibox.sys.total",
+                          "ty.ffibox.sys.of_which.raw_ptr_in_sys.total",
+                          "fn.ffibox.sys.total", "fn.ffibox.wrapper.total",
+                          "fn.ffibox.wrapper.non_trait",
+                          "fn.ffibox.wrapper.of_which.unique"})
 
     def test_the_sys_inventory_needs_the_crates_named(self) -> None:
         """Without `--sys-crates` there is no inventory to take, so the counts

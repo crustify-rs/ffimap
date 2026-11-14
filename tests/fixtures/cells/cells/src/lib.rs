@@ -24,6 +24,11 @@ use core::ptr::NonNull;
 use cells_sys::raw_widget;
 use ffibox::{CBorrowedPtr, CBox, CCell, CDrop, CNew};
 
+/// Raw bindings that are a module of this crate (`crate::raw`), under the feature `raw`
+/// so that the scans that do not ask for it see none of it.
+#[cfg(feature = "raw")]
+pub mod raw;
+
 /// The layout newtype, and the fixture's one cell.
 ///
 /// wrapper.pub, wrapper.of_which.no_seam_trait.pub -- its handles implement

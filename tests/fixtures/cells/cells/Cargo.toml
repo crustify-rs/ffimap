@@ -6,3 +6,7 @@ edition = "2021"
 [dependencies]
 ffibox = { path = "../ffibox-stub" }
 cells-sys = { path = "../cells-sys" }
+
+[features]
+# The in-crate raw bindings of `src/raw.rs`.
+raw = []

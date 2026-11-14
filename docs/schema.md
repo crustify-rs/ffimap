@@ -337,7 +337,8 @@ Every function the crate defines, the methods of its trait impls included
   inside a `Result`, an `Option` or a reference included
   ([analysis 9.4](analysis.md#94-functions-and-methods)): whether the
   vocabulary actually crosses the interface.
-- `fn.ffibox.sys.total` -- the fns the crates `--sys-crates` names declare:
+- `fn.ffibox.sys.total` -- the fns the crates `--sys-crates` names declare,
+  and those of the scanned crate's own modules it names as `crate::<path>`:
   the C functions the bindings expose, macro shims included. No `{pub,priv}`:
   they are another crate's.
 - `fn.ffibox.sys.of_which.used` -- of those, the ones the crate's compiled code
