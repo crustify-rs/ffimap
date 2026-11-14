@@ -275,7 +275,13 @@ pub fn bad_anchor() {}
 /// An anchor without its alias.
 ///
 /// Wraps `fn::no_alias`
-pub fn no_alias() {}
+pub fn lacks_alias() {}
+
+/// An anchor whose path is the item's own name: rustdoc rejects that alias, so
+/// it carries none and is no defect.
+///
+/// Wraps `fn::same_name`
+pub fn same_name() {}
 
 /// Unattributed: no anchor reaches it, and it loses `Drop` after.
 pub struct Loose;

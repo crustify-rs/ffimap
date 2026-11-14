@@ -55,7 +55,9 @@ What the extract reports about the anchors themselves, under `anchors`:
   `st`, `un`, `enm`, `fnp`, `tdf`, `fld`, `glb`, `mac`), counted by kind. They
   are keyed as written.
 - `without_alias`: anchors on an item with no `#[doc(alias)]` naming the
-  anchor's path.
+  anchor's path. An item whose own name is the anchor's path is left out:
+  rustdoc rejects an alias equal to its item's name, and the name already
+  answers a search for it.
 
 ## 3. Locators and paths
 

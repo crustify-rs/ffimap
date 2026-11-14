@@ -122,7 +122,9 @@ class _Extractor:
             for verb, k, path in good:
                 if k not in KINDS:
                     self.unknown_kinds[k] += 1
-                if path not in al:
+                # rustdoc rejects an alias equal to its item's name, which
+                # already answers a search for it: such an item carries none.
+                if path not in al and path != item.get("name"):
                     self.without_alias.append({"item": self.locator(iid),
                                                "anchor": f"{k}::{path}"})
 

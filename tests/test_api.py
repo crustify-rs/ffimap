@@ -517,7 +517,8 @@ class FixtureTests(unittest.TestCase):
             "fld::foo.size": "kept", "fld::pair.a": "kept", "fld::pair.b": "kept",
             "fn::foo_free": "kept", "fn::foo_fresh": "new", "fn::foo_len": "kept",
             "fn::foo_new": "kept", "fn::foo_old": "removed", "fn::foo_set": "changed",
-            "fn::no_alias": "kept", "st::cell": "changed", "st::foo": "kept",
+            "fn::no_alias": "kept", "fn::same_name": "kept", "st::cell": "changed",
+            "st::foo": "kept",
             "st::point": "extended"})
         self.assertEqual(self.out["items"]["fn::foo_len"]["anchor"],
                          {"before": "Wraps", "after": "Replaces"})
@@ -564,7 +565,7 @@ class FixtureTests(unittest.TestCase):
     def test_anchor_defects_are_reported(self) -> None:
         self.assertEqual(self.before["anchors"]["malformed"][0]["item"], "apifix::bad_anchor")
         self.assertEqual(self.before["anchors"]["without_alias"],
-                         [{"anchor": "fn::no_alias", "item": "apifix::no_alias"}])
+                         [{"anchor": "fn::no_alias", "item": "apifix::lacks_alias"}])
         self.assertEqual(self.before["items"]["st::foo"]["associated"]["apifix::foo::FooRef"]
                          ["via"], ["assoc_type"])
 
