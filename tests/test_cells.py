@@ -9,7 +9,6 @@ land in these counters at all.
 Needs the driver, so it skips where cargo and the dated nightly are missing.
 """
 
-import shutil
 import unittest
 from pathlib import Path
 
@@ -38,17 +37,12 @@ def _flat(tree: dict, prefix: str = "") -> dict[str, int]:
 
 
 def _driver_available() -> bool:
-    """cargo on the PATH and the driver buildable, as in test_canary.
-
-    Kept local rather than imported: `tests` is not a package, so a
-    cross-module import works under one runner and not the other.
-    """
-    if shutil.which("cargo") is None:
+    """cargo and the dated nightly present, the only reasons to skip. With
+    both, the driver is built here, and a build that fails raises: it fails
+    this module, where it once skipped it and the suite reported success."""
+    if not measure.driver_prerequisites():
         return False
-    try:
-        measure._driver_bin()
-    except Exception:
-        return False
+    measure._driver_bin()
     return True
 
 

@@ -8,3 +8,9 @@ edition = "2021"
 [[bin]]
 name = "ffimap-driver"
 path = "src/main.rs"
+
+# The driver is a workspace of its own, wherever its sources sit: under a
+# directory that holds another Cargo workspace, a copy inside a scanned tree
+# for one, cargo would otherwise refuse to build a package that workspace does
+# not list.
+[workspace]

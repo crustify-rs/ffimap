@@ -373,6 +373,18 @@ def nest_ptr(flat: dict[str, int]) -> dict:
     return in_order(tree)
 
 
+def driver_prerequisites() -> bool:
+    """Whether the driver can be built here at all: `cargo` on the PATH and
+    the dated nightly installed. Where both are, a driver that does not build
+    is a defect, not a missing prerequisite: the suites that need the driver
+    skip on this alone, so that a broken build fails them."""
+    if shutil.which("cargo") is None or shutil.which("rustup") is None:
+        return False
+    r = subprocess.run(["rustup", "run", _TOOLCHAIN, "rustc", "--version"],
+                       capture_output=True, text=True)
+    return r.returncode == 0
+
+
 def _driver_bin() -> Path:
     """Build the driver if it is not current, and return its path.
 

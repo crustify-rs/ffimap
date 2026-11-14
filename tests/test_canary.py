@@ -7,11 +7,10 @@ defect as one that fails to move the counter it should, and a unit test over
 the classifier functions would catch neither.
 
 Needs the driver, so it needs cargo and the dated nightly. It skips rather
-than fails where those are missing; `measure.DriverUnavailable` is how that is
-reported.
+than fails where those are missing. With both present, a driver that does not
+build raises `measure.DriverUnavailable` and fails this module.
 """
 
-import shutil
 import unittest
 from pathlib import Path
 
@@ -21,19 +20,12 @@ FIXTURE = Path(__file__).parent / "fixtures" / "canary"
 
 
 def _driver_available() -> bool:
-    """cargo on the PATH and the driver buildable.
-
-    `_driver_bin` alone is not the precondition: it can hand back a path
-    while `cargo metadata`, which the scan runs next, still fails with
-    FileNotFoundError. Checking the executable first makes the skip fire on a
-    host without a Rust toolchain instead of erroring in setUpClass.
-    """
-    if shutil.which("cargo") is None:
+    """cargo and the dated nightly present, the only reasons to skip. With
+    both, the driver is built here, and a build that fails raises: it fails
+    this module, where it once skipped it and the suite reported success."""
+    if not measure.driver_prerequisites():
         return False
-    try:
-        measure._driver_bin()
-    except Exception:
-        return False
+    measure._driver_bin()
     return True
 
 
