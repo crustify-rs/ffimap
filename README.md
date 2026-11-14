@@ -75,7 +75,8 @@ and prints the counters that moved, with their values before and after, and,
 for each counter both documents carry sites for, the lines its increments were
 added at or removed from. It is how a change is checked against the crate
 before it. A difference in `scanner` is reported first, since a counter can
-move with the scanner as well as with the crate.
+move with the scanner as well as with the crate; two scanners recorded only by
+package version are reported too, since a version names no one scanner.
 
 `ffimap api` answers a different question, from rustdoc JSON rather than the
 driver: did a C item's Rust API survive the landing that wrapped, ported or
@@ -102,7 +103,7 @@ The JSON document has these top-level fields:
 |---|---|
 | `crate_path` | The scanned workspace. |
 | `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's, as `--sys-crates` named them. |
-| `scanner` | What scanned: the ffimap commit, the pinned toolchain, and the `--ffibox`, `--seams`, `--regions` and `--barriers` inputs. A figure is comparable with another only under the same ones. |
+| `scanner` | What scanned: the ffimap commit (with the hash of any uncommitted changes, or the package version outside a checkout of its own), the pinned toolchain, and the `--ffibox`, `--seams`, `--regions` and `--barriers` inputs. A figure is comparable with another only under the same ones. |
 | `counts` | The counters of `docs/schema.md`, or `null` when the workspace could not be built. Every counter lives here; there is no second, flat block. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `sites` | With `--sites`: source locations per requested counter. |

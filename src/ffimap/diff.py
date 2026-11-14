@@ -9,6 +9,8 @@ Pure: it reads two documents and returns a third, and runs no scan.
 """
 from __future__ import annotations
 
+from .measure import names_one_scanner
+
 
 def leaves(node: dict | None, path: str = "") -> dict[str, int]:
     """Every leaf of a counter tree, by its dotted path."""
@@ -31,7 +33,10 @@ def diff(before: dict, after: dict) -> dict:
 
     `scanner` holds both scanners when they differ, since a counter that moved
     under a different scanner may have moved for the scanner's sake; `null`
-    when they agree. `counts` holds every leaf whose value differs, with its
+    when they agree and each names one scanner. A `scanner.ffimap` that is a
+    package version, or `unknown`, names none (`measure.names_one_scanner`):
+    two documents that agree on it are reported as under scanners not known
+    to be the same. `counts` holds every leaf whose value differs, with its
     value before and after and the change, a leaf only one side has reading
     0 on the other. `sites` holds, for every counter both documents list
     sites for, the files whose increments changed, with the lines added and
@@ -62,6 +67,8 @@ def diff(before: dict, after: dict) -> dict:
                          "added": sorted(la - lb), "removed": sorted(lb - la)})
         if rows:
             sites[k] = rows
-    scanner = (None if before.get("scanner") == after.get("scanner")
-               else {"before": before.get("scanner"), "after": after.get("scanner")})
+    sb, sa = before.get("scanner"), after.get("scanner")
+    same = sb == sa and all(
+        isinstance(s, dict) and names_one_scanner(s.get("ffimap")) for s in (sb, sa))
+    scanner = None if same else {"before": sb, "after": sa}
     return {"scanner": scanner, "counts": counts, "sites": sites}

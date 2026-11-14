@@ -15,6 +15,8 @@ ffimap's but was produced differently is not.
 """
 from __future__ import annotations
 
+import re
+import hashlib
 import json
 import os
 import shutil
@@ -105,6 +107,47 @@ class DriverUnavailable(Exception):
 # leaf, not to a parent.
 
 
+def own_revision(package: Path) -> str | None:
+    """The commit of the checkout `package` (`src/ffimap`) is the source of,
+    or `None` where it is no checkout of ffimap's own.
+
+    A copy of ffimap that is no repository, nested inside another one, has
+    that repository's HEAD, which says nothing of the scanner: the commit
+    counts only where the repository's top is ffimap's, two levels above the
+    package. Tracked changes not yet committed make it
+    `<commit>+dirty.<hash>`, since the commit below them is not what scanned:
+    the hash is of the changes, so that two scanners named alike are alike.
+    """
+    def git(*args: str) -> str | None:
+        try:
+            r = subprocess.run(["git", "-C", str(package), *args],
+                               capture_output=True, text=True)
+        except OSError:
+            return None
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    top = git("rev-parse", "--show-toplevel")
+    if top is None or Path(top).resolve() != package.parents[1].resolve():
+        return None
+    rev = git("rev-parse", "HEAD")
+    if rev is None:
+        return None
+    changes = git("--no-optional-locks", "diff", "HEAD", "--binary")
+    if not changes:
+        return rev
+    return f"{rev}+dirty.{hashlib.sha256(changes.encode()).hexdigest()[:12]}"
+
+
+def names_one_scanner(revision: object) -> bool:
+    """Whether a `scanner.ffimap` value names one scanner: a bare commit, or a
+    commit with the hash of its uncommitted changes. A package version, or
+    `unknown`, does not: every copy that is no checkout of its own records
+    the same one, whatever its source, so two documents that agree on it may
+    still have been scanned differently."""
+    return isinstance(revision, str) and re.fullmatch(
+        r"[0-9a-f]{40}(\+dirty\.[0-9a-f]{12})?", revision) is not None
+
+
 def scanner() -> dict:
     """What scanned, for a document to carry beside what it found.
 
@@ -115,16 +158,11 @@ def scanner() -> dict:
     crate from a change in the scanner -- so the scan records itself rather
     than relying on a file beside it that can drift from it.
 
-    The commit where ffimap is a git checkout, its version otherwise.
+    The commit where ffimap is a checkout of its own, marked where it has
+    changes not committed; its version otherwise, which names no one scanner
+    (`names_one_scanner`).
     """
-    rev = None
-    try:
-        r = subprocess.run(["git", "-C", str(Path(__file__).resolve().parent),
-                            "rev-parse", "HEAD"], capture_output=True, text=True)
-        if r.returncode == 0:
-            rev = r.stdout.strip()
-    except OSError:
-        pass
+    rev = own_revision(Path(__file__).resolve().parent)
     if rev is None:
         from importlib.metadata import PackageNotFoundError, version
         try:

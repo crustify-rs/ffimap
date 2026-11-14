@@ -647,7 +647,10 @@ ffimap commit, the toolchain, `--sys-crates` (which decides what
 `ty.storing_raw_ptr` admits), `--seams` (which decides what the `seam` shares
 and `casted_to.local_seam` can see) and any framework the crate is built on.
 The `scanner` and `sys_crates` fields carry all of it, which is why they are in
-the document rather than beside it
+the document rather than beside it. `scanner.ffimap` names one scanner only as
+a commit, bare or with the hash of its uncommitted changes: a package version
+is what every copy outside a checkout of its own records, so `ffimap diff`
+reports two such documents as under scanners not known to be the same
 ([analysis 1](analysis.md#1-determinism-and-what-it-rests-on)).
 
 A counter added or a rule corrected moves figures too. The ones already known

@@ -5,8 +5,12 @@ import unittest
 from ffimap import diff
 
 
+# A `scanner.ffimap` that names one scanner: a commit.
+COMMIT = "a" * 40
+
+
 def doc(counts, sites=None, scanner=None):
-    d = {"counts": counts, "scanner": scanner or {"ffimap": "x"}}
+    d = {"counts": counts, "scanner": scanner or {"ffimap": COMMIT}}
     if sites is not None:
         d["sites"] = sites
     return d
@@ -36,6 +40,19 @@ class DiffTests(unittest.TestCase):
             {"file": "a.rs", "delta": 1, "added": [7], "removed": []},
             {"file": "b.rs", "delta": 1, "added": [1], "removed": []},
         ])
+
+    def test_scanners_that_name_none_are_never_the_same(self) -> None:
+        """A package version, or `unknown`, is what every copy that is no
+        checkout of its own records: two documents that agree on it are
+        reported, not passed as scanned alike. A commit, bare or with the
+        hash of its uncommitted changes, names one scanner."""
+        for rev in ("0.1.0", "unknown", COMMIT + "+dirty"):
+            a = doc({}, scanner={"ffimap": rev})
+            self.assertEqual(diff.diff(a, a)["scanner"],
+                             {"before": {"ffimap": rev}, "after": {"ffimap": rev}}, rev)
+        for rev in (COMMIT, COMMIT + "+dirty." + "b" * 12):
+            a = doc({}, scanner={"ffimap": rev})
+            self.assertIsNone(diff.diff(a, a)["scanner"], rev)
 
     def test_a_scanner_change_is_reported(self) -> None:
         a, b = doc({}, scanner={"ffimap": "1"}), doc({}, scanner={"ffimap": "2"})

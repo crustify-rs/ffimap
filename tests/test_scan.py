@@ -113,6 +113,55 @@ class DriverSuiteSkipTests(unittest.TestCase):
                 self.load(name)
 
 
+class OwnRevisionTests(unittest.TestCase):
+    """`scanner.ffimap` names the commit that scanned, or no commit."""
+
+    def repo(self, root: Path) -> str:
+        import subprocess
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c",
+                                   "user.email=t@t", *args], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        root.mkdir(parents=True, exist_ok=True)
+        git("init", "-q")
+        (root / "tracked").write_text("1\n")
+        git("add", "-A")
+        git("commit", "-qm", "init")
+        return git("rev-parse", "HEAD")
+
+    def test_a_checkout_of_its_own_gives_its_commit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            top = Path(tmp).resolve() / "ffimap"
+            package = top / "src" / "ffimap"
+            package.mkdir(parents=True)
+            (package / "measure.py").write_text("")
+            head = self.repo(top)
+            self.assertEqual(measure.own_revision(package), head)
+
+    def test_uncommitted_changes_are_marked(self) -> None:
+        with TemporaryDirectory() as tmp:
+            top = Path(tmp).resolve() / "ffimap"
+            package = top / "src" / "ffimap"
+            package.mkdir(parents=True)
+            head = self.repo(top)
+            (top / "tracked").write_text("2\n")
+            two = measure.own_revision(package)
+            self.assertRegex(two, f"^{head}\\+dirty\\.[0-9a-f]{{12}}$")
+            self.assertTrue(measure.names_one_scanner(two))
+            self.assertEqual(measure.own_revision(package), two)
+            (top / "tracked").write_text("3\n")
+            self.assertNotEqual(measure.own_revision(package), two)
+
+    def test_a_copy_nested_in_another_repository_gives_none(self) -> None:
+        """The enclosing repository's HEAD is not the scanner's revision."""
+        with TemporaryDirectory() as tmp:
+            outer = Path(tmp).resolve() / "campaign"
+            self.repo(outer)
+            package = outer / "tmp" / "copy" / "src" / "ffimap"
+            package.mkdir(parents=True)
+            self.assertIsNone(measure.own_revision(package))
+
 
 if __name__ == "__main__":
     unittest.main()

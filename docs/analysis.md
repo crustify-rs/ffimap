@@ -155,7 +155,7 @@ among the sites of a type or impl counter is that, not a miscount.
 |---|---|
 | `crate_path` | the scanned workspace |
 | `sys_crates` | the peel set it ran with |
-| `scanner` | what scanned: `ffimap` (its commit, or its version outside a checkout), `toolchain`, `ffibox`, `seams`, `regions`, `barriers`, `features` |
+| `scanner` | what scanned: `ffimap` (its commit, with `+dirty.<hash of the changes>` where tracked changes are not committed, or its version outside a checkout of its own, which names no one scanner), `toolchain`, `ffibox`, `seams`, `regions`, `barriers`, `features` |
 | `counts` | the counter tree, or `null` |
 | `counts_unavailable` | why `counts` is `null`, otherwise `null` |
 | `sites` | with `--sites` only |
