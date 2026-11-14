@@ -115,8 +115,8 @@ to, such as its unsafe FFI. ffimap reports the unsafe blocks by the region
 they sit in, and reports apart the unsafe blocks and fns that sit outside
 every region.
 
-**`--barriers`.** A barrier is a helper that calls `catch_unwind` for its
-caller. A foreign-ABI fn that calls a barrier counts as catching a panic, as
+**`--barriers`.** A barrier is one of the crate's own panic barriers: a
+helper that calls `catch_unwind` for its caller. A foreign-ABI fn that calls a barrier counts as catching a panic, as
 one that calls `catch_unwind` does.
 
 **`--ffibox`.** This option turns on the arms of ffibox's vocabulary, which
@@ -149,19 +149,21 @@ are reported too, because a version does not identify one scanner.
 ### Track a C item's Rust API
 
 `ffimap api` answers a different question, from rustdoc JSON instead of the
-driver: did a C item's Rust API survive the change that wrapped, ported or
-migrated the item?
+driver: did a C item's Rust API survive the landing that wrapped, ported or
+migrated the item? A landing is a change as it is merged into the crate.
 
 It finds the Rust items that stand in for a C item by the doc-comment anchors
-that [crustify](https://github.com/crustify-rs/crustify) writes, such as
+of [crustify](https://github.com/crustify-rs/crustify)'s convention, such as
 ``/// Wraps `fn::git_x` ``.
 
 - `ffimap api extract` records, for each C item an anchor names:
   - the public signatures and trait impls of the Rust items that stand in for
     it, and of its handles and owners; and
   - the contract a consumer may rely on, whatever form a handle takes.
-- `ffimap api diff` compares two such records, and labels each item `kept`,
-  `extended`, `changed`, `removed` or `new`. It compares by the contract, or,
+- `ffimap api diff` compares two such records of one crate: one from the
+  item's first landing, and one from a later landing. It takes two extracts,
+  or two rustdoc JSON documents, which it extracts first. It labels each item
+  `kept`, `extended`, `changed`, `removed` or `new`. It compares by the contract, or,
   with `--raw`, by the signatures as they stand. It also flags a `Wraps`
   anchor that became `Replaces`.
 - `--dep` adds ffibox's rustdoc JSON, so that owners that alias ffibox's types
