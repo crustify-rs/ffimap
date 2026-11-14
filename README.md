@@ -206,7 +206,7 @@ itself.
 | [docs/analysis.md](docs/analysis.md) | The analysis: how a scan runs, and what each counter is decided from. |
 | [docs/ffibox.md](docs/ffibox.md) | The `--ffibox` arms and the conventions they read. |
 | [docs/api.md](docs/api.md) | `ffimap api`: the per-C-item API record, its rules, the diff's classes and the rustdoc JSON formats it reads. |
-| [docs/goals.md](docs/goals.md) | For contributors: what ffimap is for, the goals a change to it is judged against, and what it does not do. |
+| [docs/goals.md](docs/goals.md) | What ffimap is for, the goals a change to it is judged against, and what it does not do. |
 
 [examples/](examples) has full documents from three real wrappers: two that
 crustify generated, over FFmpeg and libgit2, and the hand-written git2-rs.
