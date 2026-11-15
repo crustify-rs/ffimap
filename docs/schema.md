@@ -33,8 +33,13 @@ Some rows are present only with a flag:
 
 - A row that names `ffibox`, a `<trait>` or a `<primitive>` is present only
   under `--ffibox`.
-- An `of_which.seam` row is present only with `--seams`.
+- An `of_which.seam` row is present only with `--seams`, and so is a
+  `raw_ptr.casted_to.local_seam` row.
 - A `region` or `outside_regions` row is present only with `--regions`.
+- The rows read against the `-sys` inventory need `--sys-crates` to name a
+  crate or a module as well as `--ffibox`. They are the
+  `ty.ffibox.sys.of_which` rows, the `ty.ffibox.wrapper.fields` rows and every
+  `fn.ffibox` row.
 
 Without its flag, such a row is absent rather than zero
 ([2.3](#23-zero-and-absent)).
@@ -248,16 +253,17 @@ The types the crate defines, by what they hold and what they declare about it.
   -- of those, the receivers of a `ref_forming` std trait's method, which
   returns a reference that the impl chose.
 - `ty.ffibox.wrapper.as.borrowed.ffibox.{pub,priv}` -- the mentions held by an
-  ffibox borrow: `CBorrowedPtr`, `CSlice`, `CSliceMut`, `CGuardedRef`,
-  `CGuard`.
+  ffibox primitive whose shape is `borrow` or `slice`, such as `CBorrowedPtr`,
+  `CSlice` or `CGuard`.
+  [ffibox.md](ffibox.md#81-mentions-by-what-holds-them) names every one.
 - `ty.ffibox.wrapper.as.borrowed.ffibox.of_which.{field,fn_sig}.{pub,priv}` --
   of those, by where they sit.
 - `ty.ffibox.wrapper.as.owned.std.{pub,priv}` -- the mentions held by a
   standard-library owner of its own storage (`Box`, `Vec`, a map).
 - `ty.ffibox.wrapper.as.owned.std.of_which.{field,fn_sig}.{pub,priv}` -- of
   those, by where they sit.
-- `ty.ffibox.wrapper.as.owned.ffibox.{pub,priv}` -- the mentions held by an
-  ffibox owner: `CBox`, `CArc`, `CVec`, `CVal`.
+- `ty.ffibox.wrapper.as.owned.ffibox.{pub,priv}` -- the mentions held by any
+  other ffibox primitive, such as `CBox`, `CArc`, `CVec` or `CVal`.
 - `ty.ffibox.wrapper.as.owned.ffibox.of_which.{field,fn_sig}.{pub,priv}` --
   of those, by where they sit.
 - `ty.ffibox.wrapper.as.by_val.{pub,priv}` -- the mentions with nothing above
@@ -282,8 +288,10 @@ The types the crate defines, by what they hold and what they declare about it.
 - `ty.ffibox.wrapper.fields.of_which.unique` -- the distinct member paths that
   those fns name.
 - `ty.ffibox.sys.total` -- the structs that the crates named by `--sys-crates`
-  declare: the C aggregates that the bindings expose. It has no `{pub,priv}`
-  split, because they are another crate's types.
+  declare, and the structs of the scanned crate's own modules that
+  `--sys-crates` names as `crate::<path>`: the C aggregates that the bindings
+  expose. It has no `{pub,priv}` split, because they are the bindings'
+  types and not the crate's.
 - `ty.ffibox.sys.of_which.raw_ptr_in_sys.total` -- of those, the ones that a
   `-sys` declaration puts behind a raw pointer. The declaration is a
   function's signature, a field, a callback typedef's parameters, or a member
@@ -382,7 +390,7 @@ Every function the crate defines, the methods of its trait impls included
   declare, and the fns of the scanned crate's own modules that `--sys-crates`
   names as `crate::<path>`. These are the C functions that the bindings
   expose, macro shims included. It has no `{pub,priv}` split, because they are
-  another crate's.
+  the bindings' and not the crate's.
 - `fn.ffibox.sys.of_which.used` -- of those, the ones that the crate's
   compiled code names, by calling one or by coercing it to a pointer.
 - `fn.ffibox.wrapper.{non_trait,other_trait}` -- the crate's fns annotated as
@@ -530,7 +538,10 @@ hold in the head. So the driver registers every path that it can emit before
 the passes run, and the passes count up from there.
 
 What is absent is what the flags did not turn on: the ffibox arms without
-`--ffibox`, and the `of_which.seam` shares without `--seams`. That absence is
+`--ffibox`, the `of_which.seam` shares and `casted_to.local_seam` without
+`--seams`, the region rows without `--regions`, and the rows read against the
+`-sys` inventory without `--sys-crates` ([section 1](#1-the-counters) lists
+them). That absence is
 a different statement, and a deliberate one. A `0` there would say that the
 scan looked and found none, when it did not look.
 
@@ -553,7 +564,8 @@ A record's children are written in a declared order, most salient first:
 5. `of_which` last, since a share is read against the partition that it cuts
    across.
 
-The prefixes come in this document's order: `raw_ptr`, `ty`, `fn`, `code`.
+The prefixes come in this document's order: `raw_ptr`, `ty`, `fn`, `static`,
+`code`.
 
 The driver emits a sorted map, so the alternative is alphabetical: `fn` would
 read `{safe, sig, total, unsafe}`, with the denominator in the middle.
@@ -701,8 +713,8 @@ how much is their lifecycle.
 **Whose shape the pointers in trait impls are.** Read `fn_sig_trait_impl`
 through its `of_which` arms, never bare. One crate's positions are a
 convention's lifecycle strategies, another's are its own private helpers, and
-a third's are one local conversion trait. The bare figure is the same for all
-three.
+a third's are one local conversion trait. The bare figure does not tell the
+three apart.
 
 **The test code, beside the library and never added to it.**
 `code.tests.loc.total` against `code.loc.total` is how much of the tree is

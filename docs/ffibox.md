@@ -1,8 +1,10 @@
 # The ffibox arms
 
 This document describes what `--ffibox` adds, and the conventions each arm
-reads. These are the only conditional counters in the tree: without the flag
-they are absent, not zero.
+reads. These counters are conditional: without the flag they are absent, not
+zero. Some of them need `--sys-crates` as well.
+[`schema.md`](schema.md#1-the-counters) lists those, and the rows that
+`--seams` and `--regions` turn on.
 
 This document owns the convention: what ffibox's vocabulary is, and how a
 cell, a handle, a role, a seam and an adoption are identified from it. Two
@@ -62,9 +64,10 @@ fn.ffibox.wrapper.policy.<trait>
 fn.ffibox.wrapper.of_which.unique
 fn.ffibox.sys.total
 fn.ffibox.sys.of_which.used
+fn.unsafe.of_which.in_trait_impl.ffibox.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.{safe,unsafe}.{pub,priv}
 raw_ptr.fn_sig_trait_impl.of_which.ffibox.of_which.<trait>
-raw_ptr.casted_to.ffibox.{borrow,slice,string,owner,other}
+raw_ptr.casted_to.ffibox.{borrow,slice,string,owner}
 raw_ptr.surrendered.ffibox.{borrow,slice,string,owner}
 fn.extern_abi.of_which.{ffibox_sig,ffibox_macro}.{pub,priv}
 code.fn_ptr.extern_abi.ffibox
@@ -91,12 +94,22 @@ layout types, 86 on shared handles, 103 on exclusive handles and 119 on
 everything else. The handles outnumber the layout types, which is what a
 convention that routes every field access through them implies.
 
-The role is read from `CCell`'s own `Ref<'a>` and `Mut<'a>` associated types,
-**not** from the seam trait a type implements. `define_ctype!` generates
+The role is read from two places. A type's own impls come first: an impl of
+`CCell` makes it `layout`, and an impl of `CRefSeam`, `CMutSeam` or
+`CLockedSeam` makes it `ref`, `mut` or `locked`. When a type implements more
+than one of the four, the last such impl that the driver visits decides, which
+in a file without macros is the one written last. A type that implements none
+of the four is `ref` or `mut` when a cell's own `Ref<'a>` or `Mut<'a>`
+associated type names it. When both name it, or two cells do, the first one
+visited decides. `locked` is read from `CLockedSeam` alone, because `CCell`
+names no locked handle.
+
+The associated types are read, **not** the seam traits alone, for this
+reason. `define_ctype!` generates
 `CRefSeam` and `CMutSeam` only for a cell with no parameters of its own,
 because its pattern takes a bare `$name:ident`. So a lifetime-carrying cell
-such as `Blob<'r>` hand-writes `CCell` and no seam at all. Reading the seams
-would therefore leave every hand-written cell's handles under `other`: 49
+such as `Blob<'r>` hand-writes `CCell` and no seam at all. Reading only the
+seams would therefore leave every hand-written cell's handles under `other`: 49
 `*Ref` and 40 `*Mut` blocks on libgit2-bindings. The associated types name the
 handles whatever wrote the impl.
 
@@ -143,7 +156,8 @@ and their handles' two seams, three per cell.
 Each group's `of_which.<trait>.{handwritten,macro}` splits an impl by whether a
 generator wrote it. ffibox ships `define_ctype!` and the
 `impl_c*!` family (`impl_cdrop!`, `impl_cdupclone!`, `impl_cdispose!`,
-`impl_clendrop!`, `impl_clenclone!`, `impl_crefclone!`, `impl_cguarded!`). So
+`impl_clendrop!`, `impl_clenclone!`, `impl_crefclone!` and `impl_cguarded!`
+among them). So
 an impl either carries expansion context or was typed out, and
 `Span::from_expansion()` decides it exactly.
 
@@ -162,9 +176,11 @@ This arm is derived, not hand-written. The adoption methods are `from_raw`,
 vocabulary and bucketed by the primitive's group:
 
 - `CStrBox` goes to `string`;
-- the other owners go to `owner`;
-- `CBorrowedPtr` goes to `borrow`; and
-- `CSlice` and `CSliceMut` go to `slice`.
+- the other owners go to `owner`, and so do the callables `CPayload`,
+  `CFnBox` and `CCallbackBox`;
+- `CBorrowedPtr`, `CGuardedRef` and `CGuard` go to `borrow`, and so do the
+  callables `CClosure`, `CFn` and `CCallback`; and
+- `CSlice`, `CSliceMut` and `CNullTerminated` go to `slice`.
 
 `as_ref`, `as_slice`, `as_c_str` and `as_bytes` are excluded: they take `&self`
 on an owner, so they are owner-to-borrow, not raw-to-borrow. `as_ptr`,
@@ -199,7 +215,8 @@ over it at all.
 are these counters:
 
 - `ty.ffibox.sys.total` counts the structs that the crates `--sys-crates`
-  names declare. A C enum is out, whether bindgen writes it as a Rust enum or
+  names declare. A module of the scanned crate named as `crate::<path>` adds
+  its structs. A C enum is out, whether bindgen writes it as a Rust enum or
   as a newtype over its integer. A union, which takes no cell, is out too.
 - `of_which.raw_ptr_in_sys` counts the structs that a `-sys` declaration puts
   behind a raw pointer: a function's signature, a field, a callback typedef's
@@ -244,9 +261,9 @@ Each mention is in one arm, by the innermost holder above it:
 | arm | holder |
 |---|---|
 | `borrowed.std` | a reference, `&Foo`, `&[Foo]` |
-| `borrowed.ffibox` | `CBorrowedPtr`, `CSlice`, `CSliceMut`, `CGuardedRef`, `CGuard` |
+| `borrowed.ffibox` | a primitive that [§6](#6-casted_toffibox) buckets under `borrow` or `slice`: `CBorrowedPtr`, `CSlice`, `CSliceMut`, `CNullTerminated`, `CGuardedRef`, `CGuard`, `CClosure`, `CFn`, `CCallback` |
 | `owned.std` | a std type with storage of its own: `Box`, `Rc`, `Arc`, `Vec` and the other collections |
-| `owned.ffibox` | `CBox`, `CArc`, `CVec`, `CVal` |
+| `owned.ffibox` | every other primitive: `CBox`, `CBoxState`, `CArc`, `CStrBox`, `CVec`, `CVal`, `CPayload`, `CFnBox`, `CCallbackBox` |
 | `by_val` | nothing: the cell's bytes sit in the mention's own place |
 
 The innermost holder wins, so the arms partition `as`:
@@ -350,9 +367,9 @@ dangles and no owner runs the C destructor. Those are the cases `CBox` and
 `Box<Foo>` and `Vec<Foo>` hold their cells in storage of their own.
 
 The std types that merely *are* the value are no holders: `Option`, `Result`,
-`Cell`, `Mutex`, `ManuallyDrop`, a tuple, an array. They are no holders because
-the cell sits in the mention's own place exactly as a bare `Foo` would, and
-`by_val` says it.
+`Cell`, `Mutex`, `ManuallyDrop`, `MaybeUninit`, a tuple, an array. They are no
+holders because the cell sits in the mention's own place exactly as a bare
+`Foo` would, and `by_val` says it.
 Admitting them as owners would put 31 of libgit2-bindings'
 `Result<Foo, Error>` returns in `owned.std`, and an arm whose figure is a
 crate's error convention measures nothing.

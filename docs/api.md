@@ -76,8 +76,8 @@ The extract reports the following about the anchors themselves, under
 
 - `malformed`: the lines that try to be an anchor and are not one. Such a line
   has the verb and a `kind::` path, but it sits inside a sentence, has a
-  trailing period, lacks the backticks, or has a path that is not names. A
-  malformed line keys nothing.
+  trailing period, lacks the backticks, has a path that is not names, or has
+  a `fld` path with no member. A malformed line keys nothing.
 - `unknown_kinds`: the anchors whose kind is not one of the convention's
   (`fn`, `st`, `un`, `enm`, `fnp`, `tdf`, `fld`, `glb`, `mac`), counted by
   kind. They are keyed as written.
@@ -305,6 +305,8 @@ change to it is reported though no C item owns it.
 - `anchored` counts those items that carry an anchor.
 - `c_items` and `c_items_by_kind` count the keys.
 - `stand_ins` counts the records.
+- `unreachable_stand_ins` counts the stand-in records whose `paths` is empty:
+  no public path reaches the item.
 - `associated` and `unattributed` count the items that those sections hold.
 
 ## 9. The extract
@@ -366,16 +368,27 @@ In the contract view, each of these is an addition:
 Each of these is a change:
 
 - an entry, a method, a reborrow, a trait or a signature lost or rewritten;
-- a generics count changed; and
+- an entry's kind changed, or a function's owner (`in`) rewritten;
+- a dereference target lost;
+- a field or a variant lost or rewritten;
+- a generics count changed;
+- a `shape` or `non_exhaustive` changed, a `shape` that appears or goes
+  included; and
 - a field or a variant gained where a consumer could build or match every
   one.
 
-A type whose raw record moved while its contract did not is a **retarget**:
-the item records `retarget` with the raw declarations before and after, and
-stays kept. When the raw view would have classified the item otherwise,
-`raw_status` says how.
+An entry that is no type, method or function holds a raw record: a trait, a
+constant, a static, a macro, a variant, a field, an associated constant or
+type. Such an entry moves by the raw rules below, with its paths left out.
 
-`--raw` classifies by the raw records instead. Without `--raw`, an unresolved
+A type whose contract entry is resolved and did not move, while its raw
+declaration or kind did, is a **retarget**: the item records `retarget` with
+the raw declarations before and after. A retarget is no change, so the item
+stays kept unless another of its entries was gained, lost or moved. When the raw view would have classified the
+item otherwise, `raw_status` says how.
+
+`--raw` classifies by the raw records instead, and records no retarget and no
+`raw_status`. Without `--raw`, an unresolved
 contract entry is also compared on its raw record. The raw rules say what is
 an addition and what is a change:
 
@@ -401,11 +414,14 @@ one item, and the item records `rekeyed` with its old key.
 
 The JSON form is the default. It holds:
 
+- `api`, the version of the two extracts;
+- `before` and `after`, the `source` of each extract;
 - the `view` that decided;
 - `totals`, `anchor_moves`, `rekeyed`, `retargeted` and `unresolved`;
 - every C item's `status` with its `changes`, `raw_status`, `retarget` and
-  `unresolved`; and
-- `unattributed` with its own totals by module, always on raw records.
+  `unresolved`;
+- `unattributed` with its own totals by module, always on raw records; and
+- `missing`, only with `--items`.
 
 Each change names:
 
@@ -417,8 +433,9 @@ Each change names:
 - the values before and after; and
 - `view: raw` when an unresolved entry was compared raw.
 
-`--format text` prints the items that are neither kept nor new, with one line
-per change, then the totals.
+`--format text` prints the items and the unattributed modules that are
+neither kept nor new, and any kept item whose anchor verb moved. It prints one
+line per change and per unresolved entry, then the totals.
 
 `--items` restricts the C items to a list of keys, such as a worklist: the C
 items that one batch of the migration's work covers. The diff lists the keys

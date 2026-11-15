@@ -56,7 +56,9 @@ Each invocation prints one line:
 {"crate": "<name>", "test": false, "counts": {"<dotted path>": 12}, "sites": {}}
 ```
 
-Four rules decide what the Python side does with a line.
+Five rules decide which lines there are and what the Python side does with
+one. The driver applies the first and the third itself, the Python side
+applies the second, and both sides apply the fourth and the fifth.
 
 - **`CARGO_PRIMARY_PACKAGE`.** Without this variable, `after_analysis` returns
   early, so only workspace members emit and dependencies are silent. A
@@ -95,7 +97,8 @@ Four rules decide what the Python side does with a line.
 
 ## 5. The flags that change what is counted
 
-Four inputs change the figures and belong with any recorded scan.
+Beside `--ffibox`, five inputs change the figures and belong with any recorded
+scan.
 
 `--sys-crates` is the peel set, which decides what `ty.storing_raw_ptr` means
 (see [The peel set](#91-the-peel-set)). The set is named, never discovered,
@@ -206,7 +209,13 @@ crates named on the command line. It stops at every other crate, the standard
 library included.
 
 The rule is deliberately narrow, and it decides what the counter means. A
-pointer inside `Vec` is the standard library's to manage, not the crate's. A
+pointer inside `Vec` is the standard library's to manage, not the crate's:
+the walk does not enter `Vec`'s own fields. It does read a pointer that a
+field's type spells out, through generic arguments, references, tuples and
+arrays, so a field typed `Vec<*mut T>` or `Option<*mut T>` is a pointer the
+crate declared, and its type is in the population. A type of the crate's own
+that holds a pointer is reached as the field's type or as an array of it, not
+inside `Option`, `Vec` or a tuple. A
 pointer inside an ffibox owner is ffibox's, so a type that holds a `CBox` is
 not a `ty.storing_raw_ptr`. It appears under `ty.field.ffibox` instead. The
 population is therefore the types that manage a pointer themselves. Delegation
@@ -308,8 +317,9 @@ share, so a reader who wants the hand-written total subtracts it.
 not:
 
 - `in_trait_impl` is a method of a trait impl, by whose trait it is, in the
-  same arms as `ty.impl_trait.of_which`: the trait's declaration made the
-  method unsafe, and an impl cannot declare it safe. A method of a trait's own
+  same arms as `ty.impl_trait.of_which` and an `other` arm for any other
+  crate's trait: the trait's declaration made the method unsafe, and an impl
+  cannot declare it safe. A method of a trait's own
   default body is the crate's choice, not an impl's, and is not in this share.
 - `seam` is a fn that `--seams` names, matched by name as `raw_ptr`'s seam
   shares are.
@@ -560,6 +570,15 @@ pointer input.
 A declared seam needs no derivation proof. The declaration states that the
 function is a conversion, and only its shape is read from the return type.
 
+In every arm, a call counts only when it is handed a raw pointer. A call
+written as a path needs an argument whose type is `*const T` or `*mut T`
+itself: a `NonNull` argument, or a pointer inside another type, does not
+qualify. A method call needs a receiver whose type is a raw pointer, a
+`NonNull` or an `AtomicPtr`, or names one in a reference, a tuple, an array or
+a generic argument. Its other arguments are not read, and a struct that stores
+the pointer in a field is no such receiver. So a call to a declared seam that
+takes no raw pointer, such as an `as_ptr` on a wrapper, is not counted.
+
 ### 11.1 The std table
 
 ```
@@ -591,9 +610,10 @@ Derived from ffibox's adoption methods crossed with its primitives, as
 
 ### 11.3 `other`
 
-`std.other` and `ffibox.other` are structurally zero, because every name in
-those tables maps to a known shape. So a nonzero reading means that the name
-table and the shape classifier have drifted apart. `local_seam.other` is a
+`std.other` is structurally zero, because every name in the std table maps to
+a known shape. So a nonzero reading means that the name table and the shape
+classifier have drifted apart. The `ffibox` arm has no `other` at all, as
+[`schema.md`](schema.md) says. `local_seam.other` is a
 real arm: a declared seam's shape is read from its return type, which may be a
 handle that neither table knows.
 
