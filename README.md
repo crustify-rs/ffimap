@@ -121,7 +121,8 @@ helper that calls `catch_unwind` for its caller. A foreign-ABI fn that calls a b
 one that calls `catch_unwind` does.
 
 **`--features`.** ffimap passes these features to `cargo check --features`,
-and counts feature-gated code only under a feature you name here.
+and counts code behind a non-default feature only when you name the feature
+here.
 [docs/analysis.md](docs/analysis.md#5-the-flags-that-change-what-is-counted)
 says why that matters. The document records the set, and you compare two
 scans only when their sets are the same.
@@ -175,7 +176,7 @@ of [crustify](https://github.com/crustify-rs/crustify)'s convention, such as
   anchor that became `Replaces`.
 - `--dep` adds ffibox's rustdoc JSON, so that owners that alias ffibox's types
   resolve.
-- `--items` narrows the diff to a worklist.
+- `--items` narrows the diff to a list of C item keys.
 
 ```sh
 cargo +nightly-2026-10-07 rustdoc -p libgit2 --lib -- -Z unstable-options --output-format json

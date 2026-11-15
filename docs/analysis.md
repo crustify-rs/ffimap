@@ -213,8 +213,9 @@ pointer inside `Vec` is the standard library's to manage, not the crate's:
 the walk does not enter `Vec`'s own fields. It does read a pointer that a
 field's type spells out, through generic arguments, references, tuples and
 arrays, so a field typed `Vec<*mut T>` or `Option<*mut T>` is a pointer the
-crate declared, and its type is in the population. A type of the crate's own
-that holds a pointer is reached as the field's type or as an array of it, not
+crate declared, and its type is in the population. A type of the peel
+set that holds a pointer is reached as the field's type, through a
+`#[repr(transparent)]` struct around it, or as an array or slice of it, not
 inside `Option`, `Vec` or a tuple. A
 pointer inside an ffibox owner is ffibox's, so a type that holds a `CBox` is
 not a `ty.storing_raw_ptr`. It appears under `ty.field.ffibox` instead. The
@@ -574,8 +575,9 @@ In every arm, a call counts only when it is handed a raw pointer. A call
 written as a path needs an argument whose type is `*const T` or `*mut T`
 itself: a `NonNull` argument, or a pointer inside another type, does not
 qualify. A method call needs a receiver whose type is a raw pointer, a
-`NonNull` or an `AtomicPtr`, or names one in a reference, a tuple, an array or
-a generic argument. Its other arguments are not read, and a struct that stores
+`NonNull` or an `AtomicPtr`, or names one in a reference, a tuple, an array, a
+slice or a generic argument. Its other arguments are not read, and a struct
+that stores
 the pointer in a field is no such receiver. So a call to a declared seam that
 takes no raw pointer, such as an `as_ptr` on a wrapper, is not counted.
 

@@ -438,7 +438,8 @@ neither kept nor new, and any kept item whose anchor verb moved. It prints one
 line per change and per unresolved entry, then the totals.
 
 `--items` restricts the C items to a list of keys, such as a worklist: the C
-items that one batch of the migration's work covers. The diff lists the keys
+items that one batch covers, a batch being one unit of the migration's work
+that one coding agent carries out. The diff lists the keys
 found in neither document under `missing`. The unattributed surface is
 reported whatever the list holds, since no worklist names it.
 

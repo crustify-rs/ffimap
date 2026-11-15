@@ -125,7 +125,8 @@ instead.
 the share is the hand-written cells that were not given them. It reads 0 of
 libgit2-bindings' 65 cells and 0 of ffmpeg-bindings' 58, because both
 campaigns wrote the seams. A campaign is a Crustify project that wraps or
-ports one C library. This document also calls the crate that such a project
+ports a C library, or audits an existing crate. This document also calls the
+crate that such a project
 generated a campaign: here, libgit2-bindings and ffmpeg-bindings.
 
 A missing seam is an omission rather than a limit. This compiles against
