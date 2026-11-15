@@ -75,7 +75,7 @@ git2-rs in [examples/](examples):
 ```text
 ffimap WORKSPACE [--ffibox] [--sys-crates CRATE[,CRATE...]]
                  [--seams NAMES] [--regions NAMES] [--barriers NAMES]
-                 [--sites COUNTER ...]
+                 [--features FEATURE[,FEATURE...]] [--sites COUNTER ...]
 ffimap diff BEFORE AFTER
 ffimap api extract RUSTDOC_JSON [--dep RUSTDOC_JSON ...] [--plumbing CRATES]
 ffimap api diff BEFORE AFTER [--dep RUSTDOC_JSON ...] [--items KEYS] [--raw]
@@ -90,6 +90,7 @@ ffimap api diff BEFORE AFTER [--dep RUSTDOC_JSON ...] [--items KEYS] [--raw]
 | `--seams NAMES` | Name the functions that are seams. |
 | `--regions NAMES` | Name the modules that are regions. |
 | `--barriers NAMES` | Name the functions that are the crate's own panic barriers. |
+| `--features FEATURE,...` | Enable Cargo features for the scanned build, on top of the defaults. |
 | `--ffibox` | Say that the crate is built on [ffibox](https://github.com/crustify-rs/ffibox). |
 | `--sites COUNTER ...` | Also report where each named counter's increments are in the source. |
 
@@ -118,6 +119,12 @@ every region.
 **`--barriers`.** A barrier is one of the crate's own panic barriers: a
 helper that calls `catch_unwind` for its caller. A foreign-ABI fn that calls a barrier counts as catching a panic, as
 one that calls `catch_unwind` does.
+
+**`--features`.** ffimap passes these features to `cargo check --features`,
+and counts feature-gated code only under a feature you name here.
+[docs/analysis.md](docs/analysis.md#5-the-flags-that-change-what-is-counted)
+says why that matters. The document records the set, and you compare two
+scans only when their sets are the same.
 
 **`--ffibox`.** This option turns on the arms of ffibox's vocabulary, which
 [docs/ffibox.md](docs/ffibox.md) describes. It also sanctions the
@@ -187,7 +194,7 @@ The JSON document has these top-level fields:
 |---|---|
 | `crate_path` | The scanned workspace. |
 | `sys_crates` | The crates whose `#[repr(C)]` types were taken as C's, as `--sys-crates` named them. |
-| `scanner` | What scanned: the ffimap commit, the pinned toolchain, and the `--ffibox`, `--seams`, `--regions` and `--barriers` inputs. The commit carries the hash of any uncommitted changes. Outside a checkout of ffimap's own, the package version stands in for the commit. Compare two figures only when their scanners are the same. |
+| `scanner` | What scanned: the ffimap commit, the pinned toolchain, and the `--ffibox`, `--seams`, `--regions`, `--barriers` and `--features` inputs. The commit carries the hash of any uncommitted changes. Outside a checkout of ffimap's own, the package version stands in for the commit. Compare two figures only when their scanners are the same. |
 | `counts` | The counters of [docs/schema.md](docs/schema.md), or `null` when the workspace could not be built. Every counter lives here; there is no second, flat block. |
 | `counts_unavailable` | Why `counts` is `null`, otherwise `null`. |
 | `sites` | With `--sites`: the source locations of each requested counter. |
